@@ -8,7 +8,8 @@ import javax.net.ssl.X509TrustManager
 import java.security.cert.X509Certificate
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import coil.gif.ImageDecoderDecoder
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import okhttp3.OkHttpClient
 import okhttp3.ConnectionPool
 import java.util.concurrent.TimeUnit
@@ -155,7 +156,9 @@ class FreeTimeApplication : Application(), ImageLoaderFactory {
             .okHttpClient(okHttpClient)
             .crossfade(true)
             .components {
+                // GIF animation support (API 28+: ImageDecoder, older: GifDecoder)
                 add(ImageDecoderDecoder.Factory())
+                add(GifDecoder.Factory())
             }
             .build()
     }
