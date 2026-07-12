@@ -4018,7 +4018,13 @@ fun MessageBubble(
                                                         
                                                         if (encryptedData.isNotEmpty()) {
                                                             val cacheDir = context.cacheDir
-                                                            val cacheFile = File(cacheDir, "preview_$mediaId.jpg")
+                                                            val ext = when {
+                                                                fileName?.endsWith(".gif", ignoreCase = true) == true -> ".gif"
+                                                                fileName?.endsWith(".png", ignoreCase = true) == true -> ".png"
+                                                                fileName?.endsWith(".webp", ignoreCase = true) == true -> ".webp"
+                                                                else -> ".jpg"
+                                                            }
+                                                            val cacheFile = File(cacheDir, "preview_$mediaId$ext")
                                                             cacheFile.writeBytes(encryptedData)
                                                             cachedImagePath = cacheFile.absolutePath
                                                             android.util.Log.d("IMAGE_PREVIEW", "Cached image at: ${cacheFile.absolutePath}")

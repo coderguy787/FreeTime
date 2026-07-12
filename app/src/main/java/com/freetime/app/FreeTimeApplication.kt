@@ -8,6 +8,7 @@ import javax.net.ssl.X509TrustManager
 import java.security.cert.X509Certificate
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.gif.ImageDecoderDecoder
 import okhttp3.OkHttpClient
 import okhttp3.ConnectionPool
 import java.util.concurrent.TimeUnit
@@ -153,6 +154,9 @@ class FreeTimeApplication : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .okHttpClient(okHttpClient)
             .crossfade(true)
+            .components {
+                add(ImageDecoderDecoder.Factory())
+            }
             .build()
     }
     

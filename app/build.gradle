@@ -31,10 +31,10 @@ android {
 
         // Server URLs - can be overridden via gradle.properties
         // Default to domain name for remote access
-        def serverHostProp = project.findProperty("SERVER_HOST") ?: "example.com"
+        def serverHostProp = project.findProperty("SERVER_HOST") ?: "freetime.publicvm.com"
         def serverPortProp = project.findProperty("SERVER_PORT") ?: "443"
         def peerPortProp = project.findProperty("PEER_PORT") ?: "9080"
-        def peerHostProp = project.findProperty("PEER_HOST") ?: "example.com"
+        def peerHostProp = project.findProperty("PEER_HOST") ?: "freetime.publicvm.com"
         
         // Direct URL construction without complex URI parsing
         def apiScheme = "https"
@@ -352,6 +352,7 @@ dependencies {
     implementation "androidx.work:work-runtime-ktx:${workVersion}"
 
     implementation "io.coil-kt:coil-compose:${coilVersion}"
+    implementation "io.coil-kt:coil-gif:${coilVersion}"
 
     implementation 'androidx.browser:browser:1.7.0'
     implementation 'androidx.core:core-google-shortcuts:1.1.0'
