@@ -1,0 +1,239 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: securechat-server
+  namespace: securechat
+  labels:
+    app: securechat-server
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: securechat-server
+  template:
+    metadata:
+      labels:
+        app: securechat-server
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "443"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: securechat-server
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: server
+        image: securechat:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: https
+          containerPort: 443
+          protocol: TCP
+        - name: ws
+          containerPort: 8080
+          protocol: TCP
+        - name: peer
+          containerPort: 9080
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT_API
+          value: "443"
+        - name: PORT_WEBSOCKET
+          value: "8080"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: MONGODB_URI
+          valueFrom:
+            secretKeyRef:
+              name: securechat-secrets
+              key: mongodb-uri
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: securechat-secrets
+              key: redis-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: securechat-secrets
+              key: jwt-secret
+        - name: CORS_ORIGIN
+          value: "https://example.com"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 30
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: logs
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - securechat-server
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: securechat-server
+  namespace: securechat
+  labels:
+    app: securechat-server
+spec:
+  type: ClusterIP
+  ports:
+  - name: https
+    port: 443
+    targetPort: https
+    protocol: TCP
+  - name: ws
+    port: 8080
+    targetPort: ws
+    protocol: TCP
+  - name: peer
+    port: 9080
+    targetPort: peer
+    protocol: TCP
+  selector:
+    app: securechat-server
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: securechat-server-hpa
+  namespace: securechat
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: securechat-server
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: securechat-server-pdb
+  namespace: securechat
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: securechat-server
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: securechat-server
+  namespace: securechat
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: securechat-server
+  namespace: securechat
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: securechat-server
+  namespace: securechat
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: securechat-server
+subjects:
+- kind: ServiceAccount
+  name: securechat-server
+  namespace: securechat

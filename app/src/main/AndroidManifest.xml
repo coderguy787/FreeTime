@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Internet and Network Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+    <!-- Location Permissions -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Camera and Microphone Permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- File and Storage Permissions -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    
+    <!-- Android 13+ Granular Media Permissions (required for targetSdk 34) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- Notification Permissions (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Contact and Call Permissions -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <!-- Bluetooth Permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+
+    <!-- Vibration Permission -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Full-screen intent for incoming calls -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Biometric Permissions -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- Wake Lock Permission -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- APK Install Permission -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Boot Permission for FCM token re-registration -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- App Features -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- SECURITY: do NOT back up authentication tokens or prefs; previous installs were restoring
+         auth info and causing the app to jump straight to Home on a "new" install.  This
+         also prevents someone from installing the APK on a second device and being
+         automatically logged in. -->
+    <application
+        android:name="com.freetime.app.FreeTimeApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.FreeTime"
+        android:usesCleartextTraffic="false"
+        tools:targetApi="31">
+
+        <!-- Main Activity -->
+        <activity
+            android:name="com.freetime.app.MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.FreeTime">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- ✅ Deep link intent filter for group invitations -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Deep link: freetime://group/invite/{groupId} -->
+                <data
+                    android:scheme="freetime"
+                    android:host="group"
+                    android:pathPattern="/invite/.*" />
+                <!-- Web link: https://freetime.app/group/invite/{groupId} -->
+                <data
+                    android:scheme="https"
+                    android:host="freetime.app"
+                    android:pathPattern="/group/invite/.*" />
+                <data
+                    android:scheme="https"
+                    android:host="example.com"
+                    android:pathPattern="/group/invite/.*" />
+                </intent-filter>
+
+                <!-- Web Links support -->
+                <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="example.com" />
+                <data android:host="freetime.app" />
+                <data android:pathPattern="/.*" />
+                </intent-filter>
+        </activity>
+
+        <!-- Incoming Call Activity (full-screen notification) -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.FreeTime"
+            tools:ignore="ExportedActivity">
+            <intent-filter>
+                <action android:name="com.freetime.app.INCOMING_CALL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- All screens are managed via Jetpack Compose Navigation in MainActivity -->
+
+        <!-- Call Management Service -->
+        <service
+            android:name=".services.CallManagementService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone|camera" />
+
+        <!-- ✅ NEW: Call Foreground Service - Keeps call notification active -->
+        <service
+            android:name=".services.CallForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Work Manager Service -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:exported="false" />
+
+        <!-- Broadcast Receiver for Network Changes -->
+        <receiver
+            android:name=".broadcast.NetworkChangeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ✅ NEW: Boot Completion Receiver - Re-registers FCM token after device boot -->
+        <receiver
+            android:name=".broadcast.BootCompletionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Notification Action Receiver: handles Accept/Decline directly from notification shade -->
+        <receiver
+            android:name=".notifications.NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.freetime.app.ACTION_ACCEPT_FRIEND_REQUEST" />
+                <action android:name="com.freetime.app.ACTION_DECLINE_FRIEND_REQUEST" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ✅ NEW: Background Polling Service - Polls for messages every 1 minute (NO Firebase needed!) -->
+        <service
+            android:name=".services.BackgroundPollingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 🔥 Firebase Cloud Messaging Service - Handles background notifications -->
+        <service
+            android:name=".notifications.EnhancedFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- ✅ NEW: Notification Polling Receiver - Triggers polling on alarm every 1 minute -->
+        <receiver
+            android:name=".services.NotificationPollingReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.SCHEDULE_EXACT_ALARM">
+            <intent-filter>
+                <action android:name="com.freetime.app.action.POLL_NOTIFICATIONS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Content Providers -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Firebase Configuration -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
+
+    </application>
+
+</manifest>

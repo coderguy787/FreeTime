@@ -1,0 +1,45 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+    resolutionStrategy {
+        // Ensure any Kotlin plugins use a single known version so Gradle
+        // can check compatibility instead of failing when a version is
+        // already present on the classpath with an unknown version.
+        eachPlugin {
+            if (requested.id.id.startsWith("org.jetbrains.kotlin")) {
+                useVersion("1.9.22")
+            }
+        }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        // Local libs directory for AAR files
+        flatDir {
+            dirs 'app/libs'
+        }
+        
+        // Standard repositories
+        google()
+        mavenCentral()
+        
+        // Socket.io and engine.io repositories
+        maven { url = uri("https://repo1.maven.org/maven2") }
+        maven { url = uri("https://jitpack.io") }
+        
+        // WebRTC and other packages
+        maven { url = uri("https://maven.pkg.jetbrains.space/public/p/ktor/eap") }
+    }
+}
+
+rootProject.name = "SecureChatApp"
+include ':app'
+// Server module excluded from Android Studio build
+// Uncomment below lines if you need to build server from Android Studio
+// include ':server'
+// project(":server").projectDir = file("server")

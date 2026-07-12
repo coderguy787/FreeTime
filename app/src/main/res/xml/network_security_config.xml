@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Network Security Configuration
+Production: HTTPS only with certificate validation
+Development/Local: Allow cleartext HTTP for testing
+-->
+<network-security-config>
+    <!-- Production/Public: Allow cleartext and trust user/system certificates for self-signed development -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Public domain - Allow cleartext and self-signed -->
+        <domain includeSubdomains="true">example.com</domain>
+        <!-- Actual public IP address - Allow cleartext and self-signed -->
+        <domain includeSubdomains="true">YOUR_SERVER_IP</domain>
+        <domain includeSubdomains="true">192.168.1.100</domain>
+        
+        <!-- Accept system + user + custom certificates -->
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/freetime_self_signed" />
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Development/Local networks: Allow cleartext for testing -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.0.0/8</domain>
+        <domain includeSubdomains="true">192.168.0.0/16</domain>
+        <domain includeSubdomains="true">172.16.0.0/12</domain>
+        
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Default global config: Require valid certificates -->
+    <trust-anchors>
+        <certificates src="system" />
+    </trust-anchors>
+</network-security-config>

@@ -1,0 +1,35 @@
+[Unit]
+Description=FreeTime Master-Server Peer Network
+After=network.target master-server-api.service
+
+[Service]
+Type=simple
+User=freetime
+Group=freetime
+
+WorkingDirectory=/home/freetime/master-server
+
+# Start the Peer Network service
+ExecStart=/usr/bin/node peer-network/peer-master-server.js
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=600s
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=master-server-peer
+
+# Environment
+Environment="NODE_ENV=production"
+EnvironmentFile=/home/freetime/master-server/config/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+[Unit]
+Description=FreeTime Master-Server WebSocket
+After=network.target master-server-api.service
+
+[Service]
+Type=simple
+User=freetime
+Group=freetime
+
+WorkingDirectory=/home/freetime/master-server
+
+# Start the WebSocket service
+ExecStart=/usr/bin/node websocket/securechat-websocket-server.js
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=600s
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=master-server-websocket
+
+# Environment
+Environment="NODE_ENV=production"
+EnvironmentFile=/home/freetime/master-server/config/.env
+
+[Install]
+WantedBy=multi-user.target

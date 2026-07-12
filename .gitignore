@@ -1,0 +1,39 @@
+# Environment
+.env
+.env.*
+config/backups/
+
+# Firebase
+google-services.json
+firebase-service-account.json
+
+# SSL/TLS
+*.pem
+*.key
+certs/
+
+# Build outputs
+app/build/
+.gradle/
+build/
+*.aab
+
+# IDE
+.idea/
+*.iml
+local.properties
+app/local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node
+node_modules/
+
+# Runtime
+*.pid
+*.socket

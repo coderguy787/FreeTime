@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- exclude the main shared preferences file that contains auth tokens -->
+    <exclude domain="sharedpref" path="freetime_prefs.xml"/>
+    <include domain="database" path="."/>
+    <include domain="file" path="documents/"/>
+    <exclude domain="sharedpref" path="sensitive_prefs.xml"/>
+    <exclude domain="file" path="cache/"/>
+</full-backup-content>

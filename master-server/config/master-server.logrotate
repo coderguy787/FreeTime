@@ -1,0 +1,14 @@
+/home/freetime/master-server/logs/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 0640 freetime freetime
+    missingok
+    postrotate
+        sudo systemctl reload master-server-api > /dev/null 2>&1
+        sudo systemctl reload master-server-websocket > /dev/null 2>&1
+        sudo systemctl reload master-server-peer > /dev/null 2>&1
+    endscript
+}

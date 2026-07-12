@@ -1,0 +1,2962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FreeTime Master-Server Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 5px;
+        }
+
+        header p {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        /* Navigation */
+        nav {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+            flex-wrap: wrap;
+        }
+
+        nav button {
+            flex: 1;
+            min-width: 150px;
+            padding: 15px 20px;
+            border: none;
+            background: none;
+            font-size: 1em;
+            font-weight: 500;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        nav button:hover {
+            background: #e8e8e8;
+        }
+
+        nav button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: white;
+        }
+
+        /* Main Content */
+        main {
+            padding: 30px;
+            min-height: 500px;
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Dashboard Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+        }
+
+        .stat-card .subtitle {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #e0e0e0;
+            color: #333;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        /* Status Badges */
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        .badge-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .badge-admin {
+            background: #cfe2ff;
+            color: #084298;
+        }
+
+        .badge-user {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .badge-moderator {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.95em;
+            font-family: inherit;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        /* Buttons */
+        button.btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.95em;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-danger {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        /* Logs */
+        .log-entry {
+            background: #f8f9fa;
+            padding: 12px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .log-time {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .log-type {
+            color: #764ba2;
+            font-weight: bold;
+        }
+
+        .log-message {
+            color: #333;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s;
+        }
+
+        .modal.show {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-header {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .modal-close {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 2em;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .modal-close:hover {
+            color: #333;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            nav {
+                flex-direction: column;
+            }
+
+            nav button {
+                border-bottom: 2px solid transparent;
+                border-left: 4px solid transparent;
+            }
+
+            nav button.active {
+                border-bottom: none;
+                border-left-color: #667eea;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 1.8em;
+            }
+        }
+
+        /* Login Form */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .login-box {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-box h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        /* Peer Connection Status */
+        .peer-status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+        }
+
+        .peer-info {
+            flex: 1;
+        }
+
+        .peer-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .peer-details {
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-online {
+            background: #28a745;
+        }
+
+        .status-offline {
+            background: #dc3545;
+        }
+
+        /* User List */
+        .user-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .user-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .user-name {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .user-meta {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Form (Hidden after login) -->
+    <div id="loginForm" class="login-container" style="display: none;">
+        <div class="login-box">
+            <h2>🔐 Master-Server Admin</h2>
+            <div class="form-group">
+                <label for="username">Admin Username</label>
+                <input type="text" id="username" placeholder="Enter admin username">
+            </div>
+            <div class="form-group">
+                <label for="password">Admin Password</label>
+                <input type="password" id="password" placeholder="Enter admin password">
+            </div>
+            <button class="btn btn-primary" style="width: 100%;" onclick="handleLogin()">Login</button>
+            <div id="loginError" class="alert alert-danger" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard (Hidden until login) -->
+    <div id="dashboard" style="display: none;">
+        <div class="container">
+            <!-- Header -->
+            <header>
+                <h1>🚀 FreeTime Master-Server Admin</h1>
+                <p>Comprehensive Server Management & Monitoring Dashboard</p>
+                <p style="margin-top: 10px; font-size: 0.85em;">
+                    Ports: API (443) | WebSocket (8080) | Peer (9080)
+                </p>
+            </header>
+
+            <!-- Navigation -->
+            <nav>
+                <button class="nav-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+                <button class="nav-btn" onclick="switchTab('monitor')">🔍 Service Monitor</button>
+                <button class="nav-btn" onclick="switchTab('accounts')">👥 Account Management</button>
+                <button class="nav-btn" onclick="switchTab('logs')">📋 Connection Logs</button>
+                <button class="nav-btn" onclick="switchTab('peers')">🌐 Peer Management</button>
+                <button class="nav-btn" onclick="switchTab('calls')">📞 Call Management</button>
+                <button class="nav-btn" onclick="switchTab('reports')">🚨 Reports</button>
+                <button class="nav-btn" onclick="switchTab('massemail')">📧 Mass Email</button>
+                <button class="nav-btn" onclick="switchTab('announcements')">📢 Announcements</button>
+                <button class="nav-btn" onclick="handleLogout()" style="margin-left: auto;">🚪 Logout</button>
+            </nav>
+
+            <!-- Main Content -->
+            <main>
+                <!-- Alert Container -->
+                <div id="alertBox"></div>
+
+                <!-- Dashboard Tab -->
+                <div id="dashboard" class="tab-content active">
+                    <h2>📊 Server Dashboard</h2>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Total Users</h3>
+                            <div class="number" id="totalUsers">0</div>
+                            <div class="subtitle">Registered users</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Online Users</h3>
+                            <div class="number" id="onlineUsers">0</div>
+                            <div class="subtitle">Currently active</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Total Peers</h3>
+                            <div class="number" id="totalPeers">0</div>
+                            <div class="subtitle">Connected peer servers</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Server Uptime</h3>
+                            <div class="number" id="serverUptime">--:--</div>
+                            <div class="subtitle">Hours running</div>
+                        </div>
+                    </div>
+
+                    <h3>Users by Role</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h3>Admins</h3>
+                            <div class="number" id="adminCount">0</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <h3>Moderators</h3>
+                            <div class="number" id="modCount">0</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <h3>Users</h3>
+                            <div class="number" id="userCount">0</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
+                            <h3>VIP</h3>
+                            <div class="number" id="vipCount">0</div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 30px;">📋 Reports Overview</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
+                            <h3>Open</h3>
+                            <div class="number" id="reportOpenCount">0</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);">
+                            <h3>Resolved</h3>
+                            <div class="number" id="reportResolvedCount">0</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);">
+                            <h3>Dismissed</h3>
+                            <div class="number" id="reportDismissedCount">0</div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 30px;">⚡ WebSocket Connection Queue</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
+                            <h3>Active Connections</h3>
+                            <div class="number" id="wsActive">0</div>
+                            <div class="subtitle">Currently connected</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                            <h3>Maximum Capacity</h3>
+                            <div class="number" id="wsMaximum">35,000</div>
+                            <div class="subtitle">Server limit</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);">
+                            <h3>Queued</h3>
+                            <div class="number" id="wsQueued">0</div>
+                            <div class="subtitle">Awaiting connection</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);">
+                            <h3>Available Slots</h3>
+                            <div class="number" id="wsAvailable">35,000</div>
+                            <div class="subtitle">Remaining capacity</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);">
+                            <h3>Utilization</h3>
+                            <div class="number" id="wsUtilization">0%</div>
+                            <div class="subtitle">Percentage used</div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 30px;">Online Users</h3>
+                    <div id="onlineUsersList" class="table-container">
+                        <p style="color: #999; text-align: center; padding: 20px;">Loading online users...</p>
+                    </div>
+
+                    <h3>Connected Peers</h3>
+                    <div id="peersList" class="table-container">
+                        <p style="color: #999; text-align: center; padding: 20px;">Loading peer servers...</p>
+                    </div>
+                </div>
+
+                <!-- Service Monitor Tab **NEW** -->
+                <div id="monitor" class="tab-content">
+                    <h2>🔍 Real-Time Service Monitoring</h2>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" onclick="refreshServiceStatus()">🔄 Refresh Now</button>
+                        <span style="margin-left: 15px; font-size: 0.9em; color: #666;">
+                            Last updated: <span id="lastUpdate">Never</span>
+                        </span>
+                    </div>
+
+                    <h3>Service Status</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card" id="apiStatus" style="cursor: pointer; transition: all 0.3s;">
+                            <h3>🌐 API Server</h3>
+                            <div class="number" id="apiState">--</div>
+                            <div class="subtitle" id="apiInfo">Port 443</div>
+                            <div style="font-size: 0.8em; margin-top: 10px;">Response: <span id="apiResponse">--</span>ms</div>
+                        </div>
+                        <div class="stat-card" id="wsStatus" style="cursor: pointer; transition: all 0.3s;">
+                            <h3>💬 WebSocket</h3>
+                            <div class="number" id="wsState">--</div>
+                            <div class="subtitle" id="wsInfo">Port 8080</div>
+                            <div style="font-size: 0.8em; margin-top: 10px;">Response: <span id="wsResponse">--</span>ms</div>
+                        </div>
+                        <div class="stat-card" id="peerStatus" style="cursor: pointer; transition: all 0.3s;">
+                            <h3>🔗 Peer Network</h3>
+                            <div class="number" id="peerState">--</div>
+                            <div class="subtitle" id="peerInfo">Port 9080</div>
+                            <div style="font-size: 0.8em; margin-top: 10px;">Response: <span id="peerResponse">--</span>ms</div>
+                        </div>
+                        <div class="stat-card" id="mongoStatus" style="cursor: pointer; transition: all 0.3s;">
+                            <h3>🗄️ MongoDB</h3>
+                            <div class="number" id="mongoState">--</div>
+                            <div class="subtitle" id="mongoInfo">Port 27017</div>
+                            <div style="font-size: 0.8em; margin-top: 10px;">Response: <span id="mongoResponse">--</span>ms</div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 30px;">System Information</h3>
+                    <div class="table-container">
+                        <table>
+                            <tr>
+                                <td style="font-weight: bold; width: 30%;">Uptime</td>
+                                <td id="sysUptime">--</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="font-weight: bold;">CPU Cores</td>
+                                <td id="sysCpus">--</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold;">Memory (Total)</td>
+                                <td id="sysMemory">--</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="font-weight: bold;">Memory (Used)</td>
+                                <td id="sysMemoryUsed">--</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold;">Node Version</td>
+                                <td id="sysNodeVersion">--</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="font-weight: bold;">Platform</td>
+                                <td id="sysPlatform">--</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <h3>Architecture Configuration</h3>
+                    <div class="table-container">
+                        <table>
+                            <tr>
+                                <td style="font-weight: bold; width: 30%;">API</td>
+                                <td>Direct port 443 (HTTPS/TLS encrypted)</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="font-weight: bold;">WebSocket</td>
+                                <td>Port 8080 - Real-time chat (worldwide access)</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold;">Peer Network</td>
+                                <td>Port 9080 - P2P discovery (worldwide access)</td>
+                            </tr>
+                            <tr style="background: #f8f9fa;">
+                                <td style="font-weight: bold;">Admin Panel</td>
+                                <td>Port 3001 - LAN only (192.168.x.x)</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold;">Database</td>
+                                <td>MongoDB localhost:27017</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Account Management Tab -->
+                <div id="accounts" class="tab-content">
+                    <h2>👥 Account Management</h2>
+
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" onclick="openCreateUserModal()">➕ Create New User</button>
+                    </div>
+
+                    <h3>All Users</h3>
+                    <div style="margin-bottom: 15px;">
+                        <input type="text" id="userSearch" placeholder="Search users by username or email..." 
+                               onkeyup="filterUsers()" style="max-width: 400px;">
+                    </div>
+
+                    <div id="usersList" class="table-container">
+                        <p style="color: #999; text-align: center; padding: 20px;">Loading users...</p>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div id="logs" class="tab-content">
+                    <h2>📋 Connection Logs</h2>
+
+                    <div style="margin-bottom: 20px;">
+                        <div class="form-row">
+                            <div>
+                                <label for="logFilter">Filter by Type:</label>
+                                <select id="logFilter" onchange="filterLogs()">
+                                    <option value="">All Events</option>
+                                    <option value="connection">Connections</option>
+                                    <option value="disconnect">Disconnections</option>
+                                    <option value="peer">Peer Events</option>
+                                    <option value="auth">Authentication</option>
+                                    <option value="error">Errors</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="logCount">Entries per page:</label>
+                                <select id="logCount" onchange="filterLogs()">
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                    <option value="200">200</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" style="margin-top: 10px;" onclick="clearLogs()">🗑️ Clear Logs</button>
+                    </div>
+
+                    <div id="logsList" style="max-height: 600px; overflow-y: auto;">
+                        <p style="color: #999; text-align: center; padding: 20px;">Loading connection logs...</p>
+                    </div>
+                </div>
+
+                <!-- Peer Management Tab -->
+                <div id="peers" class="tab-content">
+                    <h2>🌐 Peer Management</h2>
+
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" onclick="openAddPeerModal()">➕ Add New Peer Connection</button>
+                    </div>
+
+                    <h3>Connected Peers</h3>
+                    <div id="peersManagement" class="table-container">
+                        <p style="color: #999; text-align: center; padding: 20px;">Loading peer servers...</p>
+                    </div>
+
+                    <h3 style="margin-top: 30px;">Master-Server Configuration</h3>
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                        <p><strong>Status:</strong> <span class="status-indicator status-online"></span> Online</p>
+                        <p><strong>API Port:</strong> 443 (HTTPS)</p>
+                        <p><strong>WebSocket Port:</strong> 8080</p>
+                        <p><strong>Peer Port:</strong> 9080</p>
+                        <p><strong>Database:</strong> MongoDB (localhost:27017)</p>
+                        <p><strong>Database Name:</strong> securechat</p>
+                    </div>
+                </div>
+
+                <!-- Call Management Tab (Disabled - Being Rebuilt) -->
+                <div id="calls" class="tab-content">
+                    <h2>📞 Call Management</h2>
+
+                    <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center;">
+                        <strong style="font-size: 1.2em;">🛠️ Under Reconstruction</strong>
+                        <p style="margin-top: 8px; color: #856404;">This section is being completely rebuilt. Full call management features will be available in a future update.</p>
+                    </div>
+
+                    <div style="margin-bottom: 20px; opacity: 0.5; pointer-events: none;">
+                        <button class="btn btn-primary" disabled>🔄 Refresh Call Data</button>
+                        <span style="margin-left: 15px; font-size: 0.9em; color: #666;">
+                            Last updated: <span id="callsLastUpdate">—</span>
+                        </span>
+                    </div>
+
+                    <h3>Call Statistics</h3>
+                    <div class="stats-grid" style="opacity: 0.5;">
+                        <div class="stat-card">
+                            <h3>Active Calls</h3>
+                            <div class="number" id="activeCalls">—</div>
+                            <div class="subtitle">Ongoing right now</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <h3>Completed Today</h3>
+                            <div class="number" id="completedToday">—</div>
+                            <div class="subtitle">Last 24 hours</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                            <h3>Total Calls</h3>
+                            <div class="number" id="totalCalls">—</div>
+                            <div class="subtitle">All time</div>
+                        </div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                            <h3>Rejected/Failed</h3>
+                            <div class="number" id="failedCalls">—</div>
+                            <div class="subtitle">Error rate</div>
+                        </div>
+                    </div>
+
+                    <div style="opacity: 0.5; pointer-events: none;">
+                        <h3 style="margin-top: 30px;">All Calls</h3>
+                        <div class="table-container">
+                            <table id="callsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Call ID</th>
+                                        <th>Caller</th>
+                                        <th>Recipient</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Duration</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="callsTableBody">
+                                    <tr>
+                                        <td colspan="8" style="text-align: center; padding: 20px; color: #999;">
+                                            Call management is being rebuilt
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3 style="margin-top: 30px;">Call Filters</h3>
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                            <select id="callStatusFilter" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="">All Statuses</option>
+                                <option value="active">Active</option>
+                                <option value="completed">Completed</option>
+                                <option value="rejected">Rejected</option>
+                                <option value="missed">Missed</option>
+                                <option value="terminated">Terminated</option>
+                            </select>
+                            <select id="callTypeFilter" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="">All Types</option>
+                                <option value="voice">Voice</option>
+                                <option value="video">Video</option>
+                            </select>
+                            <button class="btn btn-primary" disabled style="margin-left: auto;">Search</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reports Tab -->
+                <div id="reports" class="tab-content">
+                    <h2>🚨 User Reports</h2>
+                    <div style="margin-bottom: 15px; display:flex; gap:10px; align-items:center;">
+                        <button class="btn btn-primary" onclick="loadReports()">🔄 Refresh Reports</button>
+                        <button class="btn btn-danger" onclick="clearAllReports()">🗑️ Clear All Reports</button>
+                        <select id="reportStatusFilter" onchange="loadReports()" style="margin-left:10px; padding:8px 12px;">
+                            <option value="">All</option>
+                            <option value="open">Open</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="dismissed">Dismissed</option>
+                        </select>
+                    </div>
+
+                    <div class="table-container">
+                        <table id="reportsTable">
+                            <thead>
+                                <tr>
+                                    <th>Report ID</th>
+                                    <th>Reporter</th>
+                                    <th>Reported User</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reportsTableBody">
+                                <tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">No reports loaded</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Report Modal -->
+                    <div id="reportModal" class="modal">
+                        <div class="modal-content">
+                            <span class="modal-close" onclick="closeModal('reportModal')">&times;</span>
+                            <div class="modal-header">Report Details</div>
+                            <div id="reportDetails" style="max-height:400px; overflow-y:auto;"></div>
+                            <div style="margin-top:15px; display:flex; gap:10px; justify-content:flex-end;">
+                                <button class="btn btn-success" id="resolveReportBtn">Resolve</button>
+                                <button class="btn btn-danger" id="dismissReportBtn">Dismiss</button>
+                                <button class="btn" onclick="closeModal('reportModal')">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Announcements Tab -->
+                <div id="announcements" class="tab-content">
+                    <h2>📢 In-App Announcements</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Send announcements that appear as DMs from the 📢 Announcement user</p>
+
+                    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <div style="display:flex; gap:12px; margin-bottom:16px; align-items:center;">
+                            <label style="font-weight:500;">Mode:</label>
+                            <label style="cursor:pointer; padding:6px 14px; border-radius:6px; background:#667eea; color:white; font-size:0.9em;" id="announceModeSingleLabel" onclick="setAnnounceMode('single')">
+                                <input type="radio" name="announceMode" value="single" checked style="display:none;" onchange="setAnnounceMode('single')"> 📤 Single User
+                            </label>
+                            <label style="cursor:pointer; padding:6px 14px; border-radius:6px; background:#f0f0f0; color:#333; font-size:0.9em;" id="announceModeBroadcastLabel" onclick="setAnnounceMode('broadcast')">
+                                <input type="radio" name="announceMode" value="broadcast" style="display:none;" onchange="setAnnounceMode('broadcast')"> 📢 Broadcast All
+                            </label>
+                        </div>
+
+                        <div id="announceRecipientSection">
+                            <label style="display:block; margin-bottom:6px; font-weight:500;">Recipient:</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="announcementRecipient" placeholder="User ID or username" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:4px;">
+                                <button class="btn" onclick="lookupAnnouncementUser()" style="background:#667eea; color:white; white-space:nowrap;">🔍 Look Up</button>
+                            </div>
+                            <div id="announcementUserLookupResult" style="margin-top:6px; font-size:0.9em; color:#666;"></div>
+                        </div>
+
+                        <div style="margin:14px 0;">
+                            <label style="display:block; margin-bottom:6px; font-weight:500;">Subject (optional):</label>
+                            <input type="text" id="announcementSubject" placeholder="e.g., Important Security Update" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px;">
+                        </div>
+
+                        <div style="margin-bottom:14px;">
+                            <label style="display:block; margin-bottom:6px; font-weight:500;">Message:</label>
+                            <textarea id="announcementMessage" placeholder="Type your announcement message..." style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; min-height:120px; font-family:monospace;"></textarea>
+                        </div>
+
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-primary" onclick="sendAnnouncement()">📤 Send</button>
+                            <button class="btn" onclick="clearAnnouncementForms()" style="background:#f0f0f0; color:#333;">Clear</button>
+                        </div>
+                        <div id="announcementStatus" style="padding:10px; border-radius:4px; display:none; margin-top:10px;"></div>
+                    </div>
+
+                    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px;">
+                        <h3>📋 Sent Announcements</h3>
+                        <div style="display:flex; gap:8px; margin-bottom:15px;">
+                            <button class="btn btn-primary" onclick="loadAnnouncementHistory()">🔄 Refresh</button>
+                            <button class="btn btn-danger" onclick="clearAnnouncementHistory()">🗑️ Clear History</button>
+                        </div>
+                        <div id="announcementHistory" class="table-container" style="max-height:400px; overflow-y:auto;">
+                            <p style="color:#999; text-align:center; padding:20px;">No announcements yet</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mass Email Tab -->
+                <div id="massemail" class="tab-content">
+                    <h2>📧 Mass Email Announcements</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Send bulk email announcements to users</p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div style="background: #f5f5f5; padding: 15px; border-radius: 8px;">
+                            <h3>📊 Total Campaigns</h3>
+                            <div id="totalCampaigns" style="font-size: 2em; font-weight: bold; color: #667eea;">0</div>
+                            <p style="color: #999; margin-top: 5px;">Email campaigns sent</p>
+                        </div>
+                        <div style="background: #f5f5f5; padding: 15px; border-radius: 8px;">
+                            <h3>✅ Success Rate</h3>
+                            <div id="successRate" style="font-size: 2em; font-weight: bold; color: #4caf50;">--</div>
+                            <p style="color: #999; margin-top: 5px;">Average delivery rate</p>
+                        </div>
+                    </div>
+
+                    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <h3>Compose Email</h3>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Sender Email:</label>
+                            <input type="email" id="emailFrom" placeholder="noreply@freetimeapp.com" 
+                                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                            <p style="color: #999; font-size: 0.85em; margin-top: 4px;">Leave empty to use default sender</p>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email Subject:</label>
+                            <input type="text" id="emailSubject" placeholder="e.g., Important Update About FreeTime" 
+                                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Recipients:</label>
+                            <select id="emailRecipients" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px;" onchange="onEmailRecipientsChange()">
+                                <option value="all">📢 All Users</option>
+                                <option value="by-tags">🏷️ By Tags</option>
+                                <option value="specific">👤 Specific User</option>
+                            </select>
+                            <input type="text" id="emailTags" placeholder="Enter tags separated by commas (e.g., premium, beta-tester)" 
+                                   style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; display: none;">
+                            <div id="emailSpecificUserSection" style="display: none;">
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" id="emailSpecificUserInput" placeholder="Enter user ID or username" 
+                                           style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                                    <button class="btn" onclick="lookupEmailRecipient()" style="background: #667eea; color: white; font-size: 0.85em; white-space: nowrap;">🔍 Look Up</button>
+                                </div>
+                                <div id="emailSpecificUserResult" style="margin-top: 6px; font-size: 0.9em; color: #666;"></div>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email Body (HTML):</label>
+                            <textarea id="emailBody" placeholder="Enter HTML email content..." 
+                                      style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; min-height: 200px; font-family: monospace; font-size: 0.9em;">
+&lt;h2&gt;Important Announcement&lt;/h2&gt;
+&lt;p&gt;Dear FreeTime User,&lt;/p&gt;
+&lt;p&gt;We have an important update for you...&lt;/p&gt;
+&lt;br&gt;
+&lt;p&gt;Best regards,&lt;br&gt;FreeTime Team&lt;/p&gt;
+                            </textarea>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                            <button class="btn btn-primary" onclick="sendMassEmail()">📤 Send</button>
+                            <button class="btn" onclick="clearEmailForm()" style="background: #f0f0f0; color: #333;">Clear</button>
+                        </div>
+
+                        <div id="emailStatusMessage" style="padding: 10px; border-radius: 4px; display: none; margin-bottom: 10px;"></div>
+                    </div>
+
+                    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px;">
+                        <h3>📋 Campaign History</h3>
+                        <div style="display:flex; gap:8px; margin-bottom:15px;">
+                            <button class="btn btn-primary" onclick="loadEmailCampaigns()">🔄 Refresh History</button>
+                            <button class="btn btn-danger" onclick="clearEmailCampaigns()">🗑️ Clear History</button>
+                        </div>
+                        <div id="emailCampaignsHistory" class="table-container" style="max-height: 400px; overflow-y: auto;">
+                            <p style="color: #999; text-align: center; padding: 20px;">Loading campaign history...</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div id="createUserModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('createUserModal')">&times;</span>
+            <div class="modal-header">➕ Create New User</div>
+            <form onsubmit="createUser(event)">
+                <div class="form-group">
+                    <label for="newUsername">Username *</label>
+                    <input type="text" id="newUsername" required>
+                </div>
+                <div class="form-group">
+                    <label for="newEmail">Email *</label>
+                    <input type="email" id="newEmail" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">Password *</label>
+                    <input type="password" id="newPassword" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="newName">Display Name</label>
+                        <input type="text" id="newName">
+                    </div>
+                    <div class="form-group">
+                        <label for="newRole">Role *</label>
+                        <select id="newRole" required>
+                            <option value="USER">User</option>
+                            <option value="MODERATOR">Moderator</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="newTags">Tags (comma separated)</label>
+                    <input type="text" id="newTags" placeholder="e.g., verified, developer">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-success">✅ Create User</button>
+                    <button type="button" class="btn btn-primary" onclick="closeModal('createUserModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editUserModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('editUserModal')">&times;</span>
+            <div class="modal-header">✏️ Edit User</div>
+            <form onsubmit="updateUser(event)">
+                <input type="hidden" id="editUserId">
+                <div class="form-group">
+                    <label for="editUsername">Username *</label>
+                    <input type="text" id="editUsername" required>
+                </div>
+                <div class="form-group">
+                    <label for="editEmail">Email *</label>
+                    <input type="email" id="editEmail" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPassword">New Password (leave empty to keep current)</label>
+                    <input type="password" id="editPassword">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="editName">Display Name</label>
+                        <input type="text" id="editName">
+                    </div>
+                    <div class="form-group">
+                        <label for="editRole">Role *</label>
+                        <select id="editRole" required>
+                            <option value="USER">User</option>
+                            <option value="MODERATOR">Moderator</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="editTags">Tags (comma separated)</label>
+                    <input type="text" id="editTags" placeholder="e.g., verified, developer">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-success">✅ Update User</button>
+                    <button type="button" class="btn btn-primary" onclick="closeModal('editUserModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Peer Modal -->
+    <div id="addPeerModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('addPeerModal')">&times;</span>
+            <div class="modal-header">➕ Add Peer Connection</div>
+            <form onsubmit="addPeer(event)">
+                <div class="form-group">
+                    <label for="peerName">Peer Name *</label>
+                    <input type="text" id="peerName" placeholder="e.g., Peer-1" required>
+                </div>
+                <div class="form-group">
+                    <label for="peerType">Connection Type *</label>
+                    <select id="peerType" onchange="updatePeerFields()">
+                        <option value="domain">Domain</option>
+                        <option value="local-ip">Local IP</option>
+                        <option value="public-ip">Public IP</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="peerAddress">Address/IP *</label>
+                    <input type="text" id="peerAddress" required>
+                </div>
+                <div class="form-group">
+                    <label for="peerPort">Port *</label>
+                    <input type="number" id="peerPort" value="9080" required>
+                </div>
+                <div class="form-group">
+                    <label for="peerAuth">API Key (if required)</label>
+                    <input type="password" id="peerAuth" placeholder="Optional">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-success">✅ Add Peer</button>
+                    <button type="button" class="btn btn-primary" onclick="closeModal('addPeerModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Peer Modal -->
+    <div id="editPeerModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('editPeerModal')">&times;</span>
+            <div class="modal-header">✏️ Edit Peer</div>
+            <form onsubmit="updatePeer(event)">
+                <input type="hidden" id="editPeerId">
+                <div class="form-group">
+                    <label for="editPeerName">Peer Name *</label>
+                    <input type="text" id="editPeerName" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPeerType">Connection Type *</label>
+                    <select id="editPeerType">
+                        <option value="domain">Domain</option>
+                        <option value="local-ip">Local IP</option>
+                        <option value="public-ip">Public IP</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="editPeerAddress">Address/IP *</label>
+                    <input type="text" id="editPeerAddress" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPeerPort">Port *</label>
+                    <input type="number" id="editPeerPort" required>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-success">✅ Update Peer</button>
+                    <button type="button" class="btn btn-primary" onclick="closeModal('editPeerModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Dynamic API URL based on current origin
+        const currentOrigin = window.location.origin;
+        const originUrl = new URL(currentOrigin);
+        const hostname = originUrl.hostname;
+        const port = originUrl.port;
+        
+        // Check if hostname is localhost or a private IP address
+        const isLocalOrPrivateIP = hostname === 'localhost' || 
+                                   hostname === '127.0.0.1' ||
+                                   /^192\.168\./.test(hostname) ||
+                                   /^10\./.test(hostname) ||
+                                   /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname);
+        
+        // Use HTTP for local/private networks, HTTPS for public/external access
+        const API_URL = `${isLocalOrPrivateIP ? 'http' : 'https'}://${hostname}:${port || 3001}/api`;
+        
+        console.log('Admin Panel Origin:', currentOrigin);
+        console.log('Detected API URL:', API_URL);
+        console.log('Is Local/Private IP:', isLocalOrPrivateIP);
+        let currentUser = null;
+        let allUsers = [];
+        let allPeers = [];
+        let allLogs = [];
+        let logUpdateInterval = null;
+        let userStatusUpdateInterval = null; // NEW: Auto-refresh user status
+
+        // Initialize
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('adminToken');
+            if (token) {
+                verifyToken(token);
+                loadDashboardData();
+                startLogUpdates();
+                startUserStatusUpdates(); // NEW: Start periodic user status polling
+            } else {
+                showLoginForm();
+            }
+        });
+
+        function showLoginForm() {
+            document.getElementById('loginForm').style.display = 'flex';
+            document.getElementById('dashboard').style.display = 'none';
+        }
+
+        function showDashboard() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+        }
+
+        function handleLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                showAlert('❌ Please enter username and password', 'danger');
+                return;
+            }
+
+            fetch(`${API_URL}/admin/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            })
+            .then(r => {
+                if (r.status === 401) {
+                    throw new Error('Invalid username or password');
+                } else if (r.status === 400) {
+                    throw new Error('Username and password are required');
+                } else if (!r.ok) {
+                    throw new Error(`Server error: ${r.status}`);
+                }
+                return r.json();
+            })
+            .then(data => {
+                if (data.token) {
+                    localStorage.setItem('adminToken', data.token);
+                    currentUser = data.user || null;
+                    showDashboard();
+                    loadDashboardData();
+                } else {
+                    showAlert('❌ Login failed: Invalid response from server', 'danger');
+                }
+            })
+            .catch(e => {
+                console.error('Login error:', e);
+                showAlert('❌ Login failed: ' + e.message, 'danger');
+            });
+        }
+
+        function handleLogout() {
+            const token = localStorage.getItem('adminToken');
+            
+            // Call logout endpoint to mark admin as offline
+            if (token) {
+                fetch(`${API_URL}/logout`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                }).catch(err => console.error('Logout API call error:', err));
+            }
+            
+            localStorage.removeItem('adminToken');
+            currentUser = null;
+            clearInterval(logUpdateInterval);
+            clearInterval(userStatusUpdateInterval);
+            showLoginForm();
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        function verifyToken(token) {
+            fetch(`${API_URL}/admin/verify`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.valid) {
+                    currentUser = data.user || null;
+                    showDashboard();
+                } else {
+                    localStorage.removeItem('adminToken');
+                    showLoginForm();
+                }
+            })
+            .catch(() => {
+                localStorage.removeItem('adminToken');
+                showLoginForm();
+            });
+        }
+
+        function getAuthHeaders() {
+            return {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        // Create signed headers for protected admin endpoints (/api/admin/monitor, /api/admin/system, etc)
+        function getSignedAdminHeaders(method = 'GET', endpoint = '/api/admin/monitor', body = '') {
+            const timestamp = Date.now().toString();
+            const adminToken = 'admin-token-change-me';  // Must match server config
+            const adminSecret = 'change-this-in-production';  // Must match server config
+            
+            // Create message: METHOD:ENDPOINT:BODY:TIMESTAMP
+            const message = `${method}:${endpoint}:${body}:${timestamp}`;
+            
+            // Create HMAC-SHA256 signature
+            const hmac = CryptoJS.HmacSHA256(message, adminSecret);
+            const signature = hmac.toString();
+            
+            return {
+                'x-admin-token': adminToken,
+                'x-admin-signature': signature,
+                'x-admin-timestamp': timestamp,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        function switchTab(tabName) {
+            // Clean up auto-refresh when leaving monitor tab
+            if (document.querySelector('.tab-content.active')?.id === 'monitor') {
+                stopAutoRefresh();
+            }
+            
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+            loadTabData(tabName);
+        }
+
+        function loadTabData(tabName) {
+            switch(tabName) {
+                case 'accounts':
+                    loadUsers();
+                    break;
+                case 'logs':
+                    displayLogs();
+                    break;
+                case 'peers':
+                    loadPeers();
+                    break;
+                case 'calls':
+                    // Call management is being rebuilt
+                    break;
+                case 'dashboard':
+                    loadDashboardData();
+                    break;
+                case 'monitor':
+                    refreshServiceStatus();
+                    startAutoRefresh();
+                    break;
+            }
+        }
+
+        function loadDashboardData() {
+            loadUsers();
+            loadPeers();
+            loadDashboardStats();
+        }
+
+        function loadUsers() {
+            fetch(`${API_URL}/admin/users`, { headers: getAuthHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                allUsers = Array.isArray(data) ? data : (data.users || []);
+                displayUsers();
+                displayOnlineUsers(); // NEW: Update online users display
+                updateDashboardStats();
+            })
+            .catch(e => console.error('Load users failed:', e));
+        }
+
+        function loadPeers() {
+            fetch(`${API_URL}/admin/peers`, { headers: getAuthHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                allPeers = data.peers || [];
+                displayPeers();
+                updateDashboardStats();
+            })
+            .catch(e => console.error('Load peers failed:', e));
+        }
+
+        function displayUsers() {
+            const container = document.getElementById('usersList');
+            if (allUsers.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No users found</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Tags</th><th>Actual Status</th><th>Shown Status</th><th>2FA Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+            
+            allUsers.forEach(user => {
+                // Actual online status (real time tracking)
+                const actualStatus = user.actualOnlineStatus || (user.isOnline ? 'online' : 'offline');
+                const actualBadge = actualStatus === 'online' 
+                    ? '<span class="badge badge-online">🟢 Online</span>'
+                    : actualStatus === 'occupied'
+                    ? '<span class="badge badge-occupied" style="background: #ff9800; color: white; padding: 4px 8px; border-radius: 4px;">🟠 Occupied</span>'
+                    : '<span class="badge badge-offline">🔴 Offline</span>';
+                
+                // Displayed status (what they show to friends)
+                const displayedStatus = user.displayedStatus || actualStatus;
+                const displayedBadge = displayedStatus === 'online'
+                    ? '<span style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">✓ Online</span>'
+                    : displayedStatus === 'occupied'
+                    ? '<span style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">⊘ Occupied</span>'
+                    : '<span style="background: #95a5a6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">✗ Hidden</span>';
+                
+                // 2FA Status
+                const twoFaMandatory = user.twoFactorAuth && user.twoFactorAuth.mandatorySetup;
+                const twoFaEnabled = user.twoFactorAuth && user.twoFactorAuth.enabled && user.twoFactorAuth.accountVerified;
+                const twoFaBadge = twoFaEnabled 
+                    ? '<span style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">✓ Enabled</span>'
+                    : twoFaMandatory
+                    ? '<span style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">⚠️ Required</span>'
+                    : '<span style="background: #95a5a6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">✗ Disabled</span>';
+                
+                const roleBadge = `<span class="badge badge-${user.role.toLowerCase()}">${user.role}</span>`;
+                const tagsList = (user.tags || []).length > 0 
+                    ? user.tags.slice(0, 2).join(', ') + (user.tags.length > 2 ? ` +${user.tags.length - 2}` : '')
+                    : '<span style="color: #999;">—</span>';
+                const created = new Date(user.createdAt).toLocaleDateString();
+                
+                html += `<tr>
+                    <td><strong>${user.username}</strong></td>
+                    <td>${user.email}</td>
+                    <td>${roleBadge}</td>
+                    <td title="${(user.tags || []).join(', ')}">${tagsList}</td>
+                    <td>${actualBadge}</td>
+                    <td>${displayedBadge}</td>
+                    <td>${twoFaBadge}</td>
+                    <td>${created}</td>
+                    <td class="action-buttons">
+                        <button class="btn btn-primary btn-small" onclick="editUser('${user.id}')">✏️ Edit</button>
+                        <button class="btn btn-warning btn-small" onclick="toggle2FA('${user.id}', ${!twoFaMandatory})">🔐 ${twoFaMandatory ? 'Disable 2FA' : 'Enable 2FA'}</button>
+                        <button class="btn btn-danger btn-small" onclick="deleteUser('${user.id}')">🗑️ Delete</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function displayPeers() {
+            const container = document.getElementById('peersManagement');
+            if (allPeers.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No peers connected</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Peer Name</th><th>Address</th><th>Type</th><th>Port</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+            
+            allPeers.forEach(peer => {
+                const status = peer.connected ? '<span class="badge badge-online">🟢 Connected</span>' : '<span class="badge badge-offline">🔴 Disconnected</span>';
+                
+                html += `<tr>
+                    <td>${peer.name}</td>
+                    <td>${peer.address}</td>
+                    <td>${peer.type}</td>
+                    <td>${peer.port}</td>
+                    <td>${status}</td>
+                    <td class="action-buttons">
+                        <button class="btn btn-primary btn-small" onclick="editPeer('${peer.id}')">✏️ Edit</button>
+                        <button class="btn btn-danger btn-small" onclick="disconnectPeer('${peer.id}')">⚠️ Disconnect</button>
+                        <button class="btn btn-warning btn-small" onclick="testPeer('${peer.id}')">🧪 Test</button>
+                        <button class="btn btn-danger btn-small" onclick="deletePeer('${peer.id}')">🗑️ Delete</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+
+            // Update dashboard peers
+            const onlineCount = allPeers.filter(p => p.connected).length;
+            document.getElementById('totalPeers').textContent = allPeers.length;
+        }
+
+        // NEW: Display online users in dashboard
+        function displayOnlineUsers() {
+            const container = document.getElementById('onlineUsersList');
+            const onlineUsers = allUsers.filter(u => u.isOnline);
+            
+            if (onlineUsers.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No users currently online</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Connected Since</th><th>Last Seen</th></tr></thead><tbody>';
+            
+            onlineUsers.forEach(user => {
+                const connectedSince = user.connectionInfo?.connectedAt ? 
+                    new Date(user.connectionInfo.connectedAt).toLocaleTimeString() : 'Unknown';
+                const lastSeen = user.lastSeen ? 
+                    new Date(user.lastSeen).toLocaleTimeString() : 'Now';
+                const roleBadge = `<span class="badge badge-${user.role.toLowerCase()}">${user.role}</span>`;
+                
+                html += `<tr>
+                    <td>${user.username}</td>
+                    <td>${user.email}</td>
+                    <td>${roleBadge}</td>
+                    <td>${connectedSince}</td>
+                    <td>${lastSeen}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function startLogUpdates() {
+            logUpdateInterval = setInterval(() => {
+                if (document.getElementById('logs').classList.contains('active')) {
+                    displayLogs();
+                }
+            }, 5000);
+        }
+
+        // NEW: Start periodic user status updates
+        function startUserStatusUpdates() {
+            // Update user status every 5 seconds (more frequent for real-time monitoring)
+            userStatusUpdateInterval = setInterval(() => {
+                // Only fetch if we have users to monitor
+                if (allUsers && allUsers.length > 0) {
+                    fetch(`${API_URL}/admin/users`, { headers: getAuthHeaders() })
+                        .then(r => r.json())
+                        .then(data => {
+                            const newUsers = Array.isArray(data) ? data : (data.users || []);
+                            
+                            // Check for status changes
+                            let statusChanged = false;
+                            for (const newUser of newUsers) {
+                                const oldUser = allUsers.find(u => u.id === newUser.id);
+                                if (oldUser && oldUser.isOnline !== newUser.isOnline) {
+                                    statusChanged = true;
+                                    console.log(`📊 User status changed: ${newUser.username} - ${newUser.isOnline ? '🟢 ONLINE' : '🔴 OFFLINE'}`);
+                                }
+                            }
+                            
+                            // Update users list
+                            allUsers = newUsers;
+                            
+                            // Refresh display if status changed or on accounts tab
+                            if (statusChanged || document.getElementById('accounts').classList.contains('active')) {
+                                displayUsers();
+                            }
+                            
+                            // Always update dashboard stats and online users list
+                            updateDashboardStats();
+                            displayOnlineUsers(); // NEW: Refresh online users display
+                        })
+                        .catch(err => console.error('User status update failed:', err));
+                }
+            }, 5000); // Poll every 5 seconds
+        }
+
+        function displayLogs() {
+            const filter = document.getElementById('logFilter').value;
+            const count = parseInt(document.getElementById('logCount').value) || 50;
+            
+            fetch(`${API_URL}/admin/logs?filter=${filter}&count=${count}`, { headers: getAuthHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                allLogs = data.logs || [];
+                renderLogs();
+            })
+            .catch(e => console.error('Load logs failed:', e));
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('logsList');
+            if (allLogs.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No logs available</p>';
+                return;
+            }
+
+            let html = '';
+            allLogs.forEach(log => {
+                const time = new Date(log.timestamp).toLocaleTimeString();
+                html += `<div class="log-entry">
+                    <span class="log-time">${time}</span> | 
+                    <span class="log-type">${log.type.toUpperCase()}</span> | 
+                    <span class="log-message">${log.message}</span>
+                </div>`;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function updateDashboardStats() {
+            // Get DOM elements
+            const onlineUsersEl = document.getElementById('onlineUsers');
+            const adminCountEl = document.getElementById('adminCount');
+            const modCountEl = document.getElementById('modCount');
+            const userCountEl = document.getElementById('userCount');
+            const vipCountEl = document.getElementById('vipCount');
+            const totalPeersEl = document.getElementById('totalPeers');
+            
+            const online = allUsers.filter(u => u.isOnline).length;
+            const admins = allUsers.filter(u => u.role === 'ADMIN').length;
+            const mods = allUsers.filter(u => u.role === 'MODERATOR').length;
+            const users = allUsers.filter(u => u.role === 'USER').length;
+            const vip = allUsers.filter(u => u.tags && u.tags.includes('vip')).length;
+
+            if (onlineUsersEl) onlineUsersEl.textContent = online;
+            if (adminCountEl) adminCountEl.textContent = admins;
+            if (modCountEl) modCountEl.textContent = mods;
+            if (userCountEl) userCountEl.textContent = users;
+            if (vipCountEl) vipCountEl.textContent = vip;
+            if (totalPeersEl) totalPeersEl.textContent = allPeers.length;
+            document.getElementById('totalUsers').textContent = allUsers.length;
+            document.getElementById('onlineUsers').textContent = online;
+            document.getElementById('adminCount').textContent = admins;
+            document.getElementById('modCount').textContent = mods;
+            document.getElementById('userCount').textContent = users;
+            document.getElementById('vipCount').textContent = vip;
+
+            const peerOnline = allPeers.filter(p => p.connected).length;
+            document.getElementById('totalPeers').textContent = allPeers.length;
+        }
+
+        function filterUsers() {
+            const search = document.getElementById('userSearch').value.toLowerCase();
+            const filtered = allUsers.filter(u => 
+                u.username.toLowerCase().includes(search) || 
+                u.email.toLowerCase().includes(search)
+            );
+            
+            const container = document.getElementById('usersList');
+            if (filtered.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No users found</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+            
+            filtered.forEach(user => {
+                const status = user.isOnline ? '<span class="badge badge-online">🟢 Online</span>' : '<span class="badge badge-offline">🔴 Offline</span>';
+                const roleBadge = `<span class="badge badge-${user.role.toLowerCase()}">${user.role}</span>`;
+                const created = new Date(user.createdAt).toLocaleDateString();
+                
+                html += `<tr>
+                    <td>${user.username}</td>
+                    <td>${user.email}</td>
+                    <td>${roleBadge}</td>
+                    <td>${status}</td>
+                    <td>${created}</td>
+                    <td class="action-buttons">
+                        <button class="btn btn-primary btn-small" onclick="editUser('${user.id}')">✏️ Edit</button>
+                        <button class="btn btn-danger btn-small" onclick="deleteUser('${user.id}')">🗑️ Delete</button>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function filterLogs() {
+            displayLogs();
+        }
+
+        // Modal Functions
+        function openCreateUserModal() {
+            document.getElementById('createUserModal').classList.add('show');
+        }
+
+        function openAddPeerModal() {
+            document.getElementById('addPeerModal').classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+function createUser(e) {
+            e.preventDefault();
+            const tags = document.getElementById('newTags').value;
+            const user = {
+                username: document.getElementById('newUsername').value,
+                email: document.getElementById('newEmail').value,
+                password: document.getElementById('newPassword').value,
+                name: document.getElementById('newName').value,
+                role: document.getElementById('newRole').value,
+                tags: tags.split(',').map(t => t.trim()).filter(t => t),  // Ensure array format
+                twoFaMethod: 'authenticator',      // MANDATORY: All users must use authenticator app
+                requireTwoFactorSetup: true,        // Force 2FA setup on first login
+                actualOnlineStatus: 'offline',      // Initialize with offline status
+                displayedStatus: 'offline'          // Initialize display as offline
+            };
+
+            fetch(`${API_URL}/admin/users`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(user)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.id || data.success) {
+                    showAlert('✅ User created successfully! (Role & tags applied) User must complete 2FA setup to login.', 'success');
+                    closeModal('createUserModal');
+                    // Reset form
+                    document.getElementById('createUserModal').querySelector('form').reset();
+                    loadUsers();
+                    updateDashboardStats();
+                } else {
+                    showAlert('❌ Create failed: ' + (data.error || data.message), 'danger');
+                }
+            })
+            .catch(e => showAlert('❌ Create failed: ' + e.message, 'danger'));
+        }
+        function editUser(userId) {
+            const user = allUsers.find(u => u.id === userId);
+            if (!user) return;
+
+            document.getElementById('editUserId').value = user.id;
+            document.getElementById('editUsername').value = user.username;
+            document.getElementById('editEmail').value = user.email;
+            document.getElementById('editName').value = user.name || '';
+            document.getElementById('editRole').value = user.role;
+            document.getElementById('editTags').value = (user.tags || []).join(', ');
+            
+            document.getElementById('editUserModal').classList.add('show');
+        }
+
+        function updateUser(e) {
+            e.preventDefault();
+            const userId = document.getElementById('editUserId').value;
+            const tags = document.getElementById('editTags').value;
+            const updates = {
+                username: document.getElementById('editUsername').value,
+                email: document.getElementById('editEmail').value,
+                name: document.getElementById('editName').value,
+                role: document.getElementById('editRole').value,
+                tags: tags.split(',').map(t => t.trim()).filter(t => t)  // Ensure array
+            };
+
+            const password = document.getElementById('editPassword').value;
+            if (password) updates.password = password;
+
+            fetch(`${API_URL}/admin/users/${userId}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(updates)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.id || data.success) {
+                    showAlert('✅ User updated successfully! (Role & tags applied)', 'success');
+                    closeModal('editUserModal');
+                    loadUsers();
+                    updateDashboardStats();  // Refresh dashboard
+                } else {
+                    showAlert('❌ Error: ' + (data.error || data.message), 'danger');
+                }
+            })
+            .catch(e => showAlert('❌ Update failed: ' + e.message, 'danger'));
+        }
+
+        function deleteUser(userId) {
+            if (!confirm('Are you sure you want to delete this user?')) return;
+
+            fetch(`${API_URL}/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.message) {
+                    showAlert('User deleted successfully!', 'success');
+                    loadUsers();
+                } else {
+                    showAlert('Error: ' + (data.error || data.message), 'danger');
+                }
+            })
+            .catch(e => showAlert('Deletion failed: ' + e.message, 'danger'));
+        }
+
+        function toggle2FA(userId, enabled) {
+            if (!confirm(`Are you sure you want to ${enabled ? 'enable' : 'disable'} 2FA for this user?`)) return;
+
+            fetch(`${API_URL}/admin/users/${userId}/toggle-2fa`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ enabled: enabled })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.message) {
+                    showAlert(data.message, 'success');
+                    loadUsers();
+                } else {
+                    showAlert('Error: ' + (data.error || data.message), 'danger');
+                }
+            })
+            .catch(e => showAlert('2FA toggle failed: ' + e.message, 'danger'));
+        }
+
+        function addPeer(e) {
+            e.preventDefault();
+            const peer = {
+                name: document.getElementById('peerName').value,
+                type: document.getElementById('peerType').value,
+                address: document.getElementById('peerAddress').value,
+                port: parseInt(document.getElementById('peerPort').value),
+                apiKey: document.getElementById('peerAuth').value || null
+            };
+
+            fetch(`${API_URL}/admin/peers`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(peer)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Peer added successfully!', 'success');
+                    closeModal('addPeerModal');
+                    document.getElementById('addPeerModal').querySelector('form').reset();
+                    loadPeers();
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(e => showAlert('Addition failed: ' + e.message, 'danger'));
+        }
+
+        function editPeer(peerId) {
+            const peer = allPeers.find(p => p.id === peerId);
+            if (!peer) return;
+
+            document.getElementById('editPeerId').value = peer.id;
+            document.getElementById('editPeerName').value = peer.name;
+            document.getElementById('editPeerType').value = peer.type;
+            document.getElementById('editPeerAddress').value = peer.address;
+            document.getElementById('editPeerPort').value = peer.port;
+            
+            document.getElementById('editPeerModal').classList.add('show');
+        }
+
+        function updatePeer(e) {
+            e.preventDefault();
+            const peerId = document.getElementById('editPeerId').value;
+            const updates = {
+                name: document.getElementById('editPeerName').value,
+                type: document.getElementById('editPeerType').value,
+                address: document.getElementById('editPeerAddress').value,
+                port: parseInt(document.getElementById('editPeerPort').value)
+            };
+
+            fetch(`${API_URL}/admin/peers/${peerId}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(updates)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Peer updated successfully!', 'success');
+                    closeModal('editPeerModal');
+                    loadPeers();
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(e => showAlert('Update failed: ' + e.message, 'danger'));
+        }
+
+        function disconnectPeer(peerId) {
+            if (!confirm('Are you sure you want to disconnect this peer?')) return;
+
+            fetch(`${API_URL}/admin/peers/${peerId}/disconnect`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Peer disconnected successfully!', 'success');
+                    loadPeers();
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(e => showAlert('Disconnection failed: ' + e.message, 'danger'));
+        }
+
+        function testPeer(peerId) {
+            const peer = allPeers.find(p => p.id === peerId);
+            if (!peer) return;
+
+            showAlert(`Testing connection to ${peer.name}...`, 'info');
+
+            fetch(`${API_URL}/admin/peers/${peerId}/test`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`Peer test successful! Latency: ${data.latency}ms`, 'success');
+                } else {
+                    showAlert('Peer test failed: ' + data.message, 'danger');
+                }
+            })
+            .catch(e => showAlert('Test failed: ' + e.message, 'danger'));
+        }
+
+        function deletePeer(peerId) {
+            if (!confirm('Are you sure you want to delete this peer? This action cannot be undone.')) return;
+
+            fetch(`${API_URL}/admin/peers/${peerId}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Peer deleted successfully!' , 'success');
+                    loadPeers();
+                } else {
+                    showAlert('Delete failed: ' + data.message, 'danger');
+                }
+            })
+            .catch(e => showAlert('Delete failed: ' + e.message, 'danger'));
+        }
+
+        function clearLogs() {
+            if (!confirm('Are you sure you want to clear all logs?')) return;
+
+            fetch(`${API_URL}/admin/logs`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('Logs cleared successfully!', 'success');
+                    displayLogs();
+                } else {
+                    showAlert('Error: ' + data.message, 'danger');
+                }
+            })
+            .catch(e => showAlert('Clear failed: ' + e.message, 'danger'));
+        }
+
+        function loadDashboardStats() {
+            // Load real server stats from API
+            console.log("Loading dashboard stats from:", `${API_URL}/admin/stats`);
+            fetch(`${API_URL}/admin/stats`, { headers: getAuthHeaders() })
+                .then(r => r.json())
+                .then(data => {
+                    console.log("Server stats data:", data);
+
+                    // Update server uptime
+                    const uptimeEl = document.getElementById('serverUptime');
+                    if (uptimeEl && data.uptime) {
+                        const hours = Math.floor(data.uptime / 3600);
+                        const minutes = Math.floor((data.uptime % 3600) / 60);
+                        uptimeEl.textContent = `${hours}h ${minutes}m`;
+                    }
+
+                    // Update WebSocket connection queue stats
+                    const ws = data.connectionQueue || {};
+                    const setText = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el) el.textContent = val;
+                    };
+                    setText('wsActive', (ws.active || 0).toLocaleString());
+                    setText('wsMaximum', (ws.maximum || 35000).toLocaleString());
+                    setText('wsQueued', (ws.queued || 0).toLocaleString());
+                    setText('wsAvailable', (ws.available || 0).toLocaleString());
+                    setText('wsUtilization', (ws.percentageUsed || 0) + '%');
+
+                    // Update online users with real count from server
+                    const onlineEl = document.getElementById('onlineUsers');
+                    if (onlineEl && data.users && data.users.online !== undefined) {
+                        onlineEl.textContent = data.users.online;
+                    }
+
+                    // Update peer connected count
+                    const peersEl = document.getElementById('totalPeers');
+                    if (peersEl && data.peers) {
+                        peersEl.textContent = data.peers.total || 0;
+                    }
+
+                    // Update report counts
+                    if (data.reports) {
+                        setText('reportOpenCount', data.reports.open || 0);
+                        setText('reportResolvedCount', data.reports.resolved || 0);
+                        setText('reportDismissedCount', data.reports.dismissed || 0);
+                    }
+
+                    // Update VIP count from server
+                    if (data.users && data.users.vip !== undefined) {
+                        setText('vipCount', data.users.vip);
+                    }
+                })
+                .catch(e => console.error("Load server stats failed:", e));
+
+            // Update basic stats from local data
+            updateDashboardStats();
+        }
+
+        function updatePeerFields() {
+            // Update placeholder text based on selected type
+            const type = document.getElementById('peerType').value;
+            const addressInput = document.getElementById('peerAddress');
+            
+            switch(type) {
+                case 'domain':
+                    addressInput.placeholder = 'e.g., peer1.example.com';
+                    break;
+                case 'local-ip':
+                    addressInput.placeholder = 'e.g., 192.168.1.100';
+                    break;
+                case 'public-ip':
+                    addressInput.placeholder = 'e.g., 203.0.113.42';
+                    break;
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertBox = document.getElementById('alertBox');
+            const alertId = 'alert-' + Date.now();
+            const alertHtml = `<div id="${alertId}" class="alert alert-${type} show">${message}</div>`;
+            alertBox.innerHTML = alertHtml;
+            
+            setTimeout(() => {
+                const alert = document.getElementById(alertId);
+                if (alert) alert.remove();
+            }, 5000);
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('show');
+            }
+        };
+
+        // ============================================
+        // SERVICE MONITORING FUNCTIONS
+        // ============================================
+
+        let monitorAutoRefreshInterval = null;
+
+        function startAutoRefresh() {
+            // Auto-refresh every 5 seconds
+            if (monitorAutoRefreshInterval) {
+                clearInterval(monitorAutoRefreshInterval);
+            }
+            monitorAutoRefreshInterval = setInterval(() => {
+                refreshServiceStatus();
+            }, 5000);
+        }
+
+        function stopAutoRefresh() {
+            if (monitorAutoRefreshInterval) {
+                clearInterval(monitorAutoRefreshInterval);
+                monitorAutoRefreshInterval = null;
+            }
+        }
+
+        function refreshServiceStatus() {
+            const timestamp = new Date().toLocaleTimeString();
+            const lastUpdateEl = document.getElementById('lastUpdate');
+            if (lastUpdateEl) {
+                lastUpdateEl.textContent = timestamp;
+            }
+
+            // Fetch comprehensive service status using signed headers for protected endpoint
+            fetch(`${API_URL}/admin/monitor`, { headers: getSignedAdminHeaders('GET', '/api/admin/monitor', '') })
+                .then(r => {
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    return r.json();
+                })
+                .then(data => {
+                    console.log("Service status received:", data);
+                    updateServiceCards(data.services || {});
+                    updateSystemInfo(data.system || {});
+                })
+                .catch(error => {
+                    console.error("Failed to fetch service status:", error);
+                    updateServiceCardsError();
+                    showAlert(`Failed to fetch service status: ${error.message}`, 'danger');
+                });
+        }
+
+        function updateServiceCards(services) {
+            try {
+                // Update API Service
+                if (services.api) {
+                    const apiState = document.getElementById('apiState');
+                    const apiResponse = document.getElementById('apiResponse');
+                    const apiCard = document.getElementById('apiStatus');
+                    
+                    if (apiState) {
+                        apiState.textContent = services.api.online ? '✓ OK' : '✗ DOWN';
+                        apiState.style.color = services.api.online ? '#4caf50' : '#d32f2f';
+                    }
+                    if (apiResponse) {
+                        apiResponse.textContent = services.api.responseTime || '--';
+                    }
+                    if (apiCard) {
+                        apiCard.style.borderLeft = services.api.online ? '4px solid #4caf50' : '4px solid #d32f2f';
+                    }
+                }
+
+                // Update WebSocket Service
+                if (services.websocket) {
+                    const wsState = document.getElementById('wsState');
+                    const wsResponse = document.getElementById('wsResponse');
+                    const wsCard = document.getElementById('wsStatus');
+                    
+                    if (wsState) {
+                        wsState.textContent = services.websocket.online ? '✓ OK' : '✗ DOWN';
+                        wsState.style.color = services.websocket.online ? '#4caf50' : '#d32f2f';
+                    }
+                    if (wsResponse) {
+                        wsResponse.textContent = services.websocket.responseTime || '--';
+                    }
+                    if (wsCard) {
+                        wsCard.style.borderLeft = services.websocket.online ? '4px solid #4caf50' : '4px solid #d32f2f';
+                    }
+                }
+
+                // Update Peer Network Service
+                if (services.peer) {
+                    const peerState = document.getElementById('peerState');
+                    const peerResponse = document.getElementById('peerResponse');
+                    const peerCard = document.getElementById('peerStatus');
+                    
+                    if (peerState) {
+                        peerState.textContent = services.peer.online ? '✓ OK' : '✗ DOWN';
+                        peerState.style.color = services.peer.online ? '#4caf50' : '#d32f2f';
+                    }
+                    if (peerResponse) {
+                        peerResponse.textContent = services.peer.responseTime || '--';
+                    }
+                    if (peerCard) {
+                        peerCard.style.borderLeft = services.peer.online ? '4px solid #4caf50' : '4px solid #d32f2f';
+                    }
+                }
+
+                // Update MongoDB Service
+                if (services.mongodb) {
+                    const mongoState = document.getElementById('mongoState');
+                    const mongoResponse = document.getElementById('mongoResponse');
+                    const mongoCard = document.getElementById('mongoStatus');
+                    
+                    if (mongoState) {
+                        mongoState.textContent = services.mongodb.online ? '✓ OK' : '✗ DOWN';
+                        mongoState.style.color = services.mongodb.online ? '#4caf50' : '#d32f2f';
+                    }
+                    if (mongoResponse) {
+                        mongoResponse.textContent = services.mongodb.responseTime || '--';
+                    }
+                    if (mongoCard) {
+                        mongoCard.style.borderLeft = services.mongodb.online ? '4px solid #4caf50' : '4px solid #d32f2f';
+                    }
+                }
+            } catch (error) {
+                console.error("Error updating service cards:", error);
+            }
+        }
+
+        function updateServiceCardsError() {
+            // Show error state for all services when fetch fails
+            const services = [
+                { state: 'apiState', response: 'apiResponse' },
+                { state: 'wsState', response: 'wsResponse' },
+                { state: 'peerState', response: 'peerResponse' },
+                { state: 'mongoState', response: 'mongoResponse' }
+            ];
+            
+            services.forEach(svc => {
+                const stateEl = document.getElementById(svc.state);
+                const respEl = document.getElementById(svc.response);
+                if (stateEl) {
+                    stateEl.textContent = '? ERROR';
+                    stateEl.style.color = '#ff9800';
+                }
+                if (respEl) {
+                    respEl.textContent = '--';
+                }
+            });
+        }
+
+        function updateSystemInfo(system) {
+            if (!system || Object.keys(system).length === 0) return;
+
+            try {
+                // Update System Information table
+                const uptimeEl = document.getElementById('sysUptime');
+                const cpuEl = document.getElementById('sysCpus');
+                const memoryEl = document.getElementById('sysMemory');
+                const memUsedEl = document.getElementById('sysMemoryUsed');
+                const nodeVersionEl = document.getElementById('sysNodeVersion');
+                const platformEl = document.getElementById('sysPlatform');
+
+                if (uptimeEl && system.uptime) {
+                    const hours = Math.floor(system.uptime / 3600);
+                    const minutes = Math.floor((system.uptime % 3600) / 60);
+                    uptimeEl.textContent = `${hours}h ${minutes}m`;
+                }
+
+                if (cpuEl && system.cpus) {
+                    cpuEl.textContent = system.cpus + ' cores';
+                }
+
+                if (memoryEl && system.totalMemory) {
+                    const memGb = (system.totalMemory / 1024 / 1024 / 1024).toFixed(2);
+                    memoryEl.textContent = memGb + ' GB';
+                }
+
+                if (memUsedEl && system.freeMemory && system.totalMemory) {
+                    const usedMemory = system.totalMemory - system.freeMemory;
+                    const usedGb = (usedMemory / 1024 / 1024 / 1024).toFixed(2);
+                    memUsedEl.textContent = usedGb + ' GB';
+                }
+
+                if (nodeVersionEl && system.nodeVersion) {
+                    nodeVersionEl.textContent = system.nodeVersion;
+                }
+
+                if (platformEl && system.platform) {
+                    platformEl.textContent = system.platform;
+                }
+
+            } catch (error) {
+                console.error("Error updating system info:", error);
+            }
+        }
+
+        // Call Management Functions (Disabled - being rebuilt)
+        function loadCallStats() { /* disabled - under reconstruction */ }
+        function loadCalls() { /* disabled - under reconstruction */ }
+        function displayCalls(calls) { /* disabled - under reconstruction */ }
+        function getStatusBadge(status) { return ''; }
+        function terminateCall(callId) { /* disabled - under reconstruction */ }
+
+        // Reports management
+        async function loadReports() {
+            const status = document.getElementById('reportStatusFilter')?.value || '';
+            let url = `${API_URL}/admin/reports?limit=100`;
+            if (status) url += `&status=${status}`;
+
+            try {
+                const r = await fetch(url, { headers: getAuthHeaders() });
+                const data = await r.json();
+                displayReports(data.reports || []);
+            } catch (err) {
+                console.error('Load reports failed:', err);
+                document.getElementById('reportsTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#e74c3c;">Error loading reports</td></tr>';
+            }
+        }
+
+        function displayReports(reports) {
+            const tbody = document.getElementById('reportsTableBody');
+            if (!reports || reports.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#999;">No reports found</td></tr>';
+                return;
+            }
+
+            let html = '';
+            reports.forEach(r => {
+                const created = new Date(r.createdAt || r.created || Date.now()).toLocaleString();
+                const status = (r.status || 'open');
+                const reportId = (r.id || r._id || '').substring(0, 12);
+                const reporterName = r.reporter?.username || '—';
+                const reporterId = r.reporter?.id || r.reporterId || '';
+                const reportedName = r.reportedUser?.username || '—';
+                const reportedId = r.reportedUser?.id || r.reportedUserId || '';
+                html += `<tr>
+                    <td><small title="${r.id || r._id}">${reportId}...</small></td>
+                    <td><strong>${reporterName}</strong><br><small style="color:#888;">${reporterId}</small></td>
+                    <td><strong>${reportedName}</strong><br><small style="color:#888;">${reportedId}</small></td>
+                    <td title="${(r.reason || r.summary || '').replace(/"/g,'')}">${(r.reason || r.summary || '').slice(0,40) || '—'}</td>
+                    <td>${status}</td>
+                    <td><small>${created}</small></td>
+                    <td class="action-buttons">
+                        <button class="btn btn-primary btn-small" onclick="viewReport('${r.id || r._id}')">View</button>
+                        <button class="btn btn-success btn-small" onclick="resolveReport('${r.id || r._id}')">Resolve</button>
+                        <button class="btn btn-danger btn-small" onclick="dismissReport('${r.id || r._id}')">Dismiss</button>
+                    </td>
+                </tr>`;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        async function viewReport(reportId) {
+            if (!reportId) return;
+            try {
+                const r = await fetch(`${API_URL}/admin/reports/${reportId}`, { headers: getAuthHeaders() });
+                const data = await r.json();
+                const detail = data.report || data || {};
+                const container = document.getElementById('reportDetails');
+                container.innerHTML = `<pre style="white-space:pre-wrap; font-family:monospace;">${JSON.stringify(detail, null, 2)}</pre>`;
+                document.getElementById('reportModal').classList.add('show');
+
+                document.getElementById('resolveReportBtn').onclick = () => resolveReport(reportId);
+                document.getElementById('dismissReportBtn').onclick = () => dismissReport(reportId);
+            } catch (err) {
+                console.error('View report failed:', err);
+                showAlert('Failed to load report details', 'danger');
+            }
+        }
+
+        async function resolveReport(reportId) {
+            if (!confirm('Mark this report as resolved?')) return;
+            try {
+                const r = await fetch(`${API_URL}/admin/reports/${reportId}/resolve`, { method: 'POST', headers: getAuthHeaders() });
+                const data = await r.json();
+                if (data.success || r.ok) {
+                    showAlert('Report resolved', 'success');
+                    closeModal('reportModal');
+                    loadReports();
+                } else {
+                    showAlert('Failed to resolve report: ' + (data.message || data.error), 'danger');
+                }
+            } catch (err) {
+                console.error('Resolve report failed:', err);
+                showAlert('Resolve request failed', 'danger');
+            }
+        }
+
+        async function dismissReport(reportId) {
+            if (!confirm('Dismiss this report?')) return;
+            try {
+                const r = await fetch(`${API_URL}/admin/reports/${reportId}/dismiss`, { method: 'POST', headers: getAuthHeaders() });
+                const data = await r.json();
+                if (data.success || r.ok) {
+                    showAlert('Report dismissed', 'success');
+                    closeModal('reportModal');
+                    loadReports();
+                } else {
+                    showAlert('Failed to dismiss report: ' + (data.message || data.error), 'danger');
+                }
+            } catch (err) {
+                console.error('Dismiss report failed:', err);
+                showAlert('Dismiss request failed', 'danger');
+            }
+        }
+
+        // Initialize email campaigns on page load
+        setTimeout(() => {
+            loadEmailCampaigns();
+        }, 2000);
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ✅ MASS EMAIL FUNCTIONALITY
+        document.getElementById('emailRecipients')?.addEventListener('change', function() {
+            const tagsInput = document.getElementById('emailTags');
+            if (tagsInput) {
+                tagsInput.style.display = this.value === 'by-tags' ? 'block' : 'none';
+            }
+        });
+
+        function onEmailRecipientsChange() {
+            const select = document.getElementById('emailRecipients');
+            const tagsInput = document.getElementById('emailTags');
+            const specificSection = document.getElementById('emailSpecificUserSection');
+            if (!select) return;
+            if (select.value === 'by-tags') {
+                if (tagsInput) tagsInput.style.display = 'block';
+                if (specificSection) specificSection.style.display = 'none';
+            } else if (select.value === 'specific') {
+                if (tagsInput) tagsInput.style.display = 'none';
+                if (specificSection) specificSection.style.display = 'block';
+            } else {
+                if (tagsInput) tagsInput.style.display = 'none';
+                if (specificSection) specificSection.style.display = 'none';
+            }
+        }
+
+        async function lookupEmailRecipient() {
+            const input = document.getElementById('emailSpecificUserInput')?.value?.trim();
+            const resultDiv = document.getElementById('emailSpecificUserResult');
+            if (!input || !resultDiv) return;
+            try {
+                resultDiv.innerHTML = '🔍 Looking up...';
+                const response = await fetch(`/api/admin/user-lookup?q=${encodeURIComponent(input)}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    }
+                });
+                if (response.ok) {
+                    const user = await response.json();
+                    resultDiv.innerHTML = `✅ Found: <strong>${user.displayName || user.username}</strong> (${user.id})`;
+                } else {
+                    resultDiv.innerHTML = '❌ User not found';
+                }
+            } catch (err) {
+                resultDiv.innerHTML = '❌ Lookup failed: ' + err.message;
+            }
+        }
+
+        async function sendMassEmail() {
+            const fromEmail = document.getElementById('emailFrom')?.value?.trim() || '';
+            const subject = document.getElementById('emailSubject')?.value || '';
+            const htmlContent = document.getElementById('emailBody')?.value || '';
+            const recipientFilter = document.getElementById('emailRecipients')?.value || 'all';
+            const tagsValue = document.getElementById('emailTags')?.value || '';
+            const specificUserId = document.getElementById('emailSpecificUserInput')?.value?.trim() || '';
+            const statusDiv = document.getElementById('emailStatusMessage');
+
+            if (!subject || !htmlContent) {
+                showEmailStatus('Subject and content are required', 'error');
+                return;
+            }
+
+            if (recipientFilter === 'specific' && !specificUserId) {
+                showEmailStatus('Please enter a user ID or username for the recipient', 'error');
+                return;
+            }
+
+            let filterValue = null;
+            if (recipientFilter === 'by-tags' && tagsValue) {
+                filterValue = tagsValue.split(',').map(t => t.trim()).filter(t => t);
+            }
+
+            try {
+                showEmailStatus('Sending campaign...', 'info');
+
+                const response = await fetch('/api/admin/send-mass-email', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    },
+                    body: JSON.stringify({
+                        subject: subject,
+                        htmlContent: htmlContent,
+                        recipientFilter: recipientFilter,
+                        filterValue: filterValue,
+                        fromEmail: fromEmail || undefined,
+                        recipientId: recipientFilter === 'specific' ? specificUserId : undefined
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    showEmailStatus(`✅ Campaign sent to ${result.totalRecipients} recipients`, 'success');
+                    clearEmailForm();
+                    setTimeout(loadEmailCampaigns, 1000);
+                } else {
+                    showEmailStatus('❌ Failed to send campaign: ' + (await response.text()), 'error');
+                }
+            } catch (error) {
+                console.error('Error sending email:', error);
+                showEmailStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        function clearEmailForm() {
+            const fromInput = document.getElementById('emailFrom');
+            const subjectInput = document.getElementById('emailSubject');
+            const bodyInput = document.getElementById('emailBody');
+            const recipientSelect = document.getElementById('emailRecipients');
+            const tagsInput = document.getElementById('emailTags');
+            const specificUserInput = document.getElementById('emailSpecificUserInput');
+            const specificUserResult = document.getElementById('emailSpecificUserResult');
+
+            if (fromInput) fromInput.value = '';
+            if (subjectInput) subjectInput.value = '';
+            if (bodyInput) bodyInput.value = '&lt;h2&gt;Announcement&lt;/h2&gt;&lt;p&gt;...&lt;/p&gt;';
+            if (recipientSelect) recipientSelect.value = 'all';
+            if (tagsInput) { tagsInput.value = ''; tagsInput.style.display = 'none'; }
+            if (specificUserInput) specificUserInput.value = '';
+            if (specificUserResult) specificUserResult.innerHTML = '';
+            const specificSection = document.getElementById('emailSpecificUserSection');
+            if (specificSection) specificSection.style.display = 'none';
+        }
+
+        function showEmailStatus(message, type) {
+            const statusDiv = document.getElementById('emailStatusMessage');
+            if (statusDiv) {
+                statusDiv.textContent = message;
+                statusDiv.style.display = 'block';
+                statusDiv.style.backgroundColor = type === 'success' ? '#d4edda' : (type === 'error' ? '#f8d7da' : '#d1ecf1');
+                statusDiv.style.color = type === 'success' ? '#155724' : (type === 'error' ? '#721c24' : '#0c5460');
+                statusDiv.style.borderLeft = `4px solid ${type === 'success' ? '#28a745' : (type === 'error' ? '#dc3545' : '#17a2b8')}`;
+            }
+        }
+
+        async function loadEmailCampaigns() {
+            const historyContainer = document.getElementById('emailCampaignsHistory');
+            if (!historyContainer) return;
+
+            historyContainer.innerHTML = '<p style="text-align: center; color: #999;">Loading campaigns...</p>';
+
+            try {
+                const response = await fetch('/api/admin/email-campaigns', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const campaigns = await response.json();
+                    
+                    if (campaigns.length === 0) {
+                        historyContainer.innerHTML = '<p style="text-align: center; color: #999;">No campaigns yet</p>';
+                        updateEmailStats([]);
+                        return;
+                    }
+
+                    let html = '<table class="table"><thead><tr><th>Subject</th><th>From</th><th>Filter</th><th>Recipients</th><th>Success</th><th>Failed</th><th>Sent By</th><th>Date</th></tr></thead><tbody>';
+                    campaigns.forEach(campaign => {
+                        const sentDate = new Date(campaign.sentAt).toLocaleString();
+                        const successRate = campaign.totalRecipients > 0 
+                            ? Math.round((campaign.successCount / campaign.totalRecipients) * 100) 
+                            : 0;
+                        let filterLabel = campaign.recipientFilter === 'all' ? '📢 All' :
+                            campaign.recipientFilter === 'by-tags' ? `🏷️ ${(campaign.filterValue || []).join(', ')}` :
+                            campaign.recipientFilter === 'specific' ? `👤 ${campaign.recipientId || ''}` : campaign.recipientFilter || '-';
+
+                        const errorTitle = campaign.lastError ? escapeHtml(campaign.lastError) : '';
+                        html += `<tr>
+                            <td>${escapeHtml(campaign.subject)}</td>
+                            <td style="font-size: 0.85em;">${campaign.fromEmail || 'Default'}</td>
+                            <td>${filterLabel}</td>
+                            <td>${campaign.totalRecipients}</td>
+                            <td style="color: #4caf50; font-weight: bold;">${campaign.successCount} (${successRate}%)</td>
+                            <td style="color: #d32f2f;${errorTitle ? ' cursor:help;' : ''}" title="${errorTitle}">${campaign.failureCount}${errorTitle ? ' ⚠️' : ''}</td>
+                            <td>${campaign.sentBy}</td>
+                            <td>${sentDate}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table>';
+                    historyContainer.innerHTML = html;
+                    updateEmailStats(campaigns);
+                } else {
+                    historyContainer.innerHTML = '<p style="color: #d32f2f;">Failed to load campaign history</p>';
+                }
+            } catch (error) {
+                console.error('Error loading campaigns:', error);
+                historyContainer.innerHTML = '<p style="color: #d32f2f;">Error: ' + error.message + '</p>';
+            }
+        }
+
+        function updateEmailStats(campaigns) {
+            const totalEl = document.getElementById('totalCampaigns');
+            const rateEl = document.getElementById('successRate');
+
+            if (totalEl) totalEl.textContent = campaigns.length;
+
+            if (rateEl && campaigns.length > 0) {
+                const totalSent = campaigns.reduce((sum, c) => sum + c.totalRecipients, 0);
+                const totalSuccess = campaigns.reduce((sum, c) => sum + c.successCount, 0);
+                const rate = totalSent > 0 ? Math.round((totalSuccess / totalSent) * 100) : 0;
+                rateEl.textContent = rate + '%';
+            }
+        }
+
+        // ==================== CLEAR HISTORY FUNCTIONS ====================
+
+        async function clearAnnouncementHistory() {
+            if (!confirm('Are you sure you want to clear all announcement history? This cannot be undone.')) return;
+            try {
+                const response = await fetch('/api/admin/announcement/history', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+                });
+                if (response.ok) {
+                    showAlert('Announcement history cleared successfully', 'success');
+                    loadAnnouncementHistory();
+                } else {
+                    const err = await response.json();
+                    showAlert('Failed to clear history: ' + (err.error || 'Unknown error'), 'error');
+                }
+            } catch (err) {
+                showAlert('Error clearing history: ' + err.message, 'error');
+            }
+        }
+
+        async function clearEmailCampaigns() {
+            if (!confirm('Are you sure you want to clear all email campaign history? This cannot be undone.')) return;
+            try {
+                const response = await fetch('/api/admin/email-campaigns', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+                });
+                if (response.ok) {
+                    showAlert('Email campaign history cleared successfully', 'success');
+                    loadEmailCampaigns();
+                } else {
+                    const err = await response.json();
+                    showAlert('Failed to clear history: ' + (err.error || 'Unknown error'), 'error');
+                }
+            } catch (err) {
+                showAlert('Error clearing history: ' + err.message, 'error');
+            }
+        }
+
+        async function clearAllReports() {
+            if (!confirm('Are you sure you want to clear ALL reports? This cannot be undone.')) return;
+            try {
+                const response = await fetch('/api/admin/reports', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+                });
+                if (response.ok) {
+                    showAlert('All reports cleared successfully', 'success');
+                    loadReports();
+                    loadDashboardStats();
+                } else {
+                    const err = await response.json();
+                    showAlert('Failed to clear reports: ' + (err.error || 'Unknown error'), 'error');
+                }
+            } catch (err) {
+                showAlert('Error clearing reports: ' + err.message, 'error');
+            }
+        }
+
+        // ==================== ANNOUNCEMENT SYSTEM ====================
+
+        let announceMode = 'single';
+
+        function setAnnounceMode(mode) {
+            announceMode = mode;
+            const singleLabel = document.getElementById('announceModeSingleLabel');
+            const broadcastLabel = document.getElementById('announceModeBroadcastLabel');
+            const recipientSection = document.getElementById('announceRecipientSection');
+            if (mode === 'single') {
+                if (singleLabel) singleLabel.style.background = '#667eea';
+                if (singleLabel) singleLabel.style.color = 'white';
+                if (broadcastLabel) { broadcastLabel.style.background = '#f0f0f0'; broadcastLabel.style.color = '#333'; }
+                if (recipientSection) recipientSection.style.display = 'block';
+            } else {
+                if (broadcastLabel) { broadcastLabel.style.background = '#667eea'; broadcastLabel.style.color = 'white'; }
+                if (singleLabel) { singleLabel.style.background = '#f0f0f0'; singleLabel.style.color = '#333'; }
+                if (recipientSection) recipientSection.style.display = 'none';
+            }
+        }
+
+        async function lookupAnnouncementUser() {
+            const input = document.getElementById('announcementRecipient')?.value?.trim();
+            const resultDiv = document.getElementById('announcementUserLookupResult');
+            if (!input) {
+                resultDiv.innerHTML = '<span style="color: #d32f2f;">Please enter a user ID or username</span>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/users?search=${encodeURIComponent(input)}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const users = await response.json();
+                    const userList = Array.isArray(users) ? users : (users.users || []);
+                    const matched = userList.find(u => u.id === input || u.username === input);
+                    if (matched) {
+                        resultDiv.innerHTML = `<span style="color: #4caf50;">✅ Found: <strong>${escapeHtml(matched.username)}</strong> (${escapeHtml(matched.id)})</span>`;
+                        document.getElementById('announcementRecipient').value = matched.id;
+                    } else {
+                        resultDiv.innerHTML = '<span style="color: #d32f2f;">User not found. Try a different ID or username.</span>';
+                    }
+                } else {
+                    resultDiv.innerHTML = '<span style="color: #d32f2f;">Lookup failed</span>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span style="color: #d32f2f;">Error: ' + error.message + '</span>';
+            }
+        }
+
+        function showAnnouncementStatus(message, type) {
+            const statusDiv = document.getElementById('announcementStatus');
+            if (statusDiv) {
+                statusDiv.textContent = message;
+                statusDiv.style.display = 'block';
+                statusDiv.style.backgroundColor = type === 'success' ? '#d4edda' : (type === 'error' ? '#f8d7da' : '#d1ecf1');
+                statusDiv.style.color = type === 'success' ? '#155724' : (type === 'error' ? '#721c24' : '#0c5460');
+                statusDiv.style.borderLeft = `4px solid ${type === 'success' ? '#28a745' : (type === 'error' ? '#dc3545' : '#17a2b8')}`;
+            }
+        }
+
+        async function sendAnnouncement() {
+            const subject = document.getElementById('announcementSubject')?.value?.trim();
+            const message = document.getElementById('announcementMessage')?.value?.trim();
+
+            if (!message) {
+                showAnnouncementStatus('Please enter a message', 'error');
+                return;
+            }
+
+            if (announceMode === 'single') {
+                const recipientId = document.getElementById('announcementRecipient')?.value?.trim();
+                if (!recipientId) {
+                    showAnnouncementStatus('Please enter a recipient', 'error');
+                    return;
+                }
+
+                try {
+                    showAnnouncementStatus('Sending announcement...', 'info');
+                    const response = await fetch('/api/admin/announcement/send', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                        },
+                        body: JSON.stringify({
+                            recipientId: recipientId,
+                            message: message,
+                            subject: subject || ''
+                        })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        showAnnouncementStatus(`✅ Sent to ${result.recipientName}`, 'success');
+                        document.getElementById('announcementMessage').value = '';
+                        setTimeout(loadAnnouncementHistory, 1000);
+                    } else {
+                        const err = await response.text();
+                        showAnnouncementStatus('❌ Failed: ' + err, 'error');
+                    }
+                } catch (error) {
+                    showAnnouncementStatus('Error: ' + error.message, 'error');
+                }
+            } else {
+                try {
+                    showAnnouncementStatus('Broadcasting to all users...', 'info');
+                    const response = await fetch('/api/admin/announcement/broadcast', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            subject: subject || ''
+                        })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        showAnnouncementStatus(`✅ Broadcast sent to ${result.totalRecipients} users`, 'success');
+                        document.getElementById('announcementMessage').value = '';
+                        setTimeout(loadAnnouncementHistory, 1000);
+                    } else {
+                        const err = await response.text();
+                        showAnnouncementStatus('❌ Failed: ' + err, 'error');
+                    }
+                } catch (error) {
+                    showAnnouncementStatus('Error: ' + error.message, 'error');
+                }
+            }
+        }
+
+        function clearAnnouncementForms() {
+            const recipient = document.getElementById('announcementRecipient');
+            const subject = document.getElementById('announcementSubject');
+            const message = document.getElementById('announcementMessage');
+            const result = document.getElementById('announcementUserLookupResult');
+            const statusDiv = document.getElementById('announcementStatus');
+            if (recipient) recipient.value = '';
+            if (subject) subject.value = '';
+            if (message) message.value = '';
+            if (result) result.innerHTML = '';
+            if (statusDiv) statusDiv.style.display = 'none';
+        }
+
+        async function loadAnnouncementHistory() {
+            const historyContainer = document.getElementById('announcementHistory');
+            if (!historyContainer) return;
+
+            historyContainer.innerHTML = '<p style="text-align: center; color: #999;">Loading history...</p>';
+
+            try {
+                const response = await fetch('/api/admin/announcement/history', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const list = Array.isArray(data) ? data : (data.history || []);
+
+                    if (list.length === 0) {
+                        historyContainer.innerHTML = '<p style="text-align: center; color: #999;">No announcements sent yet</p>';
+                        return;
+                    }
+
+                    let html = '<table class="table"><thead><tr><th>Type</th><th>Subject</th><th>Message</th><th>Recipient</th><th>Sent By</th><th>Date</th></tr></thead><tbody>';
+                    list.forEach(a => {
+                        const date = a.sentAt ? new Date(a.sentAt).toLocaleString() : 'Unknown';
+                        const type = a.type === 'broadcast' ? '📢 Broadcast' : '📤 Single';
+                        const recipient = a.type === 'broadcast' ? (a.totalRecipients + ' users') : (a.recipientName || a.recipientId || '—');
+                        html += `<tr>
+                            <td>${type}</td>
+                            <td>${escapeHtml(a.subject || '—')}</td>
+                            <td style="max-width:250px; word-wrap:break-word;">${escapeHtml((a.message || '').slice(0, 80))}</td>
+                            <td>${recipient}</td>
+                            <td>${escapeHtml(a.sentBy || '—')}</td>
+                            <td>${date}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table>';
+                    historyContainer.innerHTML = html;
+                } else {
+                    historyContainer.innerHTML = '<p style="color: #999;">Failed to load history</p>';
+                }
+            } catch (error) {
+                historyContainer.innerHTML = '<p style="color: #d32f2f;">Error: ' + error.message + '</p>';
+            }
+        }
+
+        // Update switch tab to also trigger announcements loading
+        const originalSwitchTab2 = window.switchTab;
+        window.switchTab = function(tabName) {
+            if (originalSwitchTab2) originalSwitchTab2(tabName);
+            if (tabName === 'announcements') {
+                loadAnnouncementHistory();
+            }
+        };
+
+        // Initialize on page load
+        setTimeout(() => {
+            loadAnnouncementHistory();
+        }, 3000);
+    </script>
+    <!-- CryptoJS Library for HMAC-SHA256 signing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</body>
+</html>
