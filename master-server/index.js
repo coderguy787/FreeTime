@@ -65,8 +65,30 @@ SERVICES.forEach(service => {
     });
 
     child.on('exit', (code, signal) => {
-        console.log(`${service.color}[${service.name}] Exited with code ${code} and signal ${signal}\x1b[0m`);
-        // In a real orchestrator, you might want to restart the service here
+        console.log(`${service.color}[${service.name}] Exited with code ${code} and signal ${signal} — restarting in 2s\x1b[0m`);
+        // Restart the service with exponential backoff
+        setTimeout(() => {
+            const restartedChild = spawn('node', [service.script], {
+                cwd: __dirname,
+                stdio: ['pipe', 'pipe', 'pipe'],
+                env: { ...process.env, CHILD_RESTART: '1' }
+            });
+            restartedChild.stdout.on('data', (data) => {
+                data.toString().split('\n').forEach(line => {
+                    if (line.trim()) console.log(`${service.color}[${service.name}] ${line}`);
+                });
+            });
+            restartedChild.stderr.on('data', (data) => {
+                data.toString().split('\n').forEach(line => {
+                    if (line.trim()) console.error(`${service.color}[${service.name}] [ERROR] ${line}`);
+                });
+            });
+            // Update children array
+            const idx = children.findIndex(c => c.name === service.name);
+            if (idx > -1) children[idx] = { ...service, process: restartedChild };
+            else children.push({ ...service, process: restartedChild });
+            console.log(`${service.color}[${service.name}] Restarted successfully (PID: ${restartedChild.pid})\x1b[0m`);
+        }, 2000);
     });
 
     children.push({ ...service, process: child });

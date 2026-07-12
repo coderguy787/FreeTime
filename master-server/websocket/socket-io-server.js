@@ -367,11 +367,30 @@ function initializeSocketIO(server, jwtSecret, allowedOrigins) {
         });
     });
 
-    // Provide connection statistics
-    setInterval(() => {
+    // Provide connection statistics (prevent duplicate intervals on re-init)
+    if (global._socketIoStatInterval) clearInterval(global._socketIoStatInterval);
+    global._socketIoStatInterval = setInterval(() => {
         const connectedClients = io.engine.clientsCount || 0;
         console.log(`[STAT] Socket.IO: Connected clients: ${connectedClients}`);
-    }, 60000); // Log every minute
+
+        // Periodic cleanup of stale wsClients entries (connections that closed without disconnect)
+        if (global.wsClients) {
+            for (const [sid, client] of global.wsClients.entries()) {
+                const sock = io.sockets.sockets.get(sid);
+                if (!sock) {
+                    global.wsClients.delete(sid);
+                    if (client.userId && global.wsUserMap) {
+                        const sockets = global.wsUserMap.get(client.userId);
+                        if (sockets) {
+                            const idx = sockets.indexOf(sid);
+                            if (idx > -1) sockets.splice(idx, 1);
+                            if (sockets.length === 0) global.wsUserMap.delete(client.userId);
+                        }
+                    }
+                }
+            }
+        }
+    }, 60000); // Log and clean every minute
 
     // Make socket.io instance globally available for API routes
     global.socketIoServer = io;

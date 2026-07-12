@@ -275,8 +275,8 @@ try {
         });
         console.warn('[⚠️  HTTPS] To set up Let\'s Encrypt certificates, run on Debian server:');
         console.warn('[⚠️  HTTPS]   1. sudo apt install certbot -y');
-        console.warn('[⚠️  HTTPS]   2. sudo certbot certonly --standalone -d example.com');
-        console.warn('[⚠️  HTTPS]   3. sudo chmod 644 /etc/letsencrypt/live/example.com/privkey.pem');
+        console.warn('[⚠️  HTTPS]   2. sudo certbot certonly --standalone -d freetime.publicvm.com');
+        console.warn('[⚠️  HTTPS]   3. sudo chmod 644 /etc/letsencrypt/live/freetime.publicvm.com/privkey.pem');
         console.warn('[⚠️  HTTPS] Server will run in HTTP mode (not suitable for production)');
     }
 } catch (err) {
@@ -439,8 +439,8 @@ function isAllowedOrigin(origin) {
 }
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS ? parseAllowedOrigins(process.env.ALLOWED_ORIGINS) : [
-    'https://example.com',
-    'https://example.com:443',
+    'https://freetime.publicvm.com',
+    'https://freetime.publicvm.com:443',
     'https://localhost',
     'https://localhost:3001',
     'https://localhost:8080',
@@ -449,14 +449,14 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS ? parseAllowedOrigins(process
     'http://localhost:3001',
     'http://localhost:8080',
     'http://localhost:9080',
-    'http://192.168.1.100',
-    'http://192.168.1.100:3001',
-    'http://192.168.1.100:8080',
-    'http://192.168.1.100:9080',
-    'https://192.168.1.100',
-    'https://192.168.1.100:3001',
-    'https://192.168.1.100:8080',
-    'https://192.168.1.100:9080',
+    'http://192.168.1.7',
+    'http://192.168.1.7:3001',
+    'http://192.168.1.7:8080',
+    'http://192.168.1.7:9080',
+    'https://192.168.1.7',
+    'https://192.168.1.7:3001',
+    'https://192.168.1.7:8080',
+    'https://192.168.1.7:9080',
     'http://10.0.2.2',
     'http://10.0.2.2:80'
 ];
@@ -12467,7 +12467,7 @@ async function start() {
             server.listen(API_PORT, '0.0.0.0', async () => {
                 const protocol = useDirectHttps ? 'HTTPS' : 'HTTP';
                 const secureNote = useDirectHttps ? 'Secure direct HTTPS mode' : 'HTTP mode behind reverse proxy';
-                console.log(`\n[OK] FreeTime Master-Server Admin API Started\n[INFO] Protocol: ${protocol}\n[INFO] Mode: ${secureNote}\n[INFO] Listening on port ${API_PORT}\n[INFO] Domain: example.com\n[INFO] API Port: ${API_PORT} (${protocol})\n[INFO] WebSocket Port: 8080\n[INFO] Peer Port: 9080\n[INFO] Admin Port: 3001\n[INFO] Data store: ${MONGODB_URI.split('/').pop()}\n[INFO] Request timeout: ${REQUEST_TIMEOUT_MS}ms\n                `);
+                console.log(`\n[OK] FreeTime Master-Server Admin API Started\n[INFO] Protocol: ${protocol}\n[INFO] Mode: ${secureNote}\n[INFO] Listening on port ${API_PORT}\n[INFO] Domain: freetime.publicvm.com\n[INFO] API Port: ${API_PORT} (${protocol})\n[INFO] WebSocket Port: 8080\n[INFO] Peer Port: 9080\n[INFO] Admin Port: 3001\n[INFO] Data store: ${MONGODB_URI.split('/').pop()}\n[INFO] Request timeout: ${REQUEST_TIMEOUT_MS}ms\n                `);
 
                 try {
                     initializeSocketIO(server, JWT_SECRET, allowedOrigins);
@@ -13168,13 +13168,19 @@ function gracefulShutdown(signal) {
     
     // Stop accepting new requests
     if (server) {
+        // Close Socket.IO gracefully
+        if (global.socketIoServer) {
+            console.log('[OK] Closing Socket.IO server...');
+            global.socketIoServer.close();
+        }
+
         server.close(async () => {
             console.log('[OK] HTTP server closed');
             
-            // Close database connection
+            // Close database connection via manager
             try {
-                if (dbConnection && dbConnection.client) {
-                    await dbConnection.client.close();
+                if (dbManager && typeof dbManager.shutdown === 'function') {
+                    await dbManager.shutdown();
                     console.log('[OK] Database connection closed');
                 }
             } catch (err) {
@@ -13353,7 +13359,7 @@ app.post('/api/groups', verifyToken, async (req, res) => {
         // Generate invite link with both deep link and web link formats
         const inviteCode = groupId.substring(0, 8).toUpperCase();
         const deepLink = `freetime://group/invite/${groupId}`;
-        const webLink = `https://example.com/group/invite/${inviteCode}`;
+        const webLink = `https://freetime.publicvm.com/group/invite/${inviteCode}`;
         
         const group = {
             id: groupId,
@@ -13563,7 +13569,7 @@ app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
                 adminIds: group.adminIds || [],
                 admins: group.admins || [group.createdBy],
                 inviteLink: group.inviteLink || `freetime://group/invite/${groupId}`,
-                webInviteLink: `https://example.com/group/invite/${generatedInviteCode}`,
+                webInviteLink: `https://freetime.publicvm.com/group/invite/${generatedInviteCode}`,
                 inviteCode: generatedInviteCode,  // ✅ CRITICAL FIX: Always generate, never empty
                 webInviteCode: generatedInviteCode,
                 createdAt: group.createdAt,
@@ -14565,17 +14571,17 @@ app.get('/api/groups/web/invite/:inviteCode', async (req, res) => {
     <title>Join Group: ${groupName}</title>
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://example.com/api/groups/web/invite/${inviteCode}">
+    <meta property="og:url" content="https://freetime.publicvm.com/api/groups/web/invite/${inviteCode}">
     <meta property="og:title" content="Join ${groupName} on FreeTime">
     <meta property="og:description" content="You have been invited to join '${groupName}' on FreeTime Secure Chat. Click to join the conversation.">
-    <meta property="og:image" content="${groupAvatar || 'https://example.com/logo.png'}">
+    <meta property="og:image" content="${groupAvatar || 'https://freetime.publicvm.com/logo.png'}">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://example.com/api/groups/web/invite/${inviteCode}">
+    <meta property="twitter:url" content="https://freetime.publicvm.com/api/groups/web/invite/${inviteCode}">
     <meta property="twitter:title" content="Join ${groupName} on FreeTime">
     <meta property="twitter:description" content="You have been invited to join '${groupName}' on FreeTime Secure Chat. Click to join the conversation.">
-    <meta property="twitter:image" content="${groupAvatar || 'https://example.com/logo.png'}">
+    <meta property="twitter:image" content="${groupAvatar || 'https://freetime.publicvm.com/logo.png'}">
 
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
@@ -16104,7 +16110,7 @@ function getEffectiveVersion() {
 }
 
 function buildDownloadUrl(req) {
-    const host = req.get('host') || 'example.com';
+    const host = req.get('host') || 'freetime.publicvm.com';
     const protocol = req.protocol || 'https';
     return `${protocol}://${host}/update/FreeTimeApp-v${APP_VERSION.latestVersion}.apk`;
 }

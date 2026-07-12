@@ -57,6 +57,12 @@ app.use(express.json());
 // Create HTTPS server for WebSocket Secure (WSS)
 const server = sslOptions ? https.createServer(sslOptions, app) : require('http').createServer(app);
 
+// Timeout settings to prevent idle connection accumulation
+server.timeout = 30000;
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+server.requestTimeout = 30000;
+
 // Create WebSocket server
 const wss = new WebSocket.Server({ 
     server,
@@ -69,7 +75,14 @@ let dbConnection = null;
 
 async function connectDB() {
     try {
-        const client = new MongoClient(MONGODB_URI);
+        const client = new MongoClient(MONGODB_URI, {
+            maxPoolSize: 20,
+            minPoolSize: 2,
+            maxIdleTimeMS: 60000,
+            socketTimeoutMS: 30000,
+            serverSelectionTimeoutMS: 5000,
+            retryWrites: true
+        });
         await client.connect();
         dbConnection = client.db('freetime');
         console.log('[OK] WebSocket: Connected to MongoDB');

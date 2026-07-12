@@ -369,10 +369,16 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         // Remove user from active users
         activeUsers.delete(userId);
         
-        // Remove from typing users
-        typingUsers.forEach((typingSet) => {
+        // Remove from typing users and prune empty sets
+        typingUsers.forEach((typingSet, conversationId) => {
             typingSet.delete(userId);
+            if (typingSet.size === 0) {
+                typingUsers.delete(conversationId);
+            }
         });
+
+        // Clean up activity tracking
+        userActivity.delete(userId);
 
         // Broadcast offline status
         broadcastGlobal({
@@ -465,11 +471,12 @@ function isUserOnline(userId) {
 }
 
 /**
- * Mark idle users after 5 minutes
+ * Mark idle users after 5 minutes and clean up stale activity entries
  */
 setInterval(() => {
     const now = Date.now();
     const idleTimeout = 5 * 60 * 1000; // 5 minutes
+    const activityStaleTimeout = 24 * 60 * 60 * 1000; // 24 hours for activity cleanup
 
     activeUsers.forEach((userInfo, userId) => {
         if (now - userInfo.lastActivity > idleTimeout && userInfo.status === 'online') {
@@ -485,6 +492,13 @@ setInterval(() => {
             console.log(`[IDLE] User ${userId} marked as idle`);
         }
     });
+
+    // Clean up stale activity entries for users no longer connected
+    for (const [userId, lastTime] of userActivity.entries()) {
+        if (!activeUsers.has(userId) && now - lastTime > activityStaleTimeout) {
+            userActivity.delete(userId);
+        }
+    }
 }, 60000); // Check every minute
 
 module.exports = {

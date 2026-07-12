@@ -24,6 +24,15 @@ const os = require('os');
 const axios = require('axios');
 const AdminComPort = require('./admin-com-port');
 
+// Shared HTTPS agent for proxy requests — prevents socket accumulation
+const sharedApiAgent = new https.Agent({
+    rejectUnauthorized: false,
+    keepAlive: true,
+    maxSockets: 10,
+    maxFreeSockets: 5,
+    timeout: 15000
+});
+
 const app = express();
 const ADMIN_PANEL_PORT = process.env.PORT_ADMIN_PANEL || 3001;
 const BIND_IP = process.env.BIND_IP || '0.0.0.0'; // Bind to all interfaces for health checks
@@ -356,11 +365,6 @@ const proxyAdminRequests = async (req, res) => {
         headers['content-type'] = 'application/json';
         delete headers['content-length'];
         
-        // Make HTTPS request with self-signed cert acceptance
-        const httpsAgent = new https.Agent({
-            rejectUnauthorized: false
-        });
-        
         fs.writeFileSync('logs/proxy-debug.log', `[${new Date().toISOString()}] Calling axios...\n`, {flag: 'a'});
         
         const response = await axios({
@@ -370,7 +374,7 @@ const proxyAdminRequests = async (req, res) => {
             headers: headers,
             validateStatus: () => true,
             timeout: 15000,
-            httpsAgent: httpsAgent
+            httpsAgent: sharedApiAgent
         });
         
         fs.writeFileSync('logs/proxy-debug.log', `[${new Date().toISOString()}] Got response ${response.status}\n`, {flag: 'a'});

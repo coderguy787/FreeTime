@@ -401,8 +401,22 @@ class SessionManager {
       });
 
       if (result.deletedCount > 0) {
-        console.log(`[OK] Cleaned up ${result.deletedCount} expired sessions`);
+        console.log(`[OK] Cleaned up ${result.deletedCount} expired sessions from DB`);
       }
+
+      // Also evict expired entries from in-memory cache
+      const now = Date.now();
+      let evicted = 0;
+      for (const [key, value] of this.activeSessions.entries()) {
+        if (value.expiresAt < now) {
+          this.activeSessions.delete(key);
+          evicted++;
+        }
+      }
+      if (evicted > 0) {
+        console.log(`[OK] Evicted ${evicted} expired sessions from memory cache`);
+      }
+
       return result.deletedCount;
     } catch (err) {
       console.error(`[ERROR] Failed to cleanup sessions: ${err.message}`);
