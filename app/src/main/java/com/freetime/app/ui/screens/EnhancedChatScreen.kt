@@ -805,109 +805,57 @@ fun EnhancedChatInput(
     onVoiceRecord: () -> Unit,
     hasReply: Boolean
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                color = CyberpunkTheme.Black,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-            )
-            .border(
-                width = 0.5.dp,
-                color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-            )
-            .padding(12.dp)
+            .background(Color(0xFF0F0F1E))
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(
-                    color = Color(0xFF1A1A2E),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = if (hasReply) CyberpunkTheme.CyberCyan else CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onAttachClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    Icons.Default.AttachFile,
-                    null,
-                    tint = CyberpunkTheme.PrimaryPurple,
-                    modifier = Modifier.size(20.dp)
-                )
+        IconButton(onClick = onAttachClick) {
+            Icon(Icons.Default.AttachFile, null, tint = Color.Gray)
+        }
+        
+        IconButton(onClick = onEmojiClick) {
+            Icon(Icons.Default.EmojiEmotions, null, tint = Color.Gray)
+        }
+        
+        TextField(
+            value = messageText,
+            onValueChange = onMessageChange,
+            modifier = Modifier.weight(1f),
+            placeholder = { Text("Type a message...", color = Color.Gray) },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFF1A1A2E),
+                unfocusedContainerColor = Color(0xFF1A1A2E),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = CyberpunkTheme.CyberCyan,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent
+            ),
+            shape = RoundedCornerShape(24.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { onSendClick() })
+        )
+        
+        AnimatedContent(
+            targetState = messageText.isNotBlank(),
+            transitionSpec = {
+                (scaleIn() + fadeIn()).togetherWith(scaleOut() + fadeOut())
             }
-            
-            TextField(
-                value = messageText,
-                onValueChange = onMessageChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 40.dp, max = 100.dp),
-                placeholder = { Text("Message...", color = CyberpunkTheme.GhostGray, fontSize = 13.sp) },
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = CyberpunkTheme.White,
-                    unfocusedTextColor = CyberpunkTheme.White,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    cursorColor = CyberpunkTheme.CyberCyan,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSendClick() })
-            )
-            
-            IconButton(onClick = onEmojiClick, modifier = Modifier.size(40.dp)) {
-                Text("😊", fontSize = 20.sp)
-            }
-            
-            AnimatedContent(
-                targetState = messageText.isNotBlank(),
-                transitionSpec = {
-                    (scaleIn() + fadeIn()).togetherWith(scaleOut() + fadeOut())
+        ) { hasText ->
+            if (hasText) {
+                IconButton(onClick = onSendClick) {
+                    Icon(
+                        Icons.Default.Send,
+                        null,
+                        tint = CyberpunkTheme.CyberCyan
+                    )
                 }
-            ) { hasText ->
-                if (hasText) {
-                    IconButton(
-                        onClick = onSendClick,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(
-                                color = CyberpunkTheme.PrimaryPurple,
-                                shape = CircleShape
-                            )
-                    ) {
-                        Icon(
-                            Icons.Default.Send,
-                            null,
-                            tint = CyberpunkTheme.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = onVoiceRecord,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Mic,
-                            null,
-                            tint = CyberpunkTheme.PrimaryPurple,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+            } else {
+                IconButton(onClick = onVoiceRecord) {
+                    Icon(Icons.Default.Mic, null, tint = Color.Gray)
                 }
             }
         }

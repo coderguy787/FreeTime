@@ -15,6 +15,11 @@ import okhttp3.ConnectionPool
 import java.util.concurrent.TimeUnit
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import com.freetime.app.data.local.database.FreeTimeDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * FreeTime Application Class
@@ -25,6 +30,7 @@ class FreeTimeApplication : Application(), ImageLoaderFactory {
 
     companion object {
         private const val TAG = "FreeTimeApp"
+        private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
     override fun onCreate() {
@@ -64,6 +70,10 @@ class FreeTimeApplication : Application(), ImageLoaderFactory {
         // ✅ NEW: Initialize WebRTC globally
         // This prevents JNI crashes if WebRTC events fire before local initialization
         initializeWebRTC()
+        
+        // ✅ NEW: Register global WebSocket listener to clear local DB when chat history is deleted
+        // This ensures the OTHER user's local DB is cleared even if they're not on the chat screen
+        registerGlobalChatHistoryDeletedListener()
         
         Log.d(TAG, "✅ FreeTime Application fully initialized")
     }
@@ -163,6 +173,36 @@ class FreeTimeApplication : Application(), ImageLoaderFactory {
             .build()
     }
     
+    /**
+     * ✅ Register a global WebSocket listener that clears the local Room DB
+     * when chat history is deleted by the other user. This ensures cleanup
+     * happens even if the chat screen is not currently active.
+     */
+    private fun registerGlobalChatHistoryDeletedListener() {
+        try {
+            val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
+            wsManager.addListener(object : com.freetime.app.services.WebSocketManager.WebSocketListener {
+                override fun onChatHistoryDeleted(data: com.freetime.app.services.WebSocketManager.ChatHistoryDeletedData) {
+                    // recipientId in the event is always the chat partner from the receiver's perspective
+                    val chatPartnerId = data.recipientId
+                    if (chatPartnerId.isEmpty()) return
+                    applicationScope.launch {
+                        try {
+                            val db = FreeTimeDatabase.getInstance(this@FreeTimeApplication)
+                            db.messageDao().deleteAllMessagesInChat(chatPartnerId)
+                            Log.d(TAG, "✅ Global listener: local DB cleared for chat with $chatPartnerId")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Global listener: failed to clear local DB: ${e.message}")
+                        }
+                    }
+                }
+            })
+            Log.d(TAG, "✅ Global chat history deleted listener registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to register global chat history deleted listener: ${e.message}")
+        }
+    }
+
     /**
      * Initialize global SSL context with permissive trust manager
      * This affects ALL HTTPS connections including:

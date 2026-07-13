@@ -4568,105 +4568,57 @@ fun ChatInputArea(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(
-                    color = Color(0xFF1A1A2E),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(14.dp)
-                )
+                .background(Color(0xFF0F0F1E))
                 .padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onAttachClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    Icons.Default.AttachFile,
-                    null,
-                    tint = CyberpunkTheme.PrimaryPurple,
-                    modifier = Modifier.size(20.dp)
-                )
+            IconButton(onClick = onAttachClick) {
+                Icon(Icons.Default.AttachFile, null, tint = Color.Gray)
+            }
+            
+            if (onGifClick != null) {
+                IconButton(onClick = onGifClick) {
+                    Text("GIF", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+            
+            IconButton(onClick = onEmojiClick) {
+                Icon(Icons.Default.EmojiEmotions, null, tint = Color.Gray)
             }
             
             TextField(
                 value = messageText,
                 onValueChange = { newValue ->
-                    // Filter out newline characters - only allow single-line messages in input
                     val filtered = newValue.replace("\n", "").replace("\r", "")
                     onMessageChange(filtered)
                 },
                 modifier = Modifier
                     .weight(1f)
-                    .onFocusChanged { focusState -> onFocusChange(focusState.isFocused) }
-                    .heightIn(min = 40.dp, max = 100.dp),
-                placeholder = {
-                    Text(
-                        "Type a message...",
-                        color = CyberpunkTheme.GhostGray,
-                        fontSize = inputFontSize
-                    )
-                },
+                    .onFocusChanged { focusState -> onFocusChange(focusState.isFocused) },
+                placeholder = { Text("Type a message...", color = Color.Gray) },
                 colors = TextFieldDefaults.colors(
-                    focusedTextColor = CyberpunkTheme.White,
-                    unfocusedTextColor = CyberpunkTheme.White,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
+                    focusedContainerColor = Color(0xFF1A1A2E),
+                    unfocusedContainerColor = Color(0xFF1A1A2E),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
                     cursorColor = CyberpunkTheme.CyberCyan,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 ),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = inputFontSize),
+                shape = RoundedCornerShape(24.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(
-                    onSend = { onSendClick() }
-                )
+                keyboardActions = KeyboardActions(onSend = { onSendClick() })
             )
             
             IconButton(
-                onClick = onEmojiClick,
-                modifier = Modifier.size(40.dp)
+                onClick = onSendClick,
+                enabled = messageText.isNotBlank(),
             ) {
-                Text("😊", fontSize = 24.sp)
-            }
-            
-            if (onGifClick != null) {
-                IconButton(
-                    onClick = onGifClick,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Text("GIF", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = CyberpunkTheme.PrimaryPurple)
-                }
-            }
-            
-            AnimatedContent(
-                targetState = messageText.isNotBlank(),
-                transitionSpec = {
-                    (scaleIn() + fadeIn()).togetherWith(scaleOut() + fadeOut())
-                }
-            ) { hasText ->
-                IconButton(
-                    onClick = onSendClick,
-                    enabled = hasText,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(
-                            color = if (hasText) CyberpunkTheme.PrimaryPurple else CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f),
-                            shape = CircleShape
-                        )
-                ) {
                     Icon(
                         Icons.Default.Send,
                         null,
-                        tint = if (hasText) CyberpunkTheme.White else CyberpunkTheme.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(18.dp)
+                        tint = if (messageText.isNotBlank()) CyberpunkTheme.CyberCyan else Color.Gray
                     )
-                }
             }
         }
     }
