@@ -505,6 +505,10 @@ interface ApiService {
     // Version Check
     @GET("api/app/version-info")
     suspend fun getVersionInfo(): Response<VersionInfoResponse>
+
+    // App Update Acknowledgement
+    @POST("api/app/update/acknowledge")
+    suspend fun acknowledgeUpdate(@Body body: Map<String, @JvmSuppressWildcards Any>): Response<Unit>
 }
 
 // Data Transfer Objects for new endpoints

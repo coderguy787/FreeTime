@@ -16163,11 +16163,25 @@ function buildDownloadUrl(req) {
     return `${protocol}://${host}/update/FreeTimeApp-v${APP_VERSION.latestVersion}.apk`;
 }
 
-app.get('/api/app/version-info', (req, res) => {
+app.get('/api/app/version-info', async (req, res) => {
     const effective = getEffectiveVersion();
+    // Check for admin-launched update with custom release notes
+    let adminUpdate = null;
+    try {
+        adminUpdate = await dbConnection.collection('appUpdates').findOne(
+            { isActive: true },
+            { sort: { launchedAt: -1 } }
+        );
+    } catch (e) { /* ignore */ }
     res.json({
-        ...effective,
-        downloadUrl: apkExists() ? buildDownloadUrl(req) : ''
+        ...(adminUpdate ? {
+            latestVersion: adminUpdate.version,
+            latestVersionCode: adminUpdate.versionCode,
+            forceUpdate: adminUpdate.forceUpdate,
+            releaseNotes: adminUpdate.releaseNotes
+        } : effective),
+        downloadUrl: apkExists() ? buildDownloadUrl(req) : '',
+        updateId: adminUpdate ? adminUpdate.id : null
     });
 });
 
@@ -16194,6 +16208,196 @@ app.post('/api/app/version-check', verifyToken, (req, res) => {
     } catch (e) {
         console.error('[VERSION_CHECK_ERROR]', e.message);
         res.json({ compatible: true, shouldUpdate: false, message: 'Version check unavailable' });
+    }
+});
+
+// ==================== APP UPDATE MANAGEMENT (Admin-Triggered) ====================
+
+/**
+ * POST /api/admin/update/launch - Admin launches an app update to all users
+ * Creates an update record and broadcasts via WebSocket
+ */
+app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+        const { version, versionCode, releaseNotes, forceUpdate } = req.body;
+        if (!version || !releaseNotes) {
+            return res.status(400).json({ error: 'version and releaseNotes are required' });
+        }
+
+        // Deactivate any previous active updates
+        await dbConnection.collection('appUpdates').updateMany(
+            { isActive: true },
+            { $set: { isActive: false, deactivatedAt: new Date().toISOString() } }
+        );
+
+        const updateRecord = {
+            id: `update_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            version,
+            versionCode: parseInt(versionCode) || 1,
+            releaseNotes,
+            forceUpdate: !!forceUpdate,
+            launchedAt: new Date().toISOString(),
+            isActive: true,
+            createdBy: req.user.userId || req.user.username,
+            acknowledgedBy: []
+        };
+
+        await dbConnection.collection('appUpdates').insertOne(updateRecord);
+
+        // Update the static APP_VERSION
+        APP_VERSION.latestVersion = version;
+        APP_VERSION.latestVersionCode = parseInt(versionCode) || APP_VERSION.latestVersionCode;
+        APP_VERSION.releaseNotes = releaseNotes;
+        APP_VERSION.forceUpdate = !!forceUpdate;
+
+        // Broadcast to all connected users via WebSocket
+        const io = require('../websocket/socket-io-server').io;
+        if (io) {
+            io.emit('app.update.launched', {
+                id: updateRecord.id,
+                version: updateRecord.version,
+                versionCode: updateRecord.versionCode,
+                releaseNotes: updateRecord.releaseNotes,
+                forceUpdate: updateRecord.forceUpdate,
+                launchedAt: updateRecord.launchedAt
+            });
+        }
+
+        await logEvent('app_update_launched', `App update ${version} launched by ${req.user.username || req.user.userId}`, req.user.userId);
+        console.log(`[OK] App update launched: v${version}`);
+
+        res.json({ success: true, update: updateRecord });
+    } catch (err) {
+        console.error('Launch update error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /api/admin/update/info - Get current active update info
+ */
+app.get('/api/admin/update/info', verifyToken, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+        const update = await dbConnection.collection('appUpdates').findOne(
+            { isActive: true },
+            { sort: { launchedAt: -1 } }
+        );
+        res.json({ update: update || null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * PUT /api/admin/update/:id - Edit update release notes
+ */
+app.put('/api/admin/update/:id', verifyToken, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+        const { releaseNotes, forceUpdate } = req.body;
+        await dbConnection.collection('appUpdates').updateOne(
+            { id: req.params.id },
+            { $set: { releaseNotes, forceUpdate: !!forceUpdate, updatedAt: new Date().toISOString() } }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * DELETE /api/admin/update/:id - Deactivate an update
+ */
+app.delete('/api/admin/update/:id', verifyToken, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+        await dbConnection.collection('appUpdates').updateOne(
+            { id: req.params.id },
+            { $set: { isActive: false, deactivatedAt: new Date().toISOString() } }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /api/admin/update/stats - Get update adoption statistics
+ */
+app.get('/api/admin/update/stats', verifyToken, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+        const update = await dbConnection.collection('appUpdates').findOne(
+            { isActive: true },
+            { sort: { launchedAt: -1 } }
+        );
+        if (!update) {
+            return res.json({ update: null, totalUsers: 0, updatedCount: 0, notUpdatedCount: 0, users: [] });
+        }
+
+        const allUsers = await dbConnection.collection('users').find({}, { projection: { id: 1, username: 1, lastAppVersionCode: 1, lastActiveAt: 1 } }).toArray();
+        const totalUsers = allUsers.length;
+        const updatedUsers = update.acknowledgedBy || [];
+        const updatedCount = updatedUsers.length;
+        const notUpdatedCount = totalUsers - updatedCount;
+
+        const users = allUsers.map(u => ({
+            id: u.id,
+            username: u.username,
+            hasUpdated: updatedUsers.includes(u.id),
+            lastVersionCode: u.lastAppVersionCode || 0,
+            lastActive: u.lastActiveAt || null
+        }));
+
+        res.json({ update, totalUsers, updatedCount, notUpdatedCount, users });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /api/app/update/acknowledge - User acknowledges they've seen/installed the update
+ */
+app.post('/api/app/update/acknowledge', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { updateId, versionCode } = req.body;
+
+        if (updateId) {
+            await dbConnection.collection('appUpdates').updateOne(
+                { id: updateId },
+                { $addToSet: { acknowledgedBy: userId } }
+            );
+        }
+
+        // Store the user's current app version
+        if (versionCode) {
+            await dbConnection.collection('users').updateOne(
+                { $or: [{ id: userId }, { userId: userId }] },
+                { $set: { lastAppVersionCode: parseInt(versionCode), lastAppVersionCheckedAt: new Date().toISOString() } }
+            );
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /api/app/latest-update - Get latest active update for clients
+ */
+app.get('/api/app/latest-update', async (req, res) => {
+    try {
+        const update = await dbConnection.collection('appUpdates').findOne(
+            { isActive: true },
+            { sort: { launchedAt: -1 } }
+        );
+        res.json({ update: update || null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

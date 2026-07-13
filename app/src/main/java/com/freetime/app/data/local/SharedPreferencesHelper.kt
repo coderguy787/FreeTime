@@ -486,4 +486,17 @@ class SharedPreferencesHelper(context: Context) {
     fun getSkippedVersion(): Int {
         return sharedPreferences.getInt("skipped_update_version", 0)
     }
+
+    // In-app update: pending update ID (from admin-launched update)
+    fun setPendingUpdateId(updateId: String) {
+        sharedPreferences.edit().putString("pending_update_id", updateId).apply()
+    }
+
+    fun getPendingUpdateId(): String {
+        return sharedPreferences.getString("pending_update_id", "") ?: ""
+    }
+
+    fun clearPendingUpdateId() {
+        sharedPreferences.edit().remove("pending_update_id").apply()
+    }
 }

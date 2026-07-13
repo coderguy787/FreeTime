@@ -154,6 +154,7 @@ class WebSocketManager private constructor() {
         fun onGroupVoteCast(data: GroupVoteCastData) {}
         fun onGroupHistoryCleared(data: GroupHistoryClearedData) {}
         fun onGroupDeleted(data: GroupDeletedData) {}
+        fun onAppUpdateLaunched(data: AppUpdateData) {}
         
         // Media Download Events
         fun onMediaDownloadRequested(data: MediaDownloadRequestData) {}
@@ -284,6 +285,7 @@ class WebSocketManager private constructor() {
     data class GroupVoteCastData(val voteId: String, val userId: String, val optionIndex: Int)
     data class GroupHistoryClearedData(val groupId: String, val deletedBy: String, val timestamp: Long = System.currentTimeMillis())
     data class GroupDeletedData(val groupId: String, val deletedBy: String)
+    data class AppUpdateData(val id: String, val version: String, val versionCode: Int, val releaseNotes: String, val forceUpdate: Boolean, val launchedAt: String)
     
     // ✅ NEW: Group custom picture data
     data class GroupPictureUpdatedData(val groupId: String, val pictureUrl: String, val updatedBy: String, val updatedAt: String)
@@ -639,6 +641,7 @@ class WebSocketManager private constructor() {
         mSocket?.on("user.offline") { args -> handleEvent(args, ::handleUserOffline) }
         mSocket?.on("user:profile-updated") { args -> handleEvent(args, ::handleUserProfileUpdated) }
         mSocket?.on("notification:received") { args -> handleEvent(args, ::handleNotificationReceived) }
+        mSocket?.on("app.update.launched") { args -> handleEvent(args, ::handleAppUpdateLaunched) }
         
         // ✅ NEW: Handle session termination (concurrent login prevention)
         mSocket?.on("session:terminated") { args ->
@@ -844,6 +847,7 @@ class WebSocketManager private constructor() {
         mWebSocketSocket?.on("user.online") { args -> handleEvent(args, ::handleUserOnline) }
         mWebSocketSocket?.on("user.offline") { args -> handleEvent(args, ::handleUserOffline) }
         mWebSocketSocket?.on("user:profile-updated") { args -> handleEvent(args, ::handleUserProfileUpdated) }
+        mWebSocketSocket?.on("app.update.launched") { args -> handleEvent(args, ::handleAppUpdateLaunched) }
     }
 
     /**
@@ -1397,6 +1401,19 @@ class WebSocketManager private constructor() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse internal notification: ${e.message}")
         }
+    }
+
+    private fun handleAppUpdateLaunched(data: JSONObject) {
+        val payload = AppUpdateData(
+            id = data.optString("id", ""),
+            version = data.optString("version", ""),
+            versionCode = data.optInt("versionCode", 0),
+            releaseNotes = data.optString("releaseNotes", ""),
+            forceUpdate = data.optBoolean("forceUpdate", false),
+            launchedAt = data.optString("launchedAt", "")
+        )
+        Log.d(TAG, "App update launched: v${payload.version}")
+        listeners.forEach { it.onAppUpdateLaunched(payload) }
     }
 
     private fun handleChannelMessage(data: JSONObject) {

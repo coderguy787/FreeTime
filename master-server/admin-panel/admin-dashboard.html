@@ -555,6 +555,7 @@
                 <button class="nav-btn" onclick="switchTab('reports')">🚨 Reports</button>
                 <button class="nav-btn" onclick="switchTab('massemail')">📧 Mass Email</button>
                 <button class="nav-btn" onclick="switchTab('announcements')">📢 Announcements</button>
+                <button class="nav-btn" onclick="switchTab('appupdates')">🔄 App Updates</button>
                 <button class="nav-btn" onclick="handleLogout()" style="margin-left: auto;">🚪 Logout</button>
             </nav>
 
@@ -1029,6 +1030,82 @@
 
                 <!-- Mass Email Tab -->
                 <div id="massemail" class="tab-content">
+
+<!-- ==================== APP UPDATES TAB ==================== -->
+<div id="appupdates" class="tab-content">
+    <h2>🔄 App Updates</h2>
+    <p style="color: #666; margin-bottom: 20px;">Push app update notifications to all users and track adoption</p>
+
+    <!-- Stats Cards -->
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+        <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; text-align: center;">
+            <div style="font-size: 2em; font-weight: bold; color: #667eea;" id="updateTotalUsers">0</div>
+            <div style="color: #999; margin-top: 4px;">Total Users</div>
+        </div>
+        <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; text-align: center;">
+            <div style="font-size: 2em; font-weight: bold; color: #4caf50;" id="updateAdoptedCount">0</div>
+            <div style="color: #999; margin-top: 4px;">Updated</div>
+        </div>
+        <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; text-align: center;">
+            <div style="font-size: 2em; font-weight: bold; color: #f44336;" id="updatePendingCount">0</div>
+            <div style="color: #999; margin-top: 4px;">Not Updated</div>
+        </div>
+    </div>
+
+    <!-- Launch Update -->
+    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <h3>🚀 Launch Update</h3>
+        <p style="color: #666; margin-bottom: 16px;">Configure and push an update notification to all app users</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+            <div>
+                <label style="display:block; margin-bottom:6px; font-weight:500;">Version Number</label>
+                <input type="text" id="updateVersion" placeholder="e.g. 1.2" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px;">
+            </div>
+            <div>
+                <label style="display:block; margin-bottom:6px; font-weight:500;">Version Code (integer)</label>
+                <input type="number" id="updateVersionCode" placeholder="e.g. 3" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px;">
+            </div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <label style="display:block; margin-bottom:6px; font-weight:500;">Release Notes (shown to users in update dialog)</label>
+            <textarea id="updateReleaseNotes" placeholder="What's new in this version..." style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; min-height:160px; font-family:monospace;"></textarea>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="updateForce"> Force Update (users cannot skip)
+            </label>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+            <button class="btn btn-primary" onclick="launchUpdate()" style="background:#4caf50; color:white; font-size:1.1em; padding:12px 28px;">🚀 Launch Update</button>
+            <button class="btn" onclick="clearUpdateForm()" style="background:#f0f0f0; color:#333;">Clear</button>
+        </div>
+        <div id="updateLaunchStatus" style="padding:10px; border-radius:4px; display:none; margin-top:10px;"></div>
+    </div>
+
+    <!-- Active Update Info -->
+    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <h3>📋 Current Active Update</h3>
+        <div id="activeUpdateInfo" style="color:#999; text-align:center; padding:20px;">No active update</div>
+    </div>
+
+    <!-- User Adoption Table -->
+    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px;">
+        <h3>👥 User Adoption</h3>
+        <div style="display:flex; gap:8px; margin-bottom:15px;">
+            <button class="btn btn-primary" onclick="loadUpdateStats()">🔄 Refresh</button>
+        </div>
+        <div id="updateUserTable" class="table-container" style="max-height:400px; overflow-y:auto;">
+            <p style="color:#999; text-align:center; padding:20px;">No data</p>
+        </div>
+    </div>
+</div>
+<!-- ==================== END APP UPDATES TAB ==================== -->
+
+
                     <h2>📧 Mass Email Announcements</h2>
                     <p style="color: #666; margin-bottom: 20px;">Send bulk email announcements to users</p>
                     
@@ -2949,7 +3026,131 @@ function createUser(e) {
             if (tabName === 'announcements') {
                 loadAnnouncementHistory();
             }
+            if (tabName === 'appupdates') {
+                loadUpdateStats();
+            }
         };
+
+        // ==================== APP UPDATES FUNCTIONS ====================
+        async function launchUpdate() {
+            const version = document.getElementById('updateVersion').value.trim();
+            const versionCode = document.getElementById('updateVersionCode').value.trim();
+            const releaseNotes = document.getElementById('updateReleaseNotes').value.trim();
+            const forceUpdate = document.getElementById('updateForce').checked;
+            const statusEl = document.getElementById('updateLaunchStatus');
+
+            if (!version || !releaseNotes) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = '#ffebee';
+                statusEl.style.color = '#d32f2f';
+                statusEl.textContent = '❌ Version and Release Notes are required';
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/admin/update/launch`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version, versionCode, releaseNotes, forceUpdate })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = '#e8f5e9';
+                    statusEl.style.color = '#2e7d32';
+                    statusEl.textContent = `✅ Update v${version} launched successfully! All connected users will be notified.`;
+                    clearUpdateForm();
+                    loadUpdateStats();
+                } else {
+                    statusEl.style.display = 'block';
+                    statusEl.style.background = '#ffebee';
+                    statusEl.style.color = '#d32f2f';
+                    statusEl.textContent = '❌ ' + (data.error || 'Failed to launch update');
+                }
+            } catch (e) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = '#ffebee';
+                statusEl.style.color = '#d32f2f';
+                statusEl.textContent = '❌ Network error: ' + e.message;
+            }
+        }
+
+        function clearUpdateForm() {
+            document.getElementById('updateVersion').value = '';
+            document.getElementById('updateVersionCode').value = '';
+            document.getElementById('updateReleaseNotes').value = '';
+            document.getElementById('updateForce').checked = false;
+        }
+
+        async function loadUpdateStats() {
+            try {
+                const res = await fetch(`${API_URL}/admin/update/stats`, { headers: getAuthHeaders() });
+                const data = await res.json();
+
+                document.getElementById('updateTotalUsers').textContent = data.totalUsers || 0;
+                document.getElementById('updateAdoptedCount').textContent = data.updatedCount || 0;
+                document.getElementById('updatePendingCount').textContent = data.notUpdatedCount || 0;
+
+                // Active update info
+                const infoEl = document.getElementById('activeUpdateInfo');
+                if (data.update) {
+                    const launched = new Date(data.update.launchedAt).toLocaleString();
+                    infoEl.innerHTML = `
+                        <div style="text-align:left;">
+                            <p><strong>Version:</strong> ${escapeHtml(data.update.version)}</p>
+                            <p><strong>Launched:</strong> ${launched}</p>
+                            <p><strong>Force Update:</strong> ${data.update.forceUpdate ? 'Yes' : 'No'}</p>
+                            <p><strong>Notes:</strong></p>
+                            <pre style="background:#f5f5f5; padding:10px; border-radius:4px; white-space:pre-wrap;">${escapeHtml(data.update.releaseNotes)}</pre>
+                            <button class="btn btn-danger" onclick="deactivateUpdate('${data.update.id}')" style="margin-top:10px;">🗑️ Deactivate</button>
+                        </div>
+                    `;
+                } else {
+                    infoEl.innerHTML = '<p style="color:#999; text-align:center; padding:20px;">No active update</p>';
+                }
+
+                // User table
+                const tableEl = document.getElementById('updateUserTable');
+                if (data.users && data.users.length > 0) {
+                    let html = '<table style="width:100%; border-collapse:collapse;"><thead><tr>';
+                    html += '<th style="padding:10px; border-bottom:2px solid #ddd; text-align:left;">User</th>';
+                    html += '<th style="padding:10px; border-bottom:2px solid #ddd; text-align:center;">Status</th>';
+                    html += '<th style="padding:10px; border-bottom:2px solid #ddd; text-align:center;">Version Code</th>';
+                    html += '<th style="padding:10px; border-bottom:2px solid #ddd; text-align:center;">Last Active</th>';
+                    html += '</tr></thead><tbody>';
+                    data.users.sort((a, b) => a.hasUpdated - b.hasUpdated).forEach(u => {
+                        const status = u.hasUpdated
+                            ? '<span style="color:#4caf50; font-weight:bold;">✅ Updated</span>'
+                            : '<span style="color:#f44336; font-weight:bold;">⏳ Pending</span>';
+                        const lastActive = u.lastActive ? new Date(u.lastActive).toLocaleString() : 'Never';
+                        html += `<tr>
+                            <td style="padding:10px; border-bottom:1px solid #eee;">${escapeHtml(u.username || u.id)}</td>
+                            <td style="padding:10px; border-bottom:1px solid #eee; text-align:center;">${status}</td>
+                            <td style="padding:10px; border-bottom:1px solid #eee; text-align:center;">${u.lastVersionCode}</td>
+                            <td style="padding:10px; border-bottom:1px solid #eee; text-align:center;">${lastActive}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table>';
+                    tableEl.innerHTML = html;
+                } else {
+                    tableEl.innerHTML = '<p style="color:#999; text-align:center; padding:20px;">No users found</p>';
+                }
+            } catch (e) {
+                console.error('Load update stats error:', e);
+            }
+        }
+
+        async function deactivateUpdate(updateId) {
+            try {
+                await fetch(`${API_URL}/admin/update/${updateId}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                loadUpdateStats();
+            } catch (e) {
+                alert('Failed to deactivate: ' + e.message);
+            }
+        }
 
         // Initialize on page load
         setTimeout(() => {

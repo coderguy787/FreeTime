@@ -129,6 +129,9 @@ fun ModernHomeScreen(
         if (info != null && com.freetime.app.services.AppUpdateManager.isUpdateAvailable(info)) {
             if (info.latestVersionCode > prefs.getSkippedVersion()) {
                 updateInfo = info
+                if (!info.updateId.isNullOrEmpty()) {
+                    updatePrefs.setPendingUpdateId(info.updateId)
+                }
             }
         }
     }
@@ -482,6 +485,24 @@ fun ModernHomeScreen(
             }
 
             override fun onGroupHistoryCleared(data: com.freetime.app.services.WebSocketManager.GroupHistoryClearedData) {}
+
+            override fun onAppUpdateLaunched(data: com.freetime.app.services.WebSocketManager.AppUpdateData) {
+                android.util.Log.d("FREETIME_HOME", "🔄 App update received: v${data.version}")
+                val info = com.freetime.app.data.network.VersionInfoResponse(
+                    latestVersion = data.version,
+                    latestVersionCode = data.versionCode,
+                    minimumVersion = "1.0",
+                    forceUpdate = data.forceUpdate,
+                    downloadUrl = "",
+                    releaseNotes = data.releaseNotes
+                )
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    if (data.versionCode > com.freetime.app.BuildConfig.VERSION_CODE) {
+                        updatePrefs.setPendingUpdateId(data.id)
+                        updateInfo = info
+                    }
+                }
+            }
             
             override fun onChannelMessage(message: com.freetime.app.services.WebSocketManager.ChannelMessageData) {}
             override fun onUserTyping(typingData: com.freetime.app.services.WebSocketManager.TypingData) {}
@@ -1510,6 +1531,17 @@ fun ModernHomeScreen(
                         showUpdateDialog = false
                         isDownloading = true
                         val info = updateInfo ?: return@TextButton
+                        // Acknowledge the update on server
+                        val pendingId = updatePrefs.getPendingUpdateId()
+                        if (pendingId.isNotEmpty()) {
+                            kotlinx.coroutines.MainScope().launch {
+                                try {
+                                    com.freetime.app.data.network.ApiClient.getInstance()
+                                        .acknowledgeUpdate(mapOf("updateId" to pendingId, "versionCode" to com.freetime.app.BuildConfig.VERSION_CODE))
+                                    updatePrefs.clearPendingUpdateId()
+                                } catch (_: Exception) {}
+                            }
+                        }
                         com.freetime.app.services.AppUpdateManager.downloadApk(context, info) { id ->
                             isDownloading = false
                             com.freetime.app.services.AppUpdateManager.installApk(context, id)
