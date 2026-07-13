@@ -1172,7 +1172,9 @@ private fun GroupChatScreenBody(
             override fun onGroupMemberJoined(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
             override fun onGroupMemberLeft(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
             override fun onGroupMemberPromoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
+            override fun onGroupMemberDemoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
             override fun onGroupMemberRemoved(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
+            override fun onGroupHistoryCleared(data: com.freetime.app.services.WebSocketManager.GroupHistoryClearedData) { if(data.groupId == groupId) coroutineScope.launch { messages = emptyList(); reloadTrigger++ } }
             override fun onConnectionEstablished() {}
             override fun onConnectionLost() {}
             override fun onError(error: String) {}

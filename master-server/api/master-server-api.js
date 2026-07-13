@@ -15391,6 +15391,12 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
             // Clear the messages
             const deleteResult = await dbConnection.collection('groupMessages').deleteMany({ groupId: groupId });
             
+            // ✅ Store historyClearedAt timestamp so offline members can detect on next connect
+            await dbConnection.collection('groups').updateOne(
+                { $or: [{ id: groupId }, { groupId: groupId }] },
+                { $set: { historyClearedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
+            );
+            
             // Notify group
             const io = require('../websocket/socket-io-server').io;
             if (io) {
@@ -15487,6 +15493,12 @@ app.delete('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             groupId: groupId
         });
 
+        // ✅ Store historyClearedAt timestamp so offline members can detect on next connect
+        await dbConnection.collection('groups').updateOne(
+            { $or: [{ id: groupId }, { groupId: groupId }] },
+            { $set: { historyClearedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
+        );
+
         await logEvent('group_history_deleted', `Group history for ${groupId} cleared by ${userId}`, userId);
 
         // Notify all members via Socket.IO
@@ -15566,6 +15578,19 @@ app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) =
         );
 
         await logEvent('group_admin_promoted', `Member ${memberId} promoted to admin in group ${group.name} (GROUP-ONLY, not system admin)`, userId);
+
+        // ✅ Broadcast promote event to all group members via Socket.IO
+        const promotedUser = await dbConnection.collection('users').findOne({ id: memberId }, { projection: { username: 1 } });
+        const promotedUsername = promotedUser?.username || 'Member';
+        if (global.socketIoServer) {
+            global.socketIoServer.to(`group:${groupId}`).emit('group.member.promoted', {
+                groupId: groupId,
+                userId: memberId,
+                username: promotedUsername,
+                promotedBy: userId,
+                timestamp: new Date().toISOString()
+            });
+        }
 
         res.json({
             success: true,
@@ -15669,6 +15694,19 @@ app.delete('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res
         );
 
         await logEvent('group_admin_demoted', `Member ${memberId} demoted by admin ${userId} in group ${group.name}`, userId);
+
+        // ✅ Broadcast demote event to all group members via Socket.IO
+        const demotedUser = await dbConnection.collection('users').findOne({ id: memberId }, { projection: { username: 1 } });
+        const demotedUsername = demotedUser?.username || 'Member';
+        if (global.socketIoServer) {
+            global.socketIoServer.to(`group:${groupId}`).emit('group.member.demoted', {
+                groupId: groupId,
+                userId: memberId,
+                username: demotedUsername,
+                demotedBy: userId,
+                timestamp: new Date().toISOString()
+            });
+        }
 
         res.json({
             success: true,

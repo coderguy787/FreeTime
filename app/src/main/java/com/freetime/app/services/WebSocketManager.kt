@@ -139,6 +139,7 @@ class WebSocketManager private constructor() {
         fun onGroupMemberJoined(data: GroupMemberActionData) {}
         fun onGroupMemberLeft(data: GroupMemberActionData) {}
         fun onGroupMemberPromoted(data: GroupMemberActionData) {}
+        fun onGroupMemberDemoted(data: GroupMemberActionData) {}
         fun onGroupMemberRemoved(data: GroupMemberActionData) {}
         fun onGroupUpdated(data: GroupUpdatedData) {}
         fun onGroupInviteReceived(data: GroupInviteData) {}
@@ -151,6 +152,7 @@ class WebSocketManager private constructor() {
         // Group Voting Events
         fun onGroupVoteInitiated(data: GroupVoteInitiatedData) {}
         fun onGroupVoteCast(data: GroupVoteCastData) {}
+        fun onGroupHistoryCleared(data: GroupHistoryClearedData) {}
         fun onGroupDeleted(data: GroupDeletedData) {}
         
         // Media Download Events
@@ -280,6 +282,7 @@ class WebSocketManager private constructor() {
     // Group Voting Events
     data class GroupVoteInitiatedData(val voteId: String, val groupId: String, val title: String, val options: List<String>, val createdBy: String)
     data class GroupVoteCastData(val voteId: String, val userId: String, val optionIndex: Int)
+    data class GroupHistoryClearedData(val groupId: String, val deletedBy: String, val timestamp: Long = System.currentTimeMillis())
     data class GroupDeletedData(val groupId: String, val deletedBy: String)
     
     // ✅ NEW: Group custom picture data
@@ -604,6 +607,7 @@ class WebSocketManager private constructor() {
         mSocket?.on("group.member.left") { args -> handleEvent(args, ::handleGroupMemberLeft) }
         mSocket?.on("groupMemberLeft") { args -> handleEvent(args, ::handleGroupMemberLeft) }  // ✅ NEW: camelCase version
         mSocket?.on("group.member.promoted") { args -> handleEvent(args, ::handleGroupMemberPromoted) }
+        mSocket?.on("group.member.demoted") { args -> handleEvent(args, ::handleGroupMemberDemoted) }
         mSocket?.on("group.member.removed") { args -> handleEvent(args, ::handleGroupMemberRemoved) }
         mSocket?.on("group.updated") { args -> handleEvent(args, ::handleGroupUpdated) }
         mSocket?.on("group_invite") { args -> handleEvent(args, ::handleGroupInvite) }
@@ -614,9 +618,9 @@ class WebSocketManager private constructor() {
         mSocket?.on("group.deleted") { args -> handleEvent(args, ::handleGroupDeleted) }
         mSocket?.on("group.clearHistory.voteStarted") { args -> handleEvent(args, ::handleNotificationReceived) }
         mSocket?.on("group.clearHistory.voteUpdated") { args -> handleEvent(args, ::handleNotificationReceived) }
-        mSocket?.on("group.clearHistory.passed") { args -> handleEvent(args, ::handleNotificationReceived) }
+        mSocket?.on("group.clearHistory.passed") { args -> handleEvent(args, ::handleGroupHistoryCleared) }
         mSocket?.on("group.clearHistory.failed") { args -> handleEvent(args, ::handleNotificationReceived) }
-        mSocket?.on("groupHistoryDeleted") { args -> handleEvent(args, ::handleNotificationReceived) }
+        mSocket?.on("groupHistoryDeleted") { args -> handleEvent(args, ::handleGroupHistoryCleared) }
         
         // ✅ NEW: Group custom picture updates (real-time sync)
         mSocket?.on("group:pictureUpdated") { args -> handleEvent(args, ::handleGroupPictureUpdated) }
@@ -815,6 +819,7 @@ class WebSocketManager private constructor() {
         mWebSocketSocket?.on("group.member.joined") { args -> handleEvent(args, ::handleGroupMemberJoined) }
         mWebSocketSocket?.on("group.member.left") { args -> handleEvent(args, ::handleGroupMemberLeft) }
         mWebSocketSocket?.on("group.member.promoted") { args -> handleEvent(args, ::handleGroupMemberPromoted) }
+        mWebSocketSocket?.on("group.member.demoted") { args -> handleEvent(args, ::handleGroupMemberDemoted) }
         mWebSocketSocket?.on("group.member.removed") { args -> handleEvent(args, ::handleGroupMemberRemoved) }
         mWebSocketSocket?.on("group.updated") { args -> handleEvent(args, ::handleGroupUpdated) }
         mWebSocketSocket?.on("group_invite") { args -> handleEvent(args, ::handleGroupInvite) }
@@ -825,9 +830,9 @@ class WebSocketManager private constructor() {
         mWebSocketSocket?.on("group.deleted") { args -> handleEvent(args, ::handleGroupDeleted) }
         mWebSocketSocket?.on("group.clearHistory.voteStarted") { args -> handleEvent(args, ::handleNotificationReceived) }
         mWebSocketSocket?.on("group.clearHistory.voteUpdated") { args -> handleEvent(args, ::handleNotificationReceived) }
-        mWebSocketSocket?.on("group.clearHistory.passed") { args -> handleEvent(args, ::handleNotificationReceived) }
+        mWebSocketSocket?.on("group.clearHistory.passed") { args -> handleEvent(args, ::handleGroupHistoryCleared) }
         mWebSocketSocket?.on("group.clearHistory.failed") { args -> handleEvent(args, ::handleNotificationReceived) }
-        mWebSocketSocket?.on("groupHistoryDeleted") { args -> handleEvent(args, ::handleNotificationReceived) }
+        mWebSocketSocket?.on("groupHistoryDeleted") { args -> handleEvent(args, ::handleGroupHistoryCleared) }
         
         // Media Downloads
         mWebSocketSocket?.on("media.download.requested") { args -> handleEvent(args, ::handleMediaDownloadRequested) }
@@ -1324,6 +1329,18 @@ class WebSocketManager private constructor() {
         listeners.forEach { it.onGroupMemberPromoted(payload) }
     }
 
+    private fun handleGroupMemberDemoted(data: JSONObject) {
+        val payload = GroupMemberActionData(
+            groupId = data.optString("groupId", ""),
+            userId = data.optString("userId", ""),
+            username = data.optString("username", ""),
+            action = "demoted",
+            actor = data.optString("demotedBy", ""),
+            timestamp = data.optLong("timestamp", System.currentTimeMillis())
+        )
+        listeners.forEach { it.onGroupMemberDemoted(payload) }
+    }
+
     private fun handleGroupMemberRemoved(data: JSONObject) {
         val payload = GroupMemberActionData(
             groupId = data.optString("groupId", ""),
@@ -1334,6 +1351,14 @@ class WebSocketManager private constructor() {
             timestamp = data.optLong("timestamp", System.currentTimeMillis())
         )
         listeners.forEach { it.onGroupMemberRemoved(payload) }
+    }
+
+    private fun handleGroupHistoryCleared(data: JSONObject) {
+        val groupId = data.optString("groupId", "")
+        val deletedBy = data.optString("deletedBy", "")
+        val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+        val payload = GroupHistoryClearedData(groupId = groupId, deletedBy = deletedBy, timestamp = timestamp)
+        listeners.forEach { it.onGroupHistoryCleared(payload) }
     }
 
     private fun handleChatHistoryDeleted(data: JSONObject) {

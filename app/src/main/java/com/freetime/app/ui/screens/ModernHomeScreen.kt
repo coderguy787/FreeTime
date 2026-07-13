@@ -463,6 +463,26 @@ fun ModernHomeScreen(
                 )
             }
             
+            override fun onGroupMemberDemoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) {
+                android.util.Log.d("FREETIME_HOME", "⬇️ ${data.username} demoted in group ${data.groupId}")
+                if (!prefs.isNotifyGroupUpdatesEnabled()) return
+                val groupChat = chats.find { it.id == data.groupId }
+                val groupName = groupChat?.name ?: "Group"
+                com.freetime.app.notifications.NotificationHelper.showGroupMemberActionNotification(
+                    context, groupName, data.username, "demoted", data.groupId
+                )
+                com.freetime.app.notifications.InAppNotificationStore.addNotification(
+                    com.freetime.app.notifications.InAppNotification(
+                        type = "groupMemberDemoted",
+                        title = groupName,
+                        description = "${data.username} is no longer an admin",
+                        senderId = data.userId
+                    )
+                )
+            }
+
+            override fun onGroupHistoryCleared(data: com.freetime.app.services.WebSocketManager.GroupHistoryClearedData) {}
+            
             override fun onChannelMessage(message: com.freetime.app.services.WebSocketManager.ChannelMessageData) {}
             override fun onUserTyping(typingData: com.freetime.app.services.WebSocketManager.TypingData) {}
             override fun onMessageRead(readData: com.freetime.app.services.WebSocketManager.ReadReceiptData) {}
