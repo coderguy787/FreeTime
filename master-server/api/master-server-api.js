@@ -1866,7 +1866,7 @@ app.post('/api/admin/login', async (req, res) => {
 
             return res.json({
                 token,
-                admin: {
+                user: {
                     username,
                     role: 'ADMIN',
                     email: `${username}@freetime.local`
@@ -1915,7 +1915,7 @@ app.post('/api/admin/login', async (req, res) => {
 
             return res.json({
                 token,
-                admin: {
+                user: {
                     id: adminUser.id,
                     username,
                     email: adminUser.email,
