@@ -42,7 +42,7 @@ done
 
 ### Option 2: Access Admin Panel
 1. Open browser: `http://192.168.1.100:3001`
-2. Login with: `admin` / `heHefuzzy89`
+2. Login with: `admin` / `your-secure-password`
 3. See all services and their status
 
 ### Option 3: Check Logs
@@ -104,9 +104,9 @@ pkill -9 node
    PORT_ADMIN_PANEL=3001
    PORT_WEBSOCKET=8080
    PORT_PEER=9080
-   JWT_SECRET=a7f3b9d2e8c5f1a4b6d9e2c5f8b1e4a7d0c3f6b9e2a5c8d1e4f7a0b3c6e9f2
+   JWT_SECRET=your-64-char-random-hex-string-here
    ADMIN_USERNAME=admin
-   ADMIN_PASSWORD=heHefuzzy89
+   ADMIN_PASSWORD=your-secure-password
    ```
 
 ---
@@ -121,7 +121,7 @@ The app is already configured to use:
 
 ### For Admin
 - **Admin Panel:** `http://192.168.1.100:3001`
-- **Default Login:** admin / heHefuzzy89
+- **Default Login:** admin / your-secure-password
 
 ### For Development/Testing
 - **API Health:** `http://localhost/health`

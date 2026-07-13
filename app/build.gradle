@@ -31,10 +31,10 @@ android {
 
         // Server URLs - can be overridden via gradle.properties
         // Default to domain name for remote access
-        def serverHostProp = project.findProperty("SERVER_HOST") ?: "freetime.publicvm.com"
+        def serverHostProp = project.findProperty("SERVER_HOST") ?: "example.com"
         def serverPortProp = project.findProperty("SERVER_PORT") ?: "443"
         def peerPortProp = project.findProperty("PEER_PORT") ?: "9080"
-        def peerHostProp = project.findProperty("PEER_HOST") ?: "freetime.publicvm.com"
+        def peerHostProp = project.findProperty("PEER_HOST") ?: "example.com"
         
         // Direct URL construction without complex URI parsing
         def apiScheme = "https"
