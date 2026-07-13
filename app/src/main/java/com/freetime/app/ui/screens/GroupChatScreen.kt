@@ -1355,8 +1355,7 @@ private fun GroupChatScreenBody(
 
     Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CyberpunkTheme.Black, Color(0xFF0A0E27))))) {
         Column(modifier = Modifier
-            .fillMaxSize()
-            .imePadding()) {
+            .fillMaxSize()) {
             // ✅ IMPROVED: Check both admins and adminIds (server sends adminIds)
             val adminList = (loadedGroup.admins + loadedGroup.adminIds).distinct()
             val isCurrentUserAdmin = adminList.contains(currentUserId)
@@ -2126,7 +2125,7 @@ fun GroupMessagesTab(
     }
     
     Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Spacer(Modifier.height(if (activeVotes.isNotEmpty()) 120.dp else 16.dp)) }
             items(messages, key = { it.messageId }) { msg ->
             val isMe = msg.senderId == currentUserId

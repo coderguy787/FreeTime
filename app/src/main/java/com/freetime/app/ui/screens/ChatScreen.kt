@@ -989,8 +989,7 @@ fun ChatScreenEnhanced(
             .background(CyberpunkTheme.DarkBlack)
     ) {
         Column(modifier = Modifier
-            .fillMaxSize()
-            .imePadding()) {
+            .fillMaxSize()) {
             // ===== CYBERPUNK HEADER =====
             Surface(
                 modifier = Modifier
@@ -1162,7 +1161,8 @@ fun ChatScreenEnhanced(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .imePadding(),
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 reverseLayout = false
