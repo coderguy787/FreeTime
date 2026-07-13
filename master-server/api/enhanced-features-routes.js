@@ -398,18 +398,55 @@ router.delete('/groups/:groupId/members/:memberId', verifyToken, async (req, res
 
         // Check if requester is group admin or owner
         const isAdmin = group.ownerId === userId || 
-                       (group.admins && group.admins.includes(userId)) ||
+                       group.createdBy === userId ||
+                       (group.admins && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
+                       (group.adminIds && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
                        req.user.isAdmin === true;  // System admin can always remove
 
-        if (!isAdmin) {
+        if (!isAdmin && userId !== memberId) {
             return res.status(403).json({ 
                 error: 'Only group admin can remove members' 
             });
         }
 
-        const result = await groupsCollection.updateOne(
+        // Prevent last admin from being removed
+        const allAdmins = new Set([
+            ...(Array.isArray(group.adminIds) ? group.adminIds.filter(a => typeof a === 'string') : []),
+            ...(Array.isArray(group.admins) ? group.admins.filter(a => typeof a === 'string') : []),
+            group.createdBy,
+            group.ownerId
+        ].filter(Boolean));
+        if (userId === memberId && allAdmins.size === 1 && allAdmins.has(memberId)) {
+            return res.status(400).json({ error: 'Cannot remove last administrator' });
+        }
+
+        // Try object format first (members stored as { userId: "...", ... })
+        let result = await groupsCollection.updateOne(
             { $or: [{ groupId: groupId }, { _id: new ObjectId(groupId) }] },
-            { $pull: { members: memberId } }
+            { $pull: { 
+                members: { userId: memberId },
+                admins: memberId,
+                adminIds: memberId
+            } }
+        );
+        // If no match, try string format (members stored as plain userId strings)
+        if (result.modifiedCount === 0) {
+            result = await groupsCollection.updateOne(
+                { $or: [{ groupId: groupId }, { _id: new ObjectId(groupId) }] },
+                { $pull: { 
+                    members: memberId,
+                    admins: memberId,
+                    adminIds: memberId
+                } }
+            );
+        }
+        // Also try pulling object-format admins
+        await groupsCollection.updateOne(
+            { $or: [{ groupId: groupId }, { _id: new ObjectId(groupId) }] },
+            { $pull: { 
+                admins: { userId: memberId },
+                adminIds: { userId: memberId }
+            } }
         );
 
         if (result.modifiedCount === 0) {

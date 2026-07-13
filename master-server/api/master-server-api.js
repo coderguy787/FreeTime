@@ -14200,7 +14200,7 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
         }
 
         // ✅ FIX: Check if this is the last admin BEFORE removal
-        const wasLastAdmin = adminIds.length === 1 && adminIds.includes(memberId);
+        const wasLastAdmin = allAdmins.size === 1 && allAdmins.has(memberId);
 
         // Try object format first (members stored as { userId: "...", ... })
         let removeMemberResult = await dbConnection.collection('groups').updateOne(
@@ -14228,6 +14228,16 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
                 }
             );
         }
+        // Also try pulling object-format admins
+        await dbConnection.collection('groups').updateOne(
+            { $or: [{ id: groupId }, { groupId: groupId }] },
+            {
+                $pull: { 
+                    admins: { userId: memberId },
+                    adminIds: { userId: memberId }
+                }
+            }
+        );
         
         if (removeMemberResult.matchedCount === 0) {
             return res.status(500).json({ error: 'Failed to find group for member removal' });
