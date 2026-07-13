@@ -73,6 +73,18 @@ android {
     // Configure signing: prefer values from project properties (gradle.properties or CI secrets)
     // Expected properties: KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
     def ksPath = project.findProperty('KEYSTORE_PATH') ?: System.getenv('KEYSTORE_PATH')
+    
+    signingConfigs {
+        debug {
+            storeFile file(System.getProperty('user.home') + '/.android/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+    
     if (ksPath && file(ksPath).exists()) {
         signingConfigs {
             release {
@@ -101,7 +113,7 @@ android {
             applicationIdSuffix ".debug"
             debuggable true
             minifyEnabled false
-            // Ensure the debug build type uses the same version code/name as release
+            signingConfig signingConfigs.debug
             versionNameSuffix "-debug"
         }
     }
