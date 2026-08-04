@@ -43,26 +43,46 @@ object AppUpdateManager {
     }
 
     fun downloadApk(context: Context, info: VersionInfoResponse, onComplete: (downloadId: Long) -> Unit): Long {
-        val fileName = "FreeTimeApp-v${info.latestVersion}.apk"
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-
-        val request = DownloadManager.Request(Uri.parse(info.downloadUrl))
-            .setTitle("FreeTime Update")
-            .setDescription("Downloading v${info.latestVersion}...")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            .setMimeType("application/vnd.android.package-archive")
-
-        val downloadId = downloadManager.enqueue(request)
-
-        if (!downloadReceiverRegistered) {
-            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-            context.registerReceiver(DownloadReceiver(onComplete), filter)
-            downloadReceiverRegistered = true
+        if (info.downloadUrl.isNullOrBlank()) {
+            android.util.Log.e(TAG, "Download URL is empty")
+            Toast.makeText(context, "Update not ready yet. Try again later.", Toast.LENGTH_LONG).show()
+            return -1L
         }
+        val cleanVersion = info.latestVersion.removePrefix("v")
+        val fileName = "FreeTimeApp-v$cleanVersion.apk"
+        try {
+            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val request = DownloadManager.Request(Uri.parse(info.downloadUrl))
+                .setTitle("FreeTime Update")
+                .setDescription("Downloading v$cleanVersion...")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+                .setRequiresCharging(false)
+                .setMimeType("application/vnd.android.package-archive")
 
-        android.util.Log.d(TAG, "Download started: id=$downloadId, url=${info.downloadUrl}")
-        return downloadId
+            val downloadId = try {
+                request.setDestinationInExternalFilesDir(context, null, fileName)
+                downloadManager.enqueue(request)
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "App dir download failed, falling back to Downloads: ${e.message}")
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                downloadManager.enqueue(request)
+            }
+
+            if (!downloadReceiverRegistered) {
+                val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+                context.registerReceiver(DownloadReceiver(onComplete), filter)
+                downloadReceiverRegistered = true
+            }
+
+            android.util.Log.d(TAG, "Download started: id=$downloadId, url=${info.downloadUrl}")
+            return downloadId
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Download error: ${e.message}")
+            Toast.makeText(context, "Download error: ${e.message}", Toast.LENGTH_LONG).show()
+            return -1L
+        }
     }
 
     fun installApk(context: Context, downloadId: Long) {

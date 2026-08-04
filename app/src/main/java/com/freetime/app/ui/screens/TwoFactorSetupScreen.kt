@@ -338,6 +338,7 @@ fun TwoFactorVerifySetupStep(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))
             .verticalScroll(rememberScrollState())
             .padding(responsivePaddingLarge(deviceSize)),
         horizontalAlignment = Alignment.CenterHorizontally,

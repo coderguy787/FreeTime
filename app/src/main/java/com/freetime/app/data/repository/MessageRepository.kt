@@ -132,11 +132,10 @@ class MessageRepository(
 
     /**
      * Update local message ID to server-assigned ID to prevent poll-duplicates
+     * Uses a single UPDATE to avoid DELETE+INSERT triggering two reactive Flow emissions
      */
     suspend fun updateMessageId(oldId: String, newId: String) {
-        val message = messageDao.getMessageById(oldId) ?: return
-        messageDao.deleteMessage(message)
-        messageDao.insertMessage(message.copy(messageId = newId))
+        messageDao.updateMessageId(oldId, newId)
     }
 
     /**
@@ -157,6 +156,9 @@ class MessageRepository(
      * Fetch messages from API for a specific recipient/chat.
      * Announcements are stored server-side as plaintext and are not encrypted with local keys,
      * so we preserve their content as-is by encrypting them locally with the correct associated data.
+     *
+     * Also consolidates any local messages that have the same sender+decrypted-content but a different
+     * messageId (e.g., local UUID vs server-assigned ID) to prevent duplicates.
      */
     suspend fun fetchMessagesFromAPI(recipientId: String, limit: Int = 100): List<MessageEntity> {
         return try {
@@ -169,14 +171,21 @@ class MessageRepository(
                     try {
                         val senderId = messageResponse.senderId ?: ""
                         val content = messageResponse.content ?: ""
-                        // Announcements and other server-side plaintext messages must be
-                        // encrypted with the local key so decryptMessage() can display them.
                         val encryptedContent = if (content.isNotEmpty()) {
                             encryptionManager.encrypt(content, "$recipientId:$senderId")
                         } else ""
 
+                        // Consolidate: if a local message has the same sender + decrypted content but
+                        // a different ID, update its ID to the server's ID before inserting.
+                        // NOTE: matching is done on DECRYPTED content because the local message was
+                        // encrypted with a random IV (AES-GCM), so ciphertext will never match.
+                        val serverId = messageResponse._id
+                        if (serverId.isNotEmpty()) {
+                            consolidateLocalMessageId(recipientId, senderId, content, serverId)
+                        }
+
                         MessageEntity(
-                            messageId = messageResponse._id,
+                            messageId = serverId,
                             chatId = recipientId,
                             senderId = senderId,
                             contentEncrypted = encryptedContent,
@@ -200,6 +209,40 @@ class MessageRepository(
             }
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * Find a local message with the same sender + decrypted content but a different messageId
+     * (e.g., local UUID not yet replaced by the server-assigned ID) and update its ID.
+     */
+    private suspend fun consolidateLocalMessageId(
+        chatId: String,
+        senderId: String,
+        plaintextContent: String,
+        serverMessageId: String
+    ) {
+        if (plaintextContent.isEmpty()) return
+        try {
+            val localMessages = messageDao.getMessagesByChatIdSync(chatId, 100)
+            for (local in localMessages) {
+                if (local.messageId == serverMessageId) continue
+                if (local.senderId != senderId) continue
+                // Skip messages already holding a server-assigned ID (Mongo ObjectId = 24 hex chars) —
+                // only local UUIDs (e.g. "msg_...") need consolidation.
+                if (local.messageId.length == 24 && local.messageId.all { it.isDigit() || it in 'a'..'f' }) continue
+                val decrypted = try {
+                    encryptionManager.decrypt(local.contentEncrypted, "${local.chatId}:${local.senderId}")
+                } catch (e: Exception) {
+                    continue
+                }
+                if (decrypted == plaintextContent) {
+                    messageDao.updateMessageId(local.messageId, serverMessageId)
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            // Non-critical - fall through to plain insert
         }
     }
 

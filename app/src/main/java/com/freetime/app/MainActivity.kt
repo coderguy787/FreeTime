@@ -299,6 +299,18 @@ fun MainContent(activity: MainActivity) {
         android.util.Log.d("AuthCheck", "Auth check finished. isLoggedIn: $initialAuthSucceeded")
     }
 
+    // Poll for app updates to drive the full-screen update gate
+    LaunchedEffect(Unit) {
+        while (true) {
+            try {
+                com.freetime.app.services.UpdateGateManager.check(activity)
+            } catch (e: Exception) {
+                android.util.Log.w("UpdateGate", "Update check failed: ${e.message}")
+            }
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
+
     // Show a loading splash screen while checking auth
     if (isCheckingAuth) {
         SplashScreen()
@@ -326,6 +338,27 @@ fun MainContent(activity: MainActivity) {
                     }
                 }
             )
+
+            // Full-screen update gate: covers the whole app when an update has
+            // been available for more than 5 minutes and hasn't been skipped.
+            val gateInfo = com.freetime.app.services.UpdateGateManager.gateInfo
+            if (com.freetime.app.services.UpdateGateManager.showGate && gateInfo != null) {
+                com.freetime.app.ui.screens.UpdateGateScreen(
+                    info = gateInfo,
+                    onDownload = {
+                        val info = com.freetime.app.services.UpdateGateManager.gateInfo ?: return@UpdateGateScreen
+                        com.freetime.app.services.UpdateGateManager.hide()
+                        com.freetime.app.services.AppUpdateManager.downloadApk(activity, info) { id ->
+                            if (id != -1L) {
+                                com.freetime.app.services.AppUpdateManager.installApk(activity, id)
+                            }
+                        }
+                    },
+                    onSkip = {
+                        com.freetime.app.services.UpdateGateManager.skip(activity)
+                    }
+                )
+            }
         }
 
         // State for session termination dialog

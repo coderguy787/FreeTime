@@ -77,6 +77,9 @@ interface MessageDao {
     
     @Query("SELECT * FROM messages WHERE syncState = :syncState ORDER BY timestamp DESC")
     fun getMessagesBySyncState(syncState: String): Flow<List<MessageEntity>>
+
+    @Query("UPDATE messages SET messageId = :newId WHERE messageId = :oldId")
+    suspend fun updateMessageId(oldId: String, newId: String)
 }
 
 @Dao

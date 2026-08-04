@@ -612,5 +612,6 @@ data class VersionInfoResponse(
     val message: String? = null,
     val shouldUpdate: Boolean? = null,
     val compatible: Boolean? = null,
-    val updateId: String? = null
+    val updateId: String? = null,
+    val launchedAt: String? = null
 )

@@ -16124,16 +16124,15 @@ app.delete('/api/groups/:groupId/picture', verifyToken, async (req, res) => {
 });
 
 // ==================== VERSION CHECK / IN-APP UPDATE ROUTES ====================
+// The APK file name is version-agnostic so future releases can be published by
+// simply dropping a new FreeTimeApp.apk into the /update directory (no renaming).
+const APK_FILE_NAME = 'FreeTimeApp.apk';
 const APP_VERSION = {
-    latestVersion: '1.1',
-    latestVersionCode: 2,
-    minimumVersion: '1.0',
-    forceUpdate: false,
-    releaseNotes: 'New features and bug fixes'
+    minimumVersion: '1.0'
 };
 
 function getApkPath() {
-    return path.join(__dirname, '..', 'update', `FreeTimeApp-v${APP_VERSION.latestVersion}.apk`);
+    return path.join(__dirname, '..', 'update', APK_FILE_NAME);
 }
 
 function apkExists() {
@@ -16144,9 +16143,29 @@ function apkExists() {
     }
 }
 
-function getEffectiveVersion() {
-    if (apkExists()) {
-        return APP_VERSION;
+async function getActiveUpdate() {
+    try {
+        return await dbConnection.collection('appUpdates').findOne(
+            { isActive: true },
+            { sort: { launchedAt: -1 } }
+        );
+    } catch (e) {
+        return null;
+    }
+}
+
+// An update is offered ONLY when an admin has actively launched it AND the APK
+// file is present. Without an admin launch, clients are told there is no update.
+async function getEffectiveVersion() {
+    const adminUpdate = await getActiveUpdate();
+    if (adminUpdate && apkExists()) {
+        return {
+            latestVersion: adminUpdate.version,
+            latestVersionCode: adminUpdate.versionCode,
+            minimumVersion: APP_VERSION.minimumVersion,
+            forceUpdate: adminUpdate.forceUpdate,
+            releaseNotes: adminUpdate.releaseNotes
+        };
     }
     return {
         latestVersion: APP_VERSION.minimumVersion,
@@ -16160,38 +16179,31 @@ function getEffectiveVersion() {
 function buildDownloadUrl(req) {
     const host = req.get('host') || 'example.com';
     const protocol = req.protocol || 'https';
-    return `${protocol}://${host}/update/FreeTimeApp-v${APP_VERSION.latestVersion}.apk`;
+    return `${protocol}://${host}/update/${APK_FILE_NAME}`;
 }
 
 app.get('/api/app/version-info', async (req, res) => {
-    const effective = getEffectiveVersion();
-    // Check for admin-launched update with custom release notes
-    let adminUpdate = null;
-    try {
-        adminUpdate = await dbConnection.collection('appUpdates').findOne(
-            { isActive: true },
-            { sort: { launchedAt: -1 } }
-        );
-    } catch (e) { /* ignore */ }
+    const effective = await getEffectiveVersion();
+    const adminUpdate = effective.latestVersionCode > 0 ? await getActiveUpdate() : null;
     res.json({
-        ...(adminUpdate ? {
-            latestVersion: adminUpdate.version,
-            latestVersionCode: adminUpdate.versionCode,
-            forceUpdate: adminUpdate.forceUpdate,
-            releaseNotes: adminUpdate.releaseNotes
-        } : effective),
+        latestVersion: effective.latestVersion,
+        latestVersionCode: effective.latestVersionCode,
+        minimumVersion: effective.minimumVersion,
+        forceUpdate: effective.forceUpdate,
+        releaseNotes: effective.releaseNotes,
         downloadUrl: apkExists() ? buildDownloadUrl(req) : '',
-        updateId: adminUpdate ? adminUpdate.id : null
+        updateId: adminUpdate ? adminUpdate.id : null,
+        launchedAt: adminUpdate ? adminUpdate.launchedAt : null
     });
 });
 
-app.post('/api/app/version-check', verifyToken, (req, res) => {
+app.post('/api/app/version-check', verifyToken, async (req, res) => {
     try {
         const { clientVersion, clientVersionCode, clientType } = req.body;
         if (!clientVersion || !clientType) {
             return res.status(400).json({ error: 'Missing required fields: clientVersion, clientType' });
         }
-        const effective = getEffectiveVersion();
+        const effective = await getEffectiveVersion();
         const currentCode = parseInt(clientVersionCode) || 0;
         const needsUpdate = currentCode < effective.latestVersionCode;
         const compatible = currentCode >= parseInt(effective.minimumVersion.replace(/\D/g, '')) || 0;
@@ -16225,6 +16237,13 @@ app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'version and releaseNotes are required' });
         }
 
+        // The APK must already be dropped into the /update directory.
+        if (!apkExists()) {
+            return res.status(400).json({
+                error: `No APK found in update/. Drop the file as "${APK_FILE_NAME}" first, then launch the update.`
+            });
+        }
+
         // Deactivate any previous active updates
         await dbConnection.collection('appUpdates').updateMany(
             { isActive: true },
@@ -16244,12 +16263,6 @@ app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
         };
 
         await dbConnection.collection('appUpdates').insertOne(updateRecord);
-
-        // Update the static APP_VERSION
-        APP_VERSION.latestVersion = version;
-        APP_VERSION.latestVersionCode = parseInt(versionCode) || APP_VERSION.latestVersionCode;
-        APP_VERSION.releaseNotes = releaseNotes;
-        APP_VERSION.forceUpdate = !!forceUpdate;
 
         // Broadcast to all connected users via WebSocket
         const io = require('../websocket/socket-io-server').io;

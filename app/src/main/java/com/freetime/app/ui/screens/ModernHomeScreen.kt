@@ -51,11 +51,25 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.freetime.app.utils.GroupRefreshManager  // ✅ NEW: Import global refresh manager
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
+
+/**
+ * Session-scoped flag so the "friends online!" mascot banner only shows once per app launch.
+ * Unlike remember{}, this survives navigation (leaving a chat and coming back to Home),
+ * but resets to false when the app process starts fresh.
+ */
+object MascotBannerSessionState {
+    var shownThisSession: Boolean = false
+}
 
 data class ChatItem(
     val id: String,
@@ -104,7 +118,7 @@ fun ModernHomeScreen(
     val apiService = FreeTimeApiService(context)
     
     var selectedChat by remember { mutableStateOf<String?>(null) }
-    var mascotShowMessage by remember { mutableStateOf(true) }
+    var mascotShowMessage by remember { mutableStateOf(!MascotBannerSessionState.shownThisSession) }
     var searchQuery by remember { mutableStateOf("") }
     var chats by remember { mutableStateOf(listOf<ChatItem>()) }
     var isLoadingChats by remember { mutableStateOf(false) }
@@ -126,8 +140,8 @@ fun ModernHomeScreen(
     
     LaunchedEffect(Unit) {
         val info = com.freetime.app.services.AppUpdateManager.checkForUpdate(context)
-        if (info != null && com.freetime.app.services.AppUpdateManager.isUpdateAvailable(info)) {
-            if (info.latestVersionCode > prefs.getSkippedVersion()) {
+        if (info != null && com.freetime.app.services.AppUpdateManager.isUpdateAvailable(info) && info.downloadUrl.isNotEmpty()) {
+            if (info.updateId.isNullOrEmpty() || info.updateId != prefs.getSkippedUpdateId()) {
                 updateInfo = info
                 if (!info.updateId.isNullOrEmpty()) {
                     updatePrefs.setPendingUpdateId(info.updateId)
@@ -488,16 +502,9 @@ fun ModernHomeScreen(
 
             override fun onAppUpdateLaunched(data: com.freetime.app.services.WebSocketManager.AppUpdateData) {
                 android.util.Log.d("FREETIME_HOME", "🔄 App update received: v${data.version}")
-                val info = com.freetime.app.data.network.VersionInfoResponse(
-                    latestVersion = data.version,
-                    latestVersionCode = data.versionCode,
-                    minimumVersion = "1.0",
-                    forceUpdate = data.forceUpdate,
-                    downloadUrl = "",
-                    releaseNotes = data.releaseNotes
-                )
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                    if (data.versionCode > com.freetime.app.BuildConfig.VERSION_CODE) {
+                    val info = com.freetime.app.services.AppUpdateManager.checkForUpdate(context)
+                    if (info != null && com.freetime.app.services.AppUpdateManager.isUpdateAvailable(info) && info.downloadUrl.isNotEmpty()) {
                         updatePrefs.setPendingUpdateId(data.id)
                         updateInfo = info
                     }
@@ -534,7 +541,20 @@ fun ModernHomeScreen(
             override fun onCallRejected(callData: com.freetime.app.services.WebSocketManager.CallRejectedData) {}
             override fun onCallEnded(callData: com.freetime.app.services.WebSocketManager.CallEndedData) {}
             override fun onIceCandidate(iceData: com.freetime.app.services.WebSocketManager.IceCandidateData) {}
-            override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {}
+            override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {
+                // ✅ REAL-TIME ONLINE STATUS: Update the chat immediately so a chat bubbles to the
+                // top as soon as the user comes online (no need to wait for the 5s poll).
+                android.util.Log.d("FREETIME_HOME", "👤 Online status changed: ${statusData.userId} online=${statusData.isOnline}")
+                chats = chats.map { chat ->
+                    if (chat.id == statusData.userId) {
+                        chat.copy(
+                            isOnline = statusData.isOnline,
+                            timestamp = if (statusData.isOnline) "Online now"
+                                else (statusData.lastSeen.ifEmpty { statusData.actualStatus.ifEmpty { "Offline" } })
+                        )
+                    } else chat
+                }
+            }
             override fun onReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {}
             override fun onFriendRequestAutoAccepted(data: com.freetime.app.services.WebSocketManager.FriendRequestAutoAcceptedData) {
                 // Refresh pending friend request count when mutual friend request auto-accepts
@@ -1115,16 +1135,20 @@ fun ModernHomeScreen(
     }
     
     val CHAT_PERSIST_MS = 2 * 60 * 1000L // 2 minutes
-    val filteredChats = chats.filter { chat ->
-        val passesSearch = chat.name.contains(searchQuery, ignoreCase = true) ||
-            chat.lastMessage.contains(searchQuery, ignoreCase = true)
-        val isVisible = if (chat.id == com.freetime.app.api.ANNOUNCEMENT_USER_ID) {
-            true  // Always visible, never auto-hide
-        } else if (chat.lastMessageTimestamp > 0L) {
-            System.currentTimeMillis() - chat.lastMessageTimestamp < CHAT_PERSIST_MS
-        } else true
-        passesSearch && isVisible
-    }
+    val filteredChats = chats
+        .filter { chat ->
+            val passesSearch = chat.name.contains(searchQuery, ignoreCase = true) ||
+                chat.lastMessage.contains(searchQuery, ignoreCase = true)
+            val isVisible = if (chat.id == com.freetime.app.api.ANNOUNCEMENT_USER_ID) {
+                true  // Always visible, never auto-hide
+            } else if (chat.lastMessageTimestamp > 0L) {
+                System.currentTimeMillis() - chat.lastMessageTimestamp < CHAT_PERSIST_MS
+            } else true
+            passesSearch && isVisible
+        }
+        // ✅ ONLINE USERS FIRST: Online chats bubble to the top automatically when
+        // someone comes online (stable sort keeps recent-chat order within each group)
+        .sortedWith(compareByDescending<ChatItem> { it.isOnline })
     
     Box(
         modifier = Modifier
@@ -1430,6 +1454,11 @@ fun ModernHomeScreen(
                 }
                 
                 // Sidebar with Mascot
+                LaunchedEffect(mascotShowMessage) {
+                    if (mascotShowMessage) {
+                        MascotBannerSessionState.shownThisSession = true
+                    }
+                }
                 MascotSidebar(
                     mascotShowMessage = mascotShowMessage,
                     unreadCount = filteredChats.count { it.isOnline }.toString(),
@@ -1544,7 +1573,9 @@ fun ModernHomeScreen(
                         }
                         com.freetime.app.services.AppUpdateManager.downloadApk(context, info) { id ->
                             isDownloading = false
-                            com.freetime.app.services.AppUpdateManager.installApk(context, id)
+                            if (id != -1L) {
+                                com.freetime.app.services.AppUpdateManager.installApk(context, id)
+                            }
                         }
                     }) {
                         Text("Download", color = Color(0xFF00FFFF))
@@ -1554,7 +1585,7 @@ fun ModernHomeScreen(
                     Row {
                         TextButton(onClick = {
                             showUpdateDialog = false
-                            updateInfo?.let { updatePrefs.setSkippedVersion(it.latestVersionCode) }
+                            updateInfo?.let { updatePrefs.setSkippedUpdate(it.updateId ?: "") }
                             updateInfo = null
                         }) {
                             Text("Skip this version", color = CyberpunkTheme.GhostGray)
@@ -2539,6 +2570,10 @@ fun MascotSidebar(
     unreadCount: String,
     onDismiss: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    var dragOffsetX by remember { mutableStateOf(0f) }
+    val dragThresholdPx = with(LocalDensity.current) { 100.dp.toPx() }
+
     AnimatedVisibility(
         visible = mascotShowMessage,
         enter = slideInHorizontally(initialOffsetX = { 250 }),
@@ -2547,6 +2582,29 @@ fun MascotSidebar(
             .widthIn(min = 200.dp, max = 320.dp)
             .fillMaxHeight()
             .padding(start = 12.dp, end = 12.dp)
+            .offset { IntOffset(dragOffsetX.roundToInt(), 0) }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragOffsetX = 0f },
+                    onHorizontalDrag = { _, dragAmount ->
+                        dragOffsetX = (dragOffsetX + dragAmount).coerceAtLeast(0f)
+                    },
+                    onDragEnd = {
+                        if (dragOffsetX > dragThresholdPx) {
+                            onDismiss()
+                        } else {
+                            scope.launch {
+                                animate(dragOffsetX, 0f) { value, _ -> dragOffsetX = value }
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch {
+                            animate(dragOffsetX, 0f) { value, _ -> dragOffsetX = value }
+                        }
+                    }
+                )
+            }
     ) {
         Column(
             modifier = Modifier

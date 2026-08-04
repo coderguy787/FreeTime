@@ -478,13 +478,14 @@ class SharedPreferencesHelper(context: Context) {
         return sharedPreferences.getLong("cached_friends_timestamp", 0L)
     }
 
-    // In-app update: skip version
-    fun setSkippedVersion(versionCode: Int) {
-        sharedPreferences.edit().putInt("skipped_update_version", versionCode).apply()
+    // In-app update: skip the launched update (keyed by update ID so a new
+    // admin launch with a new ID always surfaces the icon again)
+    fun setSkippedUpdate(updateId: String) {
+        sharedPreferences.edit().putString("skipped_update_id", updateId).apply()
     }
 
-    fun getSkippedVersion(): Int {
-        return sharedPreferences.getInt("skipped_update_version", 0)
+    fun getSkippedUpdateId(): String {
+        return sharedPreferences.getString("skipped_update_id", "") ?: ""
     }
 
     // In-app update: pending update ID (from admin-launched update)
@@ -498,5 +499,14 @@ class SharedPreferencesHelper(context: Context) {
 
     fun clearPendingUpdateId() {
         sharedPreferences.edit().remove("pending_update_id").apply()
+    }
+
+    // In-app update: full-screen gate skip (hides the gate but keeps the icon)
+    fun setGateSkippedUpdateId(updateId: String) {
+        sharedPreferences.edit().putString("gate_skipped_update_id", updateId).apply()
+    }
+
+    fun getGateSkippedUpdateId(): String {
+        return sharedPreferences.getString("gate_skipped_update_id", "") ?: ""
     }
 }

@@ -328,11 +328,22 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
             val memberIsAdmin = member.isAdmin || adminList.contains(member.id)
             Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF1A1A2E), shape = RoundedCornerShape(8.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    if (!member.avatarUrl.isNullOrEmpty()) {
-                        AsyncImage(model = member.avatarUrl, contentDescription = member.name, contentScale = ContentScale.Crop, modifier = Modifier.size(40.dp).clip(CircleShape))
-                    } else {
-                        Box(Modifier.size(40.dp).clip(CircleShape).background(Color.Gray), contentAlignment = Alignment.Center) {
-                            Text(member.name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+                    Box(
+                        Modifier.size(40.dp).clip(CircleShape).background(Color.Gray),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(member.name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+                        val memberAvatarUrl = resolveAvatarUrl(member.avatarUrl)
+                        if (!memberAvatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                    .data(memberAvatarUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = member.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                            )
                         }
                     }
                     Spacer(Modifier.width(12.dp))
@@ -1355,7 +1366,8 @@ private fun GroupChatScreenBody(
 
     Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CyberpunkTheme.Black, Color(0xFF0A0E27))))) {
         Column(modifier = Modifier
-            .fillMaxSize()) {
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))) {
             // ✅ IMPROVED: Check both admins and adminIds (server sends adminIds)
             val adminList = (loadedGroup.admins + loadedGroup.adminIds).distinct()
             val isCurrentUserAdmin = adminList.contains(currentUserId)
@@ -2043,10 +2055,18 @@ fun GroupChatHeader(group: GroupInfo, onNavigateBack: () -> Unit, isCurrentUserA
         IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Default.ArrowBack, null, tint = accentColor) }
         Spacer(Modifier.width(8.dp))
         Box(Modifier.size(40.dp).clip(CircleShape).background(accentColor.copy(0.2f)).border(1.dp, accentColor, CircleShape), contentAlignment = Alignment.Center) {
-            if (!group.profilePictureUrl.isNullOrEmpty()) {
-                AsyncImage(model = group.profilePictureUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Text(group.name.take(1), color = accentColor, fontWeight = FontWeight.Bold)
+            Text(group.name.take(1), color = accentColor, fontWeight = FontWeight.Bold)
+            val groupPictureUrl = resolveAvatarUrl(group.profilePictureUrl)
+            if (!groupPictureUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = coil.request.ImageRequest.Builder(LocalContext.current)
+                        .data(groupPictureUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                )
             }
         }
         Spacer(Modifier.width(12.dp))
@@ -2125,11 +2145,11 @@ fun GroupMessagesTab(
     }
     
     Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Spacer(Modifier.height(if (activeVotes.isNotEmpty()) 120.dp else 16.dp)) }
             items(messages, key = { it.messageId }) { msg ->
             val isMe = msg.senderId == currentUserId
-            Column(
+            Row(
                 Modifier
                     .fillMaxWidth()
                     .pointerInput(msg.messageId) {
@@ -2139,8 +2159,37 @@ fun GroupMessagesTab(
                             }
                         )
                     },
-                horizontalAlignment = if(isMe) Alignment.End else Alignment.Start
+                horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+                verticalAlignment = Alignment.Bottom
             ) {
+                if (!isMe && msg.senderId != "__SYSTEM__") {
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF9D4EDD).copy(alpha = 0.3f))
+                            .border(1.dp, Color(0xFF9D4EDD), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(msg.senderUsername.firstOrNull()?.toString() ?: "?", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        val senderAvatarUrl = resolveAvatarUrl(msg.senderAvatar)
+                        if (!senderAvatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                    .data(senderAvatarUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = msg.senderUsername,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                }
+                Column(
+                    horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+                ) {
                 if (!isMe && msg.senderId != "__SYSTEM__") {
                     Text(msg.senderUsername, color = getUsernameColorGroup(msg.senderTags, msg.senderIsAdmin, msg.senderIsModerator, msg.senderRole), fontSize = 10.sp, modifier = Modifier.padding(start = 4.dp))
                 }
@@ -2435,6 +2484,7 @@ fun GroupMessagesTab(
                         }
                     }
                 }
+                }
             }
         }
         if (typingUsers.isNotEmpty()) {
@@ -2445,17 +2495,19 @@ fun GroupMessagesTab(
 
 }
 
-private fun mapToGroupInfo(groupId: String, apiGroup: Group): GroupInfo {
-    fun ensureHttpsUrl(url: String?): String? {
-        return url?.let {
-            when {
-                it.isEmpty() || it == "null" || it == "undefined" -> null
-                it.startsWith("http://") || it.startsWith("https://") -> it
-                it.startsWith("/") -> "https://example.com$it"
-                else -> "https://example.com/$it"
-            }
-        }
+// ✅ FIX: Resolve relative avatar/picture paths from the backend into full URLs
+// against the real server base (BuildConfig.MAIN_SERVER_URL), instead of the
+// placeholder "example.com" domain. Keeps query-string cache busters intact.
+private fun resolveAvatarUrl(url: String?): String? {
+    if (url.isNullOrEmpty() || url == "null" || url == "undefined") return null
+    return when {
+        url.startsWith("http://") || url.startsWith("https://") -> url
+        url.startsWith("/") -> "${com.freetime.app.BuildConfig.MAIN_SERVER_URL.trimEnd('/')}$url"
+        else -> "${com.freetime.app.BuildConfig.MAIN_SERVER_URL.trimEnd('/')}/$url"
     }
+}
+
+private fun mapToGroupInfo(groupId: String, apiGroup: Group): GroupInfo {
 
     fun sanitizeCode(code: String?): String? {
         return if (code.isNullOrEmpty() || code == "undefined" || code == "null") null else code
@@ -2485,7 +2537,7 @@ private fun mapToGroupInfo(groupId: String, apiGroup: Group): GroupInfo {
                 name = apiMember.username,
                 displayName = apiMember.displayName ?: "",
                 role = if (adminList.contains(apiMember.userId)) "admin" else "member",
-                avatarUrl = ensureHttpsUrl(apiMember.avatar),
+                avatarUrl = resolveAvatarUrl(apiMember.avatar),
                 tags = apiMember.tags,
                 isAdmin = adminList.contains(apiMember.userId) || apiMember.isAdmin,
                 isSystemAdmin = apiMember.isSystemAdmin,
@@ -2496,8 +2548,12 @@ private fun mapToGroupInfo(groupId: String, apiGroup: Group): GroupInfo {
         isPrivate = apiGroup.isPrivate,
         inviteCode = cleanInviteCode ?: "",
         inviteLink = finalInviteLink,
-        profilePictureUrl = ensureHttpsUrl(apiGroup.profilePictureUrl) + if (apiGroup.profilePictureUpdatedAt != null) "?t=${java.net.URLEncoder.encode(apiGroup.profilePictureUpdatedAt, "UTF-8")}" else "",
-        profilePictureThumbnailUrl = ensureHttpsUrl(apiGroup.profilePictureUrl) + if (apiGroup.profilePictureUpdatedAt != null) "?t=${java.net.URLEncoder.encode(apiGroup.profilePictureUpdatedAt, "UTF-8")}" else "",
+        profilePictureUrl = resolveAvatarUrl(apiGroup.profilePictureUrl)?.let { resolved ->
+            if (apiGroup.profilePictureUpdatedAt != null) "$resolved?t=${java.net.URLEncoder.encode(apiGroup.profilePictureUpdatedAt, "UTF-8")}" else resolved
+        } ?: "",
+        profilePictureThumbnailUrl = resolveAvatarUrl(apiGroup.profilePictureUrl)?.let { resolved ->
+            if (apiGroup.profilePictureUpdatedAt != null) "$resolved?t=${java.net.URLEncoder.encode(apiGroup.profilePictureUpdatedAt, "UTF-8")}" else resolved
+        } ?: "",
         creatorId = apiGroup.creatorId,
         admins = apiGroup.admins,
         adminIds = apiGroup.adminIds

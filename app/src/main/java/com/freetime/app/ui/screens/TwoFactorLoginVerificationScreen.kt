@@ -92,6 +92,7 @@ fun TwoFactorLoginVerificationScreen(
                         colors = listOf(Color(0xFF0A0E27), Color(0xFF1a1f3a))
                     )
                 )
+                .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))
                 .padding(responsiveSpacingLarge(deviceSize)),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(responsiveSpacingLarge(deviceSize))

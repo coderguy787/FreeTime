@@ -54,6 +54,9 @@ import com.freetime.app.data.local.SharedPreferencesHelper
 import com.freetime.app.model.CallState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.activity.compose.BackHandler
 import com.freetime.app.api.FreeTimeApiService
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -141,7 +144,8 @@ data class Message(
     val senderRole: String = "",  // ✅ NEW: Role for flexible color matching
     val subject: String? = null,  // ✅ NEW: Announcement subject
     val isAnnouncement: Boolean = false,  // ✅ NEW: Announcement flag
-    val mediaShareMode: String? = null  // ✅ NEW: "public" or "protected"
+    val mediaShareMode: String? = null,  // ✅ NEW: "public" or "protected"
+    val senderAvatar: String? = null  // ✅ NEW: Sender's profile picture URL
 )
 
 fun parseReactions(json: String): List<String> {
@@ -161,6 +165,16 @@ fun inferMediaShareMode(content: String): String? {
         match == null -> null
         match.groupValues.getOrNull(2).isNullOrEmpty() -> "public"
         else -> "protected"
+    }
+}
+
+// ✅ FIX: Resolve relative avatar paths from the backend into full URLs against the real server
+private fun resolvePrivateAvatarUrl(url: String?): String? {
+    if (url.isNullOrEmpty() || url == "null" || url == "undefined") return null
+    return when {
+        url.startsWith("http://") || url.startsWith("https://") -> url
+        url.startsWith("/") -> "${com.freetime.app.BuildConfig.MAIN_SERVER_URL.trimEnd('/')}$url"
+        else -> "${com.freetime.app.BuildConfig.MAIN_SERVER_URL.trimEnd('/')}/$url"
     }
 }
 
@@ -253,6 +267,7 @@ fun ModernChatScreen(
     var recipientIsAdmin by remember { mutableStateOf(false) }  // ✅ NEW: Recipient's admin status
     var recipientIsModerator by remember { mutableStateOf(false) }  // ✅ NEW: Recipient's moderator status
     var recipientRole by remember { mutableStateOf("") }  // ✅ NEW: Recipient's role for flexible color matching
+    var recipientAvatar by remember { mutableStateOf<String?>(null) }  // ✅ NEW: Recipient's profile picture URL
     val isAnnouncementChat = recipientId == com.freetime.app.api.ANNOUNCEMENT_USER_ID
     // Announcement auto-disappear after 3 minutes
     val announcementDeliveredAt = remember { mutableStateOf(mutableMapOf<String, Long>()) }
@@ -291,6 +306,20 @@ fun ModernChatScreen(
 
     // ===== CONNECTION STATUS =====
     var wsConnected by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    // CRITICAL FIX: Intercept back press to dismiss keyboard first, preventing IME Send from firing.
+    // keyboardController.hide() does NOT release TextField focus, so we must clearFocus() too —
+    // otherwise isInputFocused stays true forever and onNavigateBack() is never reached.
+    BackHandler {
+        if (isInputFocused) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+        } else {
+            onNavigateBack()
+        }
+    }
     
     // Monitor WebSocket connection status
     LaunchedEffect(Unit) {
@@ -862,7 +891,8 @@ fun ModernChatScreen(
                     senderIsAdmin = if (message.senderId == currentUserId) false else recipientIsAdmin,
                     senderIsModerator = if (message.senderId == currentUserId) false else recipientIsModerator,
                     subject = message.subject,
-                    isAnnouncement = message.senderId == com.freetime.app.api.ANNOUNCEMENT_USER_ID
+                    isAnnouncement = message.senderId == com.freetime.app.api.ANNOUNCEMENT_USER_ID,
+                    senderAvatar = message.senderAvatar
                 )) + messages
                             
                             // ✅ FIX: Trim messages if list grows too large (prevent memory issues)
@@ -1595,6 +1625,7 @@ fun ModernChatScreen(
                 recipientRole = user.role ?: ""  // ✅ NEW: Store role for flexible color matching
                 recipientIsAdmin = user.role == "ADMIN" || user.role == "admin"  // ✅ NEW: Extract admin status from role
                 recipientIsModerator = user.role == "MODERATOR" || user.role == "moderator"  // ✅ NEW: Extract moderator status from role
+                recipientAvatar = user.avatar  // ✅ NEW: Store recipient's profile picture URL
                 recipientIsOnline = false  // Will be polled via getUserStatus
                 recipientExists = true
                 
@@ -1824,6 +1855,7 @@ fun ModernChatScreen(
                                     senderIsModerator = if (msgResponse.senderId == currentUserId) false else (msgResponse.senderIsModerator || recipientIsModerator),
                                     subject = msgResponse.subject,
                                     isAnnouncement = msgResponse.isAdminAnnouncement,
+                                    senderAvatar = msgResponse.senderAvatar,
                                     reactions = msgResponse.reactions.keys.toList()
                                 )
                             } catch (e: Exception) {
@@ -1995,7 +2027,7 @@ fun ModernChatScreen(
                             replyToText = replyTo?.content
                         )
                         
-                        // Add to UI immediately
+                        // Add to UI immediately (skip if reactive DB listener already added it)
                         val msgForUi = Message(
                             id = localMessageId,
                             senderName = currentUsername,
@@ -2011,7 +2043,9 @@ fun ModernChatScreen(
                             senderIsAdmin = false,
                             senderIsModerator = false
                         )
-                        messages = listOf(msgForUi) + messages
+                        if (messages.none { it.id == localMessageId }) {
+                            messages = listOf(msgForUi) + messages
+                        }
                         
                         try {
                             val sendRequest = SendMessageRequest(
@@ -2025,25 +2059,39 @@ fun ModernChatScreen(
                             
                             if (response.isSuccessful) {
                                 // ✅ SUCCESS: Update sync state to "synced"
-                                messageRepository.updateSyncState(localMessageId, "synced")
-                                // Parse server ID and update local message ID to prevent poll-duplicates
+                                // CRITICAL FIX: Use NonCancellable so these DB updates complete even if
+                                // the user leaves the chat (coroutine scope is cancelled on leave).
+                                // Without this, the message stays as "pending" with the local ID,
+                                // and re-opening the chat inserts a duplicate row (local ID + server ID).
+                                withContext(kotlinx.coroutines.NonCancellable) {
+                                    messageRepository.updateSyncState(localMessageId, "synced")
+                                    // Parse server ID and update local message ID to prevent poll-duplicates
+                                    val serverMsgId = response.body()?.id?.takeIf { it.isNotEmpty() }
+                                        ?: response.body()?._id?.takeIf { it.isNotEmpty() }
+                                    if (serverMsgId != null && serverMsgId != localMessageId) {
+                                        messageRepository.updateMessageId(localMessageId, serverMsgId)
+                                    }
+                                }
                                 val serverMsgId = response.body()?.id?.takeIf { it.isNotEmpty() }
                                     ?: response.body()?._id?.takeIf { it.isNotEmpty() }
                                 if (serverMsgId != null && serverMsgId != localMessageId) {
-                                    messageRepository.updateMessageId(localMessageId, serverMsgId)
                                     messages = messages.map { if (it.id == localMessageId) it.copy(id = serverMsgId, status = "delivered") else it }
                                 } else {
                                     messages = messages.map { if (it.id == localMessageId) it.copy(status = "delivered") else it }
                                 }
                             } else {
-                                messageRepository.updateSyncState(localMessageId, "failed")
+                                withContext(kotlinx.coroutines.NonCancellable) {
+                                    messageRepository.updateSyncState(localMessageId, "failed")
+                                }
                                 messages = messages.map { if (it.id == localMessageId) it.copy(status = "failed") else it }
                                 Toast.makeText(context, "Failed to send: HTTP ${response.code()}", Toast.LENGTH_SHORT).show()
                                 messageText = messageToSend
                                 replyingToMessage = replyTo
                             }
                         } catch (e: Exception) {
-                            messageRepository.updateSyncState(localMessageId, "failed")
+                            withContext(kotlinx.coroutines.NonCancellable) {
+                                messageRepository.updateSyncState(localMessageId, "failed")
+                            }
                             messages = messages.map { if (it.id == localMessageId) it.copy(status = "failed") else it }
                             Toast.makeText(context, "Message will resend when connection improves", Toast.LENGTH_SHORT).show()
                         }
@@ -2330,9 +2378,12 @@ fun ModernChatScreen(
                     )
                 )
             )
-            .systemBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))
+        ) {
             // Chat Header
             if (isAnnouncementChat) {
                 AnnouncementChatHeader(
@@ -2901,8 +2952,7 @@ fun ModernChatScreen(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp)
-                            .imePadding(),
+                            .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = PaddingValues(vertical = 16.dp),
                         reverseLayout = true
@@ -2990,7 +3040,8 @@ fun ModernChatScreen(
                                                     }
                                                 }
                                             }
-                                        }
+                                        },
+                                        recipientAvatar = recipientAvatar
                                     )
                                     
                                     // Reaction Overlay (if this message is the one being long-pressed)
@@ -3697,7 +3748,8 @@ fun MessageBubble(
     onShowImagePreview: (String) -> Unit = {},
     onRequestMediaDownload: (String) -> Unit = {},
     onApproveRequest: (String) -> Unit = {},
-    onDenyRequest: (String) -> Unit = {}
+    onDenyRequest: (String) -> Unit = {},
+    recipientAvatar: String? = null
 ) {
     // Extract media ID if this is a media message
     val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
@@ -3810,6 +3862,18 @@ fun MessageBubble(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                    val avatarUrl = resolvePrivateAvatarUrl(message.senderAvatar ?: recipientAvatar)
+                    if (!avatarUrl.isNullOrEmpty()) {
+                        coil.compose.AsyncImage(
+                            model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                .data(avatarUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = message.senderName,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        )
+                    }
                 }
             }
             
