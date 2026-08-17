@@ -105,6 +105,9 @@ class MainActivity : ComponentActivity() {
         // Schedule periodic background message sync (every 15 minutes)
         com.freetime.app.services.MessageSyncWorker.schedulePeriodicSync(this)
         
+        // Monitor server health to support degraded (offline) mode
+        com.freetime.app.services.ServerStatusManager.start(this)
+        
         // ✅ REMOVED: Background polling service is now disabled in favor of Firebase (FCM)
         // to satisfy user request to remove persistent "Security Service" notification.
         com.freetime.app.services.BackgroundPollingService.stopPolling(this)

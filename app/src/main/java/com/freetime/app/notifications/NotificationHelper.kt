@@ -555,6 +555,49 @@ object NotificationHelper {
         }
     }
 
+    fun showServerDownNotification(context: Context) {
+        createNotificationChannels(context)
+
+        val intent = Intent(context, com.freetime.app.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            "server_down".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notificationBuilder = NotificationCompat.Builder(context, SOCIAL_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setLargeIcon(BitmapFactory.decodeResource(context.resources, R.drawable.freetime_logo))
+            .setColor(context.getColor(R.color.notification_color))
+            .setContentTitle("FreeTime servers are offline")
+            .setContentText("Only private text messages are available. Group chats and media are temporarily disabled.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("FreeTime servers are offline. Only private text messages are available. Group chats and media are temporarily disabled."))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_SYSTEM)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(false)
+
+        if (isSoundEnabled(context)) {
+            notificationBuilder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+        } else {
+            notificationBuilder.setSilent(true)
+        }
+        if (isVibrationEnabled(context)) {
+            notificationBuilder.setVibrate(longArrayOf(0, 250, 100, 250))
+        } else {
+            notificationBuilder.setVibrate(longArrayOf(0))
+        }
+
+        try {
+            NotificationManagerCompat.from(context).notify("server_down".hashCode(), notificationBuilder.build())
+        } catch (e: SecurityException) {
+            android.util.Log.e("NotificationHelper", "Failed to show server-down notification: ${e.message}")
+        }
+    }
+
     fun showFriendRequestNotification(context: Context, senderName: String, senderId: String, requestId: String = "") {
         val dedupKey = "friend_req:$senderId"
         if (shouldSuppressNotification(context, dedupKey)) return

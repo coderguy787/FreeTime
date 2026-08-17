@@ -37,6 +37,7 @@ import com.freetime.app.data.local.SharedPreferencesHelper
 import com.freetime.app.services.WebSocketManager
 import com.freetime.app.services.BackgroundPollingService
 import com.freetime.app.services.ConnectionState
+import com.freetime.app.services.ServerStatusManager
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -158,6 +159,14 @@ fun ModernHomeScreen(
     LaunchedEffect(wsManager) {
         wsManager.connectionState.collect { newState ->
             connectionState = newState
+        }
+    }
+    
+    // ✅ OBSERVE SERVER HEALTH for degraded (offline) mode
+    var isServerDown by remember { mutableStateOf(ServerStatusManager.isDown()) }
+    LaunchedEffect(Unit) {
+        ServerStatusManager.isServerDown.collect { down ->
+            isServerDown = down
         }
     }
     
@@ -1363,6 +1372,11 @@ fun ModernHomeScreen(
                     .padding(16.dp)
             )
             
+            // ✅ Server-offline banner (degraded mode)
+            if (isServerDown) {
+                ServerOfflineBanner()
+            }
+            
             // Notification Center Overlay
             AnimatedVisibility(
                 visible = showNotificationCenter,
@@ -1378,7 +1392,8 @@ fun ModernHomeScreen(
                 )
             }
             
-            val filteredGroups = userGroups.filter {
+            // ✅ Group chats are disabled while the server is offline
+            val filteredGroups = if (isServerDown) emptyList() else userGroups.filter {
                 it.name.contains(searchQuery, ignoreCase = true) ||
                 it.description.contains(searchQuery, ignoreCase = true)
             }
@@ -1475,7 +1490,17 @@ fun ModernHomeScreen(
         // ...existing code...
         // Place FAB at bottom right
         FloatingActionButton(
-            onClick = { showCreateDialog = true },
+            onClick = {
+                if (isServerDown) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Groups are unavailable while servers are offline",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    showCreateDialog = true
+                }
+            },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(24.dp),
@@ -2700,6 +2725,38 @@ fun MascotSidebar(
             }
             
             Spacer(modifier = Modifier.height(4.dp))
+        }
+    }
+}
+
+@Composable
+fun ServerOfflineBanner() {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF5A3200).copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, Color(0xFFFFAA00).copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "⚠️",
+                fontSize = 16.sp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Servers are offline — only private text messages are available.",
+                color = Color(0xFFFFD98A),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }

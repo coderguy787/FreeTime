@@ -76,6 +76,7 @@ import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import android.provider.DocumentsContract
 import com.freetime.app.services.CallStateManager
+import com.freetime.app.services.ServerStatusManager
 import com.freetime.app.ui.components.*
 import java.util.UUID
 import org.webrtc.IceCandidate
@@ -243,6 +244,14 @@ fun ModernChatScreen(
     var isTyping by remember { mutableStateOf(false) }
     var messages by remember { mutableStateOf(listOf<Message>()) }
     var isLoadingMessages by remember { mutableStateOf(false) }
+    
+    // ✅ Server health for degraded (offline) mode
+    var isServerDown by remember { mutableStateOf(ServerStatusManager.isDown()) }
+    LaunchedEffect(Unit) {
+        ServerStatusManager.isServerDown.collect { down ->
+            isServerDown = down
+        }
+    }
     
     var isSendingMessage by remember { mutableStateOf(false) }
     var recipientName by remember { mutableStateOf(chatName) }
@@ -1496,6 +1505,12 @@ fun ModernChatScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
+            if (ServerStatusManager.isDown()) {
+                mediaPickerError = "Media is unavailable while servers are offline"
+                Toast.makeText(context, "Media is unavailable while servers are offline", Toast.LENGTH_SHORT).show()
+                android.util.Log.w("FREETIME_MEDIA", "Media send blocked: server offline")
+                return@rememberLauncherForActivityResult
+            }
             selectedMediaUri = uri
             isProcessingMedia = true
             // Take persistable permission to prevent ENOENT on delayed access
@@ -3160,19 +3175,24 @@ fun ModernChatScreen(
                             sendTypingIndicator()
                         },
                         onAttachClick = { 
-                            if (!isProcessingMedia) {
+                            if (isServerDown) {
+                                Toast.makeText(context, "Media is unavailable while servers are offline", Toast.LENGTH_SHORT).show()
+                            } else if (!isProcessingMedia) {
                                 showMediaModeDialog = true
                             }
                         },
                     onGifClick = {
-                        if (!isProcessingMedia) {
+                        if (isServerDown) {
+                            Toast.makeText(context, "GIFs are unavailable while servers are offline", Toast.LENGTH_SHORT).show()
+                        } else if (!isProcessingMedia) {
                             showGifPicker = true
                         }
                     },
                     onEmojiClick = {
                         showEmojiPicker = !showEmojiPicker
                     },
-                    onFocusChange = { focused -> isInputFocused = focused }
+                    onFocusChange = { focused -> isInputFocused = focused },
+                    offlineMode = isServerDown
                 )
         }
     }
@@ -3292,6 +3312,10 @@ fun ModernChatScreen(
         onDismiss = { showGifPicker = false },
         onGifSelected = { gifUrl, _ ->
             showGifPicker = false
+            if (ServerStatusManager.isDown()) {
+                Toast.makeText(context, "GIFs are unavailable while servers are offline", Toast.LENGTH_SHORT).show()
+                return@GifPickerDialog
+            }
             scope.launch {
                 isProcessingMedia = true
                 try {
@@ -4535,7 +4559,8 @@ fun ChatInputArea(
     onAttachClick: () -> Unit,
     onEmojiClick: () -> Unit,
     onGifClick: (() -> Unit)? = null,
-    onFocusChange: ((Boolean) -> Unit) = {}
+    onFocusChange: ((Boolean) -> Unit) = {},
+    offlineMode: Boolean = false
 ) {
     // Debounce typing indicator sends
     LaunchedEffect(messageText) {
@@ -4637,13 +4662,32 @@ fun ChatInputArea(
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onAttachClick) {
-                Icon(Icons.Default.AttachFile, null, tint = Color.Gray)
+            IconButton(
+                onClick = {
+                    if (!offlineMode) onAttachClick()
+                },
+                enabled = !offlineMode
+            ) {
+                Icon(
+                    Icons.Default.AttachFile,
+                    null,
+                    tint = if (offlineMode) Color.Gray.copy(alpha = 0.4f) else Color.Gray
+                )
             }
             
             if (onGifClick != null) {
-                IconButton(onClick = onGifClick) {
-                    Text("GIF", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Gray)
+                IconButton(
+                    onClick = {
+                        if (!offlineMode) onGifClick()
+                    },
+                    enabled = !offlineMode
+                ) {
+                    Text(
+                        "GIF",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = if (offlineMode) Color.Gray.copy(alpha = 0.4f) else Color.Gray
+                    )
                 }
             }
             

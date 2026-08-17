@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.freetime.app.services.ServerStatusManager
 import com.freetime.app.ui.screens.*
 
 /**
@@ -67,9 +68,14 @@ fun AppNavGraph(
     onLoginSuccess: (() -> Unit)? = null,
     startDestination: String = if (isLoggedIn) Route.Home.path else Route.Login.path
 ) {
+    val navContext = LocalContext.current
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = startDestination,
+        enterTransition = { telegramPushEnter },
+        exitTransition = { telegramPushExit },
+        popEnterTransition = { telegramPopEnter },
+        popExitTransition = { telegramPopExit }
     ) {
         // Auth Routes
         composable(Route.Login.path) {
@@ -88,8 +94,16 @@ fun AppNavGraph(
             ModernHomeScreen(
                 onNavigateToChat = { chatId ->
                     if (chatId.startsWith("group:")) {
-                        val groupId = chatId.removePrefix("group:")
-                        navController.navigate(Route.GroupChat.createRoute(groupId))
+                        if (ServerStatusManager.isDown()) {
+                            android.widget.Toast.makeText(
+                                navContext,
+                                "Group chats are unavailable while servers are offline",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            val groupId = chatId.removePrefix("group:")
+                            navController.navigate(Route.GroupChat.createRoute(groupId))
+                        }
                     } else {
                         navController.navigate(Route.Chat.createRoute(chatId))
                     }
