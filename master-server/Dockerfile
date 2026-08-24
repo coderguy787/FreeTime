@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ COPY package*.json ./
 
 RUN npm ci --only=production && npm cache clean --force
 
-FROM node:20-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 
