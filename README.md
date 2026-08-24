@@ -1,16 +1,18 @@
 # FreeTime
 
-encrypted chat app. android client + node backend (api, websocket, peer relay) + admin panel.
-messages are e2e encrypted with aes-256-gcm, keys stay in the android keystore. groups, channels,
-file/image sharing, totp 2fa.
+encrypted chat for android. messages are end-to-end encrypted with aes-256-gcm — keys are
+generated on-device and live in the android keystore, so the server only ever handles
+ciphertext. direct chats, groups, channels, file/image sharing and totp two-factor auth are
+in; voice/video calling is not part of this version.
 
-no voice/video calling in this version.
+under the hood it's three pieces: a kotlin/jetpack-compose app, a node backend (rest api,
+websocket, admin panel, mongo) and a small peer relay for p2p traffic.
 
 ## layout
 
 ```
 app/            android client (kotlin, jetpack compose)
-master-server/  main server: rest api + websocket + admin panel + mongo scripts
+master-server/  rest api, websocket, admin panel, mongo scripts
 peer/           peer signaling server
 docs/           architecture notes
 windows_client/ old pyqt6 desktop client (not maintained)
@@ -27,11 +29,11 @@ npm install
 ./stop-all.sh
 ```
 
-mongo db name is `freetime`, connection string comes from `.env` (see DEBIAN_DEPLOYMENT_GUIDE.md).
-dev certs live in `master-server/certs/` (`create-self-signed-cert.sh` makes them), swap for real
-ones if you put this on a public domain.
+the database is `freetime`; connection string and secrets come from `.env`
+(DEBIAN_DEPLOYMENT_GUIDE.md walks through it). dev certs live in `master-server/certs/` —
+`create-self-signed-cert.sh` generates a pair, swap in real ones before going public.
 
-peer server runs separately:
+the peer server runs separately:
 
 ```bash
 cd peer
@@ -40,10 +42,9 @@ npm install && npm start
 
 ## building the app
 
-server addresses are gradle properties, defaults point at example.com. set your own in
-`gradle.properties` (SERVER_HOST, SERVER_PORT, PEER_HOST, PEER_PORT).
-
-two flavors: `dev` and `prod`.
+server addresses are gradle properties and default to example.com — point them at your own
+host in `gradle.properties` (SERVER_HOST, SERVER_PORT, PEER_HOST, PEER_PORT). there are two
+build flavors, `dev` and `prod`.
 
 ```bash
 ./gradlew assembleProdDebug     # debug apk
@@ -53,4 +54,4 @@ two flavors: `dev` and `prod`.
 
 ## deployment
 
-see DEBIAN_DEPLOYMENT_GUIDE.md for the full server setup (firewall, certs, mongo, logs).
+DEBIAN_DEPLOYMENT_GUIDE.md covers the full server setup: firewall, certs, mongo, logs.

@@ -552,7 +552,7 @@
                 <button class="nav-btn" onclick="switchTab('massemail')"> Mass Email</button>
                 <button class="nav-btn" onclick="switchTab('announcements')"> Announcements</button>
                 <button class="nav-btn" onclick="switchTab('appupdates')"> App Updates</button>
-                <button class="nav-btn" onclick="handleLogout()" style="margin-left: auto;"> Logout</button>
+                <button class="nav-btn" onclick="handleLogout()" style="margin-left: autoLogout</button>
             </nav>
 
 <main>
@@ -604,7 +604,7 @@
                         </div>
                     </div>
 
-                    <h3 style="margin-top: 30px;"> Reports Overview</h3>
+                    <h3 style="margin-top: 30pxReports Overview</h3>
                     <div class="stats-grid">
                         <div class="stat-card" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
                             <h3>Open</h3>
@@ -620,7 +620,7 @@
                         </div>
                     </div>
 
-                    <h3 style="margin-top: 30px;"> WebSocket Connection Queue</h3>
+                    <h3 style="margin-top: 30pxWebSocket Connection Queue</h3>
                     <div class="stats-grid">
                         <div class="stat-card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
                             <h3>Active Connections</h3>
@@ -833,7 +833,7 @@
                     <h2> Call Management</h2>
 
                     <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center;">
-                        <strong style="font-size: 1.2em;"> Under Reconstruction</strong>
+                        <strong style="font-size: 1.2emUnder Reconstruction</strong>
                         <p style="margin-top: 8px; color: #856404;">This section is being completely rebuilt. Full call management features will be available in a future update.</p>
                     </div>
 
@@ -979,7 +979,7 @@
                             <label style="display:block; margin-bottom:6px; font-weight:500;">Recipient:</label>
                             <div style="display:flex; gap:8px;">
                                 <input type="text" id="announcementRecipient" placeholder="User ID or username" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:4px;">
-                                <button class="btn" onclick="lookupAnnouncementUser()" style="background:#667eea; color:white; white-space:nowrap;"> Look Up</button>
+                                <button class="btn" onclick="lookupAnnouncementUser()" style="background:#667eea; color:white; white-space:nowrapLook Up</button>
                             </div>
                             <div id="announcementUserLookupResult" style="margin-top:6px; font-size:0.9em; color:#666;"></div>
                         </div>
@@ -1064,7 +1064,7 @@
         </div>
 
         <div style="display:flex; gap:10px;">
-            <button class="btn btn-primary" onclick="launchUpdate()" style="background:#4caf50; color:white; font-size:1.1em; padding:12px 28px;"> Launch Update</button>
+            <button class="btn btn-primary" onclick="launchUpdate()" style="background:#4caf50; color:white; font-size:1.1em; padding:12px 28pxLaunch Update</button>
             <button class="btn" onclick="clearUpdateForm()" style="background:#f0f0f0; color:#333;">Clear</button>
         </div>
         <div id="updateLaunchStatus" style="padding:10px; border-radius:4px; display:none; margin-top:10px;"></div>
@@ -1131,7 +1131,7 @@
                                 <div style="display: flex; gap: 8px;">
                                     <input type="text" id="emailSpecificUserInput" placeholder="Enter user ID or username" 
                                            style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
-                                    <button class="btn" onclick="lookupEmailRecipient()" style="background: #667eea; color: white; font-size: 0.85em; white-space: nowrap;"> Look Up</button>
+                                    <button class="btn" onclick="lookupEmailRecipient()" style="background: #667eea; color: white; font-size: 0.85em; white-space: nowrapLook Up</button>
                                 </div>
                                 <div id="emailSpecificUserResult" style="margin-top: 6px; font-size: 0.9em; color: #666;"></div>
                             </div>
@@ -1563,23 +1563,23 @@
                 const actualBadge = actualStatus === 'online' 
                     ? '<span class="badge badge-online"> Online</span>'
                     : actualStatus === 'occupied'
-                    ? '<span class="badge badge-occupied" style="background: #ff9800; color: white; padding: 4px 8px; border-radius: 4px;"> Occupied</span>'
+                    ? '<span class="badge badge-occupied" style="background: #ff9800; color: white; padding: 4px 8px; border-radius: 4pxOccupied</span>'
                     : '<span class="badge badge-offline"> Offline</span>';
 
                 const displayedStatus = user.displayedStatus || actualStatus;
                 const displayedBadge = displayedStatus === 'online'
-                    ? '<span style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;"> Online</span>'
+                    ? '<span style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11pxOnline</span>'
                     : displayedStatus === 'occupied'
-                    ? '<span style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">⊘ Occupied</span>'
-                    : '<span style="background: #95a5a6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;"> Hidden</span>';
+                    ? '<span style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">Occupied</span>'
+                    : '<span style="background: #95a5a6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11pxHidden</span>';
 
                 const twoFaMandatory = user.twoFactorAuth && user.twoFactorAuth.mandatorySetup;
                 const twoFaEnabled = user.twoFactorAuth && user.twoFactorAuth.enabled && user.twoFactorAuth.accountVerified;
                 const twoFaBadge = twoFaEnabled 
-                    ? '<span style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;"> Enabled</span>'
+                    ? '<span style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11pxEnabled</span>'
                     : twoFaMandatory
-                    ? '<span style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;"> Required</span>'
-                    : '<span style="background: #95a5a6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;"> Disabled</span>';
+                    ? '<span style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11pxRequired</span>'
+                    : '<span style="background: #95a5a6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11pxDisabled</span>';
 
                 const roleBadge = `<span class="badge badge-${user.role.toLowerCase()}">${user.role}</span>`;
                 const tagsList = (user.tags || []).length > 0 
@@ -2797,7 +2797,7 @@ function createUser(e) {
                     const userList = Array.isArray(users) ? users : (users.users || []);
                     const matched = userList.find(u => u.id === input || u.username === input);
                     if (matched) {
-                        resultDiv.innerHTML = `<span style="color: #4caf50;"> Found: <strong>${escapeHtml(matched.username)}</strong> (${escapeHtml(matched.id)})</span>`;
+                        resultDiv.innerHTML = `<span style="color: #4caf50Found: <strong>${escapeHtml(matched.username)}</strong> (${escapeHtml(matched.id)})</span>`;
                         document.getElementById('announcementRecipient').value = matched.id;
                     } else {
                         resultDiv.innerHTML = '<span style="color: #d32f2f;">User not found. Try a different ID or username.</span>';
@@ -3041,7 +3041,7 @@ function createUser(e) {
                             <p><strong>Force Update:</strong> ${data.update.forceUpdate ? 'Yes' : 'No'}</p>
                             <p><strong>Notes:</strong></p>
                             <pre style="background:#f5f5f5; padding:10px; border-radius:4px; white-space:pre-wrap;">${escapeHtml(data.update.releaseNotes)}</pre>
-                            <button class="btn btn-danger" onclick="deactivateUpdate('${data.update.id}')" style="margin-top:10px;"> Deactivate</button>
+                            <button class="btn btn-danger" onclick="deactivateUpdate('${data.update.id}')" style="margin-top:10pxDeactivate</button>
                         </div>
                     `;
                 } else {
@@ -3058,8 +3058,8 @@ function createUser(e) {
                     html += '</tr></thead><tbody>';
                     data.users.sort((a, b) => a.hasUpdated - b.hasUpdated).forEach(u => {
                         const status = u.hasUpdated
-                            ? '<span style="color:#4caf50; font-weight:bold;"> Updated</span>'
-                            : '<span style="color:#f44336; font-weight:bold;"> Pending</span>';
+                            ? '<span style="color:#4caf50; font-weight:boldUpdated</span>'
+                            : '<span style="color:#f44336; font-weight:boldPending</span>';
                         const lastActive = u.lastActive ? new Date(u.lastActive).toLocaleString() : 'Never';
                         html += `<tr>
                             <td style="padding:10px; border-bottom:1px solid #eee;">${escapeHtml(u.username || u.id)}</td>

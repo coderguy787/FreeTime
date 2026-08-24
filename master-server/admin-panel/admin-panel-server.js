@@ -392,43 +392,7 @@ app.use((req, res) => {
 });
 
 const server = app.listen(ADMIN_PANEL_PORT, BIND_IP, () => {
-    console.log(`
-╔════════════════════════════════════════════════════════════════╗
-║ FreeTime Admin Panel - Full Service Monitoring ║
-║ � SECURE: AdminComPort Authentication Enabled ║
-║ IP: ${BIND_IP} ║
-║ Port: ${ADMIN_PANEL_PORT} ║
-║ Access: http://${BIND_IP}:${ADMIN_PANEL_PORT} ║
-║ [WARN] Local LAN only (192.168.x.x network) ║
-║ ║
-║ SECURITY FEATURES: ║
-║ • HMAC-SHA256 Request Signing ║
-║ • Timestamp Validation (5-min window) ║
-║ • Admin Token Authentication ║
-║ • Rate Limiting: 100 req/60s per admin ║
-║ • Comprehensive Audit Logging ║
-║ • Replay Attack Prevention ║
-║ ║
-║ Protected Monitoring Endpoints: ║
-║ • GET /api/admin/monitor - All services ║
-║ • GET /api/admin/monitor/api - API service ║
-║ • GET /api/admin/monitor/websocket - WebSocket ║
-║ • GET /api/admin/monitor/peer - Peer network ║
-║ • GET /api/admin/monitor/mongodb - MongoDB ║
-║ • GET /api/admin/system - System metrics ║
-║ • GET /api/admin/config - Server config ║
-║ • GET /api/admin/audit-logs - Audit trail ║
-║ ║
-║ Service Monitoring (Unprotected Health Checks): ║
-║ • API Server: http://localhost:${API_PORT}/health ║
-║ • WebSocket: http://localhost:${WS_PORT}/health ║
-║ • Peer Network: http://localhost:${PEER_PORT}/health ║
-║ • MongoDB: mongodb://localhost:27017 ║
-║ ║
-║ USAGE: All admin endpoints require HMAC-signed requests ║
-║ See AdminComPort documentation for request signing ║
-╚════════════════════════════════════════════════════════════════╝
-    `);
+    console.log(`admin panel listening on http://${BIND_IP}:${ADMIN_PANEL_PORT} (lan only, hmac-signed requests)`);
 });
 
 process.on('SIGTERM', () => {
