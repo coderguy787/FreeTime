@@ -1,8 +1,3 @@
-/**
- * Android Client Middleware
- * Integrates Android-specific features into Express API
- */
-
 const AndroidIntegration = require('./android-integration');
 
 class AndroidClientMiddleware {
@@ -10,14 +5,9 @@ class AndroidClientMiddleware {
         this.android = androidIntegration;
     }
 
-    /**
-     * Initialize Android client middleware for Express app
-     */
     initialize(app) {
-        // 1. Add Android request validator
         app.use(this.android.requestValidator());
 
-        // 2. Add Android health endpoint
         app.get('/health/android', (req, res) => {
             res.status(200).json({
                 status: 'healthy',
@@ -35,17 +25,15 @@ class AndroidClientMiddleware {
             });
         });
 
-        // 3. Add Android configuration endpoint
         app.get('/config/android', (req, res) => {
             const config = this.android.generateAndroidConfig(process.env.CORS_ORIGIN);
             res.status(200).json(config);
         });
 
-        // 4. Add Android diagnostics endpoint (admin only)
         app.post('/admin/android-diagnostics', this._requireAdmin, (req, res) => {
             const { config } = req.body;
             const verification = this.android.verifyAndroidSetup(config);
-            
+
             res.status(200).json({
                 timestamp: new Date().toISOString(),
                 verification,
@@ -53,10 +41,9 @@ class AndroidClientMiddleware {
             });
         });
 
-        // 5. Add Android test endpoint
         app.get('/test/android-request', (req, res) => {
             const testRequests = this.android.generateTestRequests();
-            
+
             res.status(200).json({
                 message: 'Android Integration Test Requests',
                 timestamp: new Date().toISOString(),
@@ -90,7 +77,6 @@ class AndroidClientMiddleware {
             });
         });
 
-        // 6. Add Android metrics endpoint
         app.get('/metrics/android', (req, res) => {
             res.status(200).json({
                 timestamp: new Date().toISOString(),
@@ -105,25 +91,19 @@ class AndroidClientMiddleware {
             });
         });
 
-        console.log('✅ Android Client Middleware initialized');
+        console.log(' Android Client Middleware initialized');
     }
 
-    /**
-     * Middleware to require admin authentication
-     */
+    // bind _requireAdmin so express gets the right this
     _requireAdmin = (req, res, next) => {
         const authHeader = req.get('Authorization');
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
-        
-        // Verify JWT token (implementation depends on your auth system)
+
         next();
     }
 
-    /**
-     * Generate improvement suggestions based on verification
-     */
     _generateSuggestions(verification) {
         const suggestions = [];
 
@@ -146,60 +126,33 @@ class AndroidClientMiddleware {
         return suggestions;
     }
 
-    /**
-     * Helper to get active Android client count (placeholder)
-     */
     _getActiveAndroidClients() {
-        // Implementation depends on your session tracking
         return 0;
     }
 
-    /**
-     * Helper to get average Android request time (placeholder)
-     */
     _getAverageAndroidRequestTime() {
-        // Implementation depends on your metrics system
         return 0;
     }
 
-    /**
-     * Helper to get Android error rate (placeholder)
-     */
     _getAndroidErrorRate() {
-        // Implementation depends on your metrics system
         return 0;
     }
 
-    /**
-     * Helper to get top Android errors (placeholder)
-     */
     _getTopAndroidErrors() {
-        // Implementation depends on your error tracking
         return [];
     }
 
-    /**
-     * Helper to get certificate pinning failures (placeholder)
-     */
     _getCertificatePinningFailures() {
-        // Implementation depends on your security logging
         return 0;
     }
 
-    /**
-     * Helper to get signature validation failures (placeholder)
-     */
     _getSignatureValidationFailures() {
-        // Implementation depends on your security logging
         return 0;
     }
 
-    /**
-     * Enhance error responses for Android clients
-     */
     enhanceErrorResponse(error, req) {
         const isAndroidClient = req.get('User-Agent')?.includes('Android');
-        
+
         if (!isAndroidClient) {
             return error;
         }
@@ -215,9 +168,6 @@ class AndroidClientMiddleware {
         };
     }
 
-    /**
-     * Get recommended recovery actions for error codes
-     */
     _getRecoveryActions(errorCode) {
         const actions = {
             'INVALID_SIGNATURE': [

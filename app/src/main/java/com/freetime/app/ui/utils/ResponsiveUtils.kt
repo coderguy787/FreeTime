@@ -9,16 +9,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.text.TextStyle
 
-/**
- * Responsive design utilities for adaptive UI across phones and tablets
- * Breakpoints: Phone < 600dp, Tablet >= 600dp
- */
-
-// Device size classification
 enum class DeviceSize {
-    PHONE,      // < 600dp (phones)
-    TABLET,     // >= 600dp (tablets, large phones)
-    LARGE_TABLET // >= 800dp (large tablets)
+    PHONE,
+    TABLET,
+    LARGE_TABLET
 }
 
 @Composable
@@ -27,7 +21,8 @@ fun rememberDeviceSize(context: Context): DeviceSize {
     val screenWidthDp = with(density) {
         context.resources.displayMetrics.widthPixels.toDp()
     }
-    
+
+    // screen size helpers
     return when {
         screenWidthDp >= 800.dp -> DeviceSize.LARGE_TABLET
         screenWidthDp >= 600.dp -> DeviceSize.TABLET
@@ -35,9 +30,6 @@ fun rememberDeviceSize(context: Context): DeviceSize {
     }
 }
 
-/**
- * Responsive padding based on device type
- */
 @Composable
 fun responsivePaddingSmall(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 8.dp
@@ -59,9 +51,6 @@ fun responsivePaddingLarge(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 40.dp
 }
 
-/**
- * Responsive spacing between elements
- */
 @Composable
 fun responsiveSpacingSmall(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 4.dp
@@ -90,9 +79,6 @@ fun responsiveSpacingXLarge(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 48.dp
 }
 
-/**
- * Responsive button heights
- */
 @Composable
 fun responsiveButtonHeight(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 44.dp
@@ -100,9 +86,6 @@ fun responsiveButtonHeight(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 56.dp
 }
 
-/**
- * Responsive icon sizes
- */
 @Composable
 fun responsiveIconSmall(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 24.dp
@@ -131,19 +114,13 @@ fun responsiveIconXXLarge(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 120.dp
 }
 
-/**
- * Responsive content width (for centering content on tablets)
- */
 @Composable
 fun responsiveContentWidth(deviceSize: DeviceSize): Float = when (deviceSize) {
-    DeviceSize.PHONE -> 1f          // Full width on phones
-    DeviceSize.TABLET -> 0.85f      // 85% on tablets
-    DeviceSize.LARGE_TABLET -> 0.75f // 75% on large tablets
+    DeviceSize.PHONE -> 1f
+    DeviceSize.TABLET -> 0.85f
+    DeviceSize.LARGE_TABLET -> 0.75f
 }
 
-/**
- * Responsive text sizes
- */
 @Composable
 fun responsiveHeadlineLargeFont(deviceSize: DeviceSize) = when (deviceSize) {
     DeviceSize.PHONE -> 32.sp
@@ -200,9 +177,6 @@ fun responsiveBodySmallFont(deviceSize: DeviceSize) = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 16.sp
 }
 
-/**
- * Responsive list item height
- */
 @Composable
 fun responsiveListItemHeight(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 64.dp
@@ -210,9 +184,6 @@ fun responsiveListItemHeight(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 80.dp
 }
 
-/**
- * Responsive corners radius
- */
 @Composable
 fun responsiveCornerRadius(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 12.dp
@@ -220,9 +191,6 @@ fun responsiveCornerRadius(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 20.dp
 }
 
-/**
- * Responsive card elevation
- */
 @Composable
 fun responsiveElevation(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.PHONE -> 4.dp
@@ -230,10 +198,6 @@ fun responsiveElevation(deviceSize: DeviceSize): Dp = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 8.dp
 }
 
-/**
- * Helper to make multi-column layouts responsive
- * Returns number of columns based on device size and content width
- */
 @Composable
 fun responsiveGridColumns(deviceSize: DeviceSize): Int = when (deviceSize) {
     DeviceSize.PHONE -> 1
@@ -241,9 +205,6 @@ fun responsiveGridColumns(deviceSize: DeviceSize): Int = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 3
 }
 
-/**
- * Responsive modal/dialog width
- */
 @Composable
 fun responsiveDialogWidth(deviceSize: DeviceSize): Float = when (deviceSize) {
     DeviceSize.PHONE -> 0.95f
@@ -251,12 +212,9 @@ fun responsiveDialogWidth(deviceSize: DeviceSize): Float = when (deviceSize) {
     DeviceSize.LARGE_TABLET -> 0.6f
 }
 
-/**
- * Quick helper - returns pair of (padding, spacing) for common use
- */
 @Composable
 fun responsiveLayout(deviceSize: DeviceSize): Pair<Dp, Dp> = when (deviceSize) {
-    DeviceSize.PHONE -> Pair(24.dp, 12.dp)        // padding, spacing
-    DeviceSize.TABLET -> Pair(32.dp, 16.dp)       // padding, spacing
-    DeviceSize.LARGE_TABLET -> Pair(40.dp, 20.dp) // padding, spacing
+    DeviceSize.PHONE -> Pair(24.dp, 12.dp)
+    DeviceSize.TABLET -> Pair(32.dp, 16.dp)
+    DeviceSize.LARGE_TABLET -> Pair(40.dp, 20.dp)
 }

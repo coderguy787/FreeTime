@@ -15,28 +15,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import java.util.UUID
 
-/**
- * Group Voting Repository
- * Wraps group voting operations with caching and error handling
- * Manages voting on group actions such as group deletion
- */
 class GroupVotingRepository(
     private val database: FreeTimeDatabase,
     private val prefs: SharedPreferencesHelper
 ) {
     companion object {
         private const val TAG = "GroupVotingRepository"
-        private const val VOTE_APPROVAL_THRESHOLD = 0.5 // >50% for approval
+        // approvals needed for a vote to pass
+        private const val VOTE_APPROVAL_THRESHOLD = 0.5
     }
 
-    // ============ Get Votes ============
-
-    /**
-     * Get all votes for a specific voting session
-     * @param groupId The group ID
-     * @param voteId The voting session ID
-     * @return Result containing list of votes
-     */
     suspend fun getVotes(
         groupId: String,
         voteId: String
@@ -66,12 +54,6 @@ class GroupVotingRepository(
         }
     }
 
-    /**
-     * Get vote summary/results for a voting session
-     * @param groupId The group ID
-     * @param voteId The voting session ID
-     * @return Result containing vote results
-     */
     suspend fun getVoteResults(
         groupId: String,
         voteId: String
@@ -101,16 +83,6 @@ class GroupVotingRepository(
         }
     }
 
-    // ============ Cast Vote ============
-
-    /**
-     * Cast a vote on a group action
-     * Each member can vote once per voting session
-     * @param groupId The group ID
-     * @param voteId The voting session ID
-     * @param voteChoice true for approve, false for reject
-     * @return Result containing the cast vote response
-     */
     suspend fun castVote(
         groupId: String,
         voteId: String,
@@ -124,7 +96,7 @@ class GroupVotingRepository(
             Log.d(TAG, "Casting vote on group: $groupId, voteId: $voteId, choice: $voteChoice")
 
             val jsonBody = "{\"vote\": $voteChoice}"
-            
+
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/groups/$groupId/votes/$voteId/cast",
                 jsonBody,
@@ -153,12 +125,6 @@ class GroupVotingRepository(
         }
     }
 
-    /**
-     * Check if current user has already voted
-     * @param groupId The group ID
-     * @param voteId The voting session ID
-     * @return true if user has already voted, false otherwise
-     */
     suspend fun hasUserVoted(
         groupId: String,
         voteId: String
@@ -188,20 +154,12 @@ class GroupVotingRepository(
         }
     }
 
-    // ============ Helper Functions ============
-
-    /**
-     * Parse votes from JSON response
-     */
     private fun parseVotes(jsonString: String): List<GroupVote> {
         return try {
             if (jsonString.trim() == "[]") {
                 return emptyList()
             }
 
-            // Note: This method parses individual vote records
-            // but GroupVote model represents voting questions, not individual votes
-            // Return empty list for now - this would need API redesign
             return emptyList()
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing votes", e)
@@ -209,9 +167,6 @@ class GroupVotingRepository(
         }
     }
 
-    /**
-     * Parse vote results from JSON response
-     */
     private fun parseVoteResults(jsonString: String): VoteResults {
         return try {
             val approvalCount = extractJsonField(jsonString, "approvalCount", "0").toIntOrNull() ?: 0
@@ -249,9 +204,6 @@ class GroupVotingRepository(
         }
     }
 
-    /**
-     * Extract a field value from JSON string
-     */
     private fun extractJsonField(json: String, fieldName: String, defaultValue: String): String {
         return try {
             val pattern = """"$fieldName"\s*:\s*(?:"([^"]*)"|([^,}]*))""".toRegex()
@@ -265,20 +217,18 @@ class GroupVotingRepository(
         }
     }
 
-    // Stub methods for ViewModel compatibility
     suspend fun getActiveVotes(@Suppress("UNUSED_PARAMETER") groupId: String): List<GroupVote> = emptyList()
     suspend fun getCompletedVotes(@Suppress("UNUSED_PARAMETER") groupId: String): List<GroupVote> = emptyList()
     suspend fun castVote(@Suppress("UNUSED_PARAMETER") voteId: String, @Suppress("UNUSED_PARAMETER") optionId: String) {}
 }
 
-// Data classes for voting operations
 data class VoteResults(
     val approvalCount: Int,
     val rejectionCount: Int,
     val totalMembers: Int,
     val approvalPercentage: Double,
     val isPassed: Boolean,
-    val status: String, // "pending", "passed", "failed", "expired"
+    val status: String,
     val expiresAt: Long
 )
 

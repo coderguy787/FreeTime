@@ -12,23 +12,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/**
- * ✅ NEW: Boot Receiver to ensure FCM token is registered after device restart
- * This ensures notifications work even if app is force-killed and device reboots
- */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d("BootReceiver", "📱 Device boot detected or app startup")
-        
+        Log.d("BootReceiver", " Device boot detected or app startup")
+
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.d("BootReceiver", "🔄 Registering FCM token after boot...")
+            Log.d("BootReceiver", " Registering FCM token after boot...")
+            // refresh the fcm token after reboot
             registerFcmTokenAfterBoot(context)
         }
     }
-    
+
     private fun registerFcmTokenAfterBoot(context: Context) {
+        // network call runs async so onReceive returns fast
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        
+
         scope.launch {
             try {
                 FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
@@ -40,15 +38,15 @@ class BootReceiver : BroadcastReceiver() {
                                     val apiService = FreeTimeApiService(context)
                                     val result = apiService.registerDeviceFcmToken(token)
                                     if (result.isSuccess) {
-                                        Log.d("BootReceiver", "✅ FCM token re-registered after boot")
+                                        Log.d("BootReceiver", " FCM token re-registered after boot")
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("BootReceiver", "❌ Failed to register token: ${e.message}")
+                                    Log.e("BootReceiver", " Failed to register token: ${e.message}")
                                 }
                             }
                         }
                     } else {
-                        Log.e("BootReceiver", "❌ Failed to get FCM token after boot")
+                        Log.e("BootReceiver", " Failed to get FCM token after boot")
                     }
                 }
             } catch (e: Exception) {

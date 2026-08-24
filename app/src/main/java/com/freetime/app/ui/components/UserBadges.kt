@@ -15,9 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.Layout
 
-/**
- * Badge model from server
- */
 data class UserBadge(
     val id: String,
     val name: String,
@@ -28,9 +25,6 @@ data class UserBadge(
     val assignedBy: String
 )
 
-/**
- * Display a single badge with icon and name
- */
 @Composable
 fun UserBadgeChip(
     badge: UserBadge,
@@ -63,9 +57,6 @@ fun UserBadgeChip(
     }
 }
 
-/**
- * Display multiple badges in a horizontal scrollable row
- */
 @Composable
 fun UserBadgesRow(
     badges: List<UserBadge>,
@@ -83,8 +74,8 @@ fun UserBadgesRow(
         badges.take(6).forEach { badge ->
             UserBadgeChip(badge = badge)
         }
-        
-        // Show "+N more" if more than 6 badges
+
+        // shows up to 6 badges, the rest collapse into a counter
         if (badges.size > 6) {
             Text(
                 "+${badges.size - 6} more",
@@ -97,9 +88,6 @@ fun UserBadgesRow(
     }
 }
 
-/**
- * Display badges grid for profile page
- */
 @Composable
 fun UserBadgesGrid(
     badges: List<UserBadge>,
@@ -130,9 +118,6 @@ fun UserBadgesGrid(
     }
 }
 
-/**
- * Flow layout - arrange items in rows
- */
 @Composable
 fun FlowRow(
     modifier: Modifier = Modifier,
@@ -166,7 +151,7 @@ fun FlowRow(
             }
 
             currentRow.add(xPosition to yPosition)
-            xPosition += placeable.width + 8.dp.roundToPx() // 8.dp spacing
+            xPosition += placeable.width + 8.dp.roundToPx()
             maxHeightInRow = maxOf(maxHeightInRow, placeable.height)
         }
 

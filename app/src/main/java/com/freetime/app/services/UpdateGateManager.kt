@@ -7,11 +7,6 @@ import androidx.compose.runtime.setValue
 import com.freetime.app.data.local.SharedPreferencesHelper
 import com.freetime.app.data.network.VersionInfoResponse
 
-/**
- * App-wide update gate. After an update is launched from the admin panel and
- * GATE_DELAY_MS has elapsed, a full-screen "A new update is available" screen is
- * shown. The user can skip it, in which case only the download icon remains.
- */
 object UpdateGateManager {
     const val GATE_DELAY_MS = 5 * 60 * 1000L
 
@@ -25,6 +20,7 @@ object UpdateGateManager {
         evaluate(context, info)
     }
 
+    // forces the update screen when the version is too old
     fun evaluate(context: Context, info: VersionInfoResponse) {
         if (showGate) return
         if (!AppUpdateManager.isUpdateAvailable(info)) return
@@ -42,7 +38,10 @@ object UpdateGateManager {
     }
 
     fun skip(context: Context) {
-        gateInfo?.updateId?.let { SharedPreferencesHelper(context).setGateSkippedUpdateId(it) }
+        val id = gateInfo?.updateId
+        if (!id.isNullOrEmpty()) {
+            SharedPreferencesHelper(context).setGateSkippedUpdateId(id)
+        }
         hide()
     }
 

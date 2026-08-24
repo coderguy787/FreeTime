@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 class SharedPreferencesHelper(context: Context) {
     private val sharedPreferences: SharedPreferences =
         context.getSharedPreferences("freetime_prefs", Context.MODE_PRIVATE)
-    
+
     companion object {
         private const val KEY_TOKEN = "auth_token"
         private const val KEY_USER_ID = "user_id"
@@ -44,9 +44,10 @@ class SharedPreferencesHelper(context: Context) {
         private const val KEY_ONLINE_STATUS_VISIBILITY = "online_status_visibility"
         private const val KEY_PROFILE_PHOTO_VISIBILITY = "profile_photo_visibility"
         private const val KEY_MUTED_USERS = "muted_users_set"
+        private const val KEY_MUTED_GROUPS = "muted_groups_set"
         private const val CURRENT_APP_VERSION = 2
     }
-    
+
     fun saveAuthData(token: String, userId: String, username: String, deviceId: String) {
         android.util.Log.d("SharedPrefsHelper", "Saving auth data for user: $username")
         sharedPreferences.edit().apply {
@@ -54,33 +55,33 @@ class SharedPreferencesHelper(context: Context) {
             putString(KEY_USER_ID, userId)
             putString(KEY_USERNAME, username)
             putString(KEY_DEVICE_ID, deviceId)
+            // write to disk immediately, token is needed everywhere
             putBoolean(KEY_IS_LOGGED_IN, true)
-            // Use commit() for synchronous write
             commit()
         }
         android.util.Log.d("SharedPrefsHelper", "Auth data saved successfully")
     }
-    
+
     fun getToken(): String? = sharedPreferences.getString(KEY_TOKEN, null)
 
     fun getAccessToken(): String? = sharedPreferences.getString(KEY_TOKEN, null)
-    
+
     fun getUserId(): String? = sharedPreferences.getString(KEY_USER_ID, null)
-    
+
     fun getUsername(): String? = sharedPreferences.getString(KEY_USERNAME, null)
-    
+
     fun setUsername(username: String) {
         sharedPreferences.edit().putString(KEY_USERNAME, username).apply()
     }
-    
+
     fun saveUsername(username: String) {
         sharedPreferences.edit().putString(KEY_USERNAME, username).apply()
     }
-    
+
     fun getDeviceId(): String? = sharedPreferences.getString(KEY_DEVICE_ID, null)
-    
+
     fun isLoggedIn(): Boolean = sharedPreferences.getBoolean(KEY_IS_LOGGED_IN, false)
-    
+
     fun clearAuthData() {
         android.util.Log.d("SharedPrefsHelper", "Clearing auth data")
         sharedPreferences.edit().apply {
@@ -91,35 +92,35 @@ class SharedPreferencesHelper(context: Context) {
             commit()
         }
     }
-    
+
     fun setServerUrl(url: String) {
         sharedPreferences.edit().putString(KEY_SERVER_URL, url).apply()
     }
-    
-    fun getServerUrl(): String = 
+
+    fun getServerUrl(): String =
         sharedPreferences.getString(KEY_SERVER_URL, "https://example.com/") ?: "https://example.com/"
-    
-    // 2FA Token Management
+
+    // temp token while 2fa is in progress
     fun saveTempToken(token: String, setupRequired: Boolean = false) {
         sharedPreferences.edit().apply {
             putString(KEY_TEMP_TOKEN, token)
-            putLong(KEY_TEMP_TOKEN_EXPIRY, System.currentTimeMillis() + 30 * 60 * 1000) // 30 min expiry
+            putLong(KEY_TEMP_TOKEN_EXPIRY, System.currentTimeMillis() + 30 * 60 * 1000)
             putBoolean(KEY_2FA_SETUP_REQUIRED, setupRequired)
             apply()
         }
     }
-    
+
     fun getTempToken(): String? = sharedPreferences.getString(KEY_TEMP_TOKEN, null)
-    
+
     fun isTempTokenValid(): Boolean {
         val token = getTempToken() ?: return false
         val expiry = sharedPreferences.getLong(KEY_TEMP_TOKEN_EXPIRY, 0)
         return System.currentTimeMillis() < expiry && token.isNotEmpty()
     }
-    
-    fun is2FASetupRequired(): Boolean = 
+
+    fun is2FASetupRequired(): Boolean =
         sharedPreferences.getBoolean(KEY_2FA_SETUP_REQUIRED, false)
-    
+
     fun clearTempToken() {
         sharedPreferences.edit().apply {
             remove(KEY_TEMP_TOKEN)
@@ -129,22 +130,20 @@ class SharedPreferencesHelper(context: Context) {
         }
     }
 
-    // Remember Me Token Management (30 day auto-login)
     fun saveRememberMeToken(token: String, userId: String, username: String) {
-        val expiryTime = System.currentTimeMillis() + 30L * 24 * 60 * 60 * 1000 // 30 days from now
-        android.util.Log.d("SharedPrefsHelper", "✓ Saving remember me token for: $username")
-        android.util.Log.d("SharedPrefsHelper", "  Auto-login enabled for 30 days")
-        
+        val expiryTime = System.currentTimeMillis() + 30L * 24 * 60 * 60 * 1000
+        android.util.Log.d("SharedPrefsHelper", " Saving remember me token for: $username")
+        android.util.Log.d("SharedPrefsHelper", " Auto-login enabled for 30 days")
+
         sharedPreferences.edit().apply {
             putString(KEY_REMEMBER_ME_TOKEN, token)
             putString(KEY_USER_ID, userId)
             putString(KEY_USERNAME, username)
             putLong(KEY_REMEMBER_ME_EXPIRY, expiryTime)
             putBoolean(KEY_REMEMBER_ME_ENABLED, true)
-            // Use commit() instead of apply() to ensure synchronous write
             commit()
         }
-        android.util.Log.d("SharedPrefsHelper", "✓ Remember Me token saved successfully - will auto-login until ~30 days from now")
+        android.util.Log.d("SharedPrefsHelper", " Remember Me token saved successfully - will auto-login until ~30 days from now")
     }
 
     fun getRememberMeToken(): String? = sharedPreferences.getString(KEY_REMEMBER_ME_TOKEN, null)
@@ -154,18 +153,18 @@ class SharedPreferencesHelper(context: Context) {
     fun getUsernameFromRememberMe(): String? = sharedPreferences.getString(KEY_USERNAME, null)
 
     fun isRememberMeTokenValid(): Boolean {
-        val token = getRememberMeToken() ?: return false.also { 
-            android.util.Log.d("SharedPrefsHelper", "isRememberMeTokenValid: No token found") 
+        val token = getRememberMeToken() ?: return false.also {
+            android.util.Log.d("SharedPrefsHelper", "isRememberMeTokenValid: No token found")
         }
         val expiry = sharedPreferences.getLong(KEY_REMEMBER_ME_EXPIRY, 0)
         val currentTime = System.currentTimeMillis()
         val isValid = currentTime < expiry && token.isNotEmpty()
-        
+
         if (isValid) {
             val daysRemaining = (expiry - currentTime) / (24 * 60 * 60 * 1000)
-            android.util.Log.d("SharedPrefsHelper", "isRememberMeTokenValid: ✓ Token valid, $daysRemaining days remaining")
+            android.util.Log.d("SharedPrefsHelper", "isRememberMeTokenValid: Token valid, $daysRemaining days remaining")
         } else {
-            android.util.Log.d("SharedPrefsHelper", "isRememberMeTokenValid: ✗ Token invalid/expired (currentTime=$currentTime, expiry=$expiry)")
+            android.util.Log.d("SharedPrefsHelper", "isRememberMeTokenValid: Token invalid/expired (currentTime=$currentTime, expiry=$expiry)")
         }
         return isValid
     }
@@ -192,7 +191,6 @@ class SharedPreferencesHelper(context: Context) {
         }
     }
 
-    // Additional token methods for backward compatibility
     fun saveToken(token: String) {
         sharedPreferences.edit().putString(KEY_TOKEN, token).apply()
     }
@@ -202,57 +200,52 @@ class SharedPreferencesHelper(context: Context) {
     }
 
     fun getRefreshToken(): String? = sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
-    
-    // Server IP configuration methods
+
     fun saveCustomServerIp(ip: String) {
         sharedPreferences.edit().putString(KEY_CUSTOM_SERVER_IP, ip).apply()
     }
-    
+
     fun getCustomServerIp(): String? = sharedPreferences.getString(KEY_CUSTOM_SERVER_IP, null)
-    
+
     fun clearCustomServerIp() {
         sharedPreferences.edit().remove(KEY_CUSTOM_SERVER_IP).apply()
     }
-    
-    // Additional profile/email methods
+
     fun getEmail(): String? = sharedPreferences.getString(KEY_EMAIL, null)
-    
+
     fun saveEmail(email: String) {
         sharedPreferences.edit().putString(KEY_EMAIL, email).apply()
     }
-    
-    // Admin action tracking
+
     fun saveAdminAction(action: String) {
         sharedPreferences.edit().putString(KEY_ADMIN_ACTION, action).apply()
     }
-    
+
     fun getAdminAction(): String? = sharedPreferences.getString(KEY_ADMIN_ACTION, null)
 
-    // Dark mode preference
     fun setDarkModeEnabled(enabled: Boolean) {
         sharedPreferences.edit().putBoolean(KEY_DARK_MODE_ENABLED, enabled).apply()
     }
 
     fun isDarkModeEnabled(): Boolean = sharedPreferences.getBoolean(KEY_DARK_MODE_ENABLED, true)
 
-    // Display settings persistence
     fun setFontSizeIndex(index: Int) {
         sharedPreferences.edit().putInt(KEY_FONT_SIZE_INDEX, index).apply()
     }
 
-    fun getFontSizeIndex(): Int = sharedPreferences.getInt(KEY_FONT_SIZE_INDEX, 1) // Default: Medium
+    fun getFontSizeIndex(): Int = sharedPreferences.getInt(KEY_FONT_SIZE_INDEX, 1)
 
     fun setAnimationSpeedIndex(index: Int) {
         sharedPreferences.edit().putInt(KEY_ANIMATION_SPEED_INDEX, index).apply()
     }
 
-    fun getAnimationSpeedIndex(): Int = sharedPreferences.getInt(KEY_ANIMATION_SPEED_INDEX, 1) // Default: Normal
+    fun getAnimationSpeedIndex(): Int = sharedPreferences.getInt(KEY_ANIMATION_SPEED_INDEX, 1)
 
     fun setAccentColorIndex(index: Int) {
         sharedPreferences.edit().putInt(KEY_ACCENT_COLOR_INDEX, index).apply()
     }
 
-    fun getAccentColorIndex(): Int = sharedPreferences.getInt(KEY_ACCENT_COLOR_INDEX, 0) // Default: Purple
+    fun getAccentColorIndex(): Int = sharedPreferences.getInt(KEY_ACCENT_COLOR_INDEX, 0)
 
     fun setCompactModeEnabled(enabled: Boolean) {
         sharedPreferences.edit().putBoolean(KEY_COMPACT_MODE_ENABLED, enabled).apply()
@@ -264,9 +257,8 @@ class SharedPreferencesHelper(context: Context) {
         sharedPreferences.edit().putInt(KEY_LANGUAGE_INDEX, index).apply()
     }
 
-    fun getLanguageIndex(): Int = sharedPreferences.getInt(KEY_LANGUAGE_INDEX, 0) // Default: English
+    fun getLanguageIndex(): Int = sharedPreferences.getInt(KEY_LANGUAGE_INDEX, 0)
 
-    // First-run detection and initialization
     fun isFirstRun(): Boolean {
         val savedVersion = sharedPreferences.getInt(KEY_APP_VERSION, 0)
         val isFirst = savedVersion < CURRENT_APP_VERSION
@@ -294,13 +286,11 @@ class SharedPreferencesHelper(context: Context) {
             remove(KEY_TEMP_TOKEN)
             remove(KEY_TEMP_TOKEN_EXPIRY)
             remove(KEY_2FA_SETUP_REQUIRED)
-            // Keep settings but remove auth
             commit()
         }
         android.util.Log.d("SharedPrefsHelper", "All authentication data cleared")
     }
 
-    // Notification Type Settings
     fun setNotifyFriendRequests(enabled: Boolean) {
         sharedPreferences.edit().putBoolean(KEY_NOTIFY_FRIEND_REQUESTS, enabled).apply()
     }
@@ -337,7 +327,6 @@ class SharedPreferencesHelper(context: Context) {
 
     fun isNotifyVibrationEnabled(): Boolean = sharedPreferences.getBoolean(KEY_NOTIFY_VIBRATION, true)
 
-    // Per-user notification muting — silences all notifications from a specific user
     fun muteUser(userId: String) {
         val muted = sharedPreferences.getStringSet(KEY_MUTED_USERS, emptySet())!!.toMutableSet()
         muted.add(userId)
@@ -356,21 +345,43 @@ class SharedPreferencesHelper(context: Context) {
     fun getMutedUsers(): Set<String> =
         sharedPreferences.getStringSet(KEY_MUTED_USERS, emptySet())!!.toSet()
 
-    // Notification channel upgrade tracking
+    fun muteGroup(groupId: String) {
+        val muted = sharedPreferences.getStringSet(KEY_MUTED_GROUPS, emptySet())!!.toMutableSet()
+        muted.add(groupId)
+        sharedPreferences.edit().putStringSet(KEY_MUTED_GROUPS, muted).apply()
+    }
+
+    fun unmuteGroup(groupId: String) {
+        val muted = sharedPreferences.getStringSet(KEY_MUTED_GROUPS, emptySet())!!.toMutableSet()
+        muted.remove(groupId)
+        sharedPreferences.edit().putStringSet(KEY_MUTED_GROUPS, muted).apply()
+    }
+
+    fun isGroupMuted(groupId: String): Boolean =
+        sharedPreferences.getStringSet(KEY_MUTED_GROUPS, emptySet())!!.contains(groupId)
+
+    fun getMutedGroups(): Set<String> =
+        sharedPreferences.getStringSet(KEY_MUTED_GROUPS, emptySet())!!.toSet()
+
+    fun setProfileBackground(path: String?) {
+        sharedPreferences.edit().putString("profile_background_path", path).apply()
+    }
+
+    fun getProfileBackground(): String? =
+        sharedPreferences.getString("profile_background_path", null)
+
     fun areNotificationChannelsUpgraded(): Boolean = sharedPreferences.getBoolean("notification_channels_v2", false)
 
     fun setNotificationChannelsUpgraded(upgraded: Boolean) {
         sharedPreferences.edit().putBoolean("notification_channels_v2", upgraded).apply()
     }
 
-    // Language settings
     fun setLanguage(languageCode: String) {
         sharedPreferences.edit().putString("app_language", languageCode).apply()
     }
 
     fun getLanguage(): String = sharedPreferences.getString("app_language", "en") ?: "en"
 
-    // Generic preference methods
     fun saveLong(key: String, value: Long) {
         sharedPreferences.edit().putLong(key, value).apply()
     }
@@ -403,7 +414,6 @@ class SharedPreferencesHelper(context: Context) {
         return sharedPreferences.getInt(key, defaultValue)
     }
 
-    // Profile image methods
     fun saveProfileImage(imageUrl: String) {
         sharedPreferences.edit().putString(KEY_PROFILE_IMAGE, imageUrl).apply()
     }
@@ -424,7 +434,6 @@ class SharedPreferencesHelper(context: Context) {
         sharedPreferences.edit().remove(KEY_BANNER_IMAGE).apply()
     }
 
-    // Privacy & WhatsApp-like settings
     fun setReadReceipts(enabled: Boolean) {
         sharedPreferences.edit().putBoolean(KEY_READ_RECEIPTS, enabled).apply()
     }
@@ -449,14 +458,12 @@ class SharedPreferencesHelper(context: Context) {
 
     fun getProfilePhotoVisibility(): String = sharedPreferences.getString(KEY_PROFILE_PHOTO_VISIBILITY, "everyone") ?: "everyone"
 
-    // FCM token methods
     fun saveFcmToken(token: String) {
         sharedPreferences.edit().putString("fcm_token", token).apply()
     }
 
     fun getFcmToken(): String? = sharedPreferences.getString("fcm_token", null)
-    
-    // ✅ OFFLINE SUPPORT: Cache friends list for when Socket.IO is disconnected
+
     fun saveFriendsCache(friendsJson: String) {
         try {
             sharedPreferences.edit().putString("cached_friends", friendsJson).apply()
@@ -465,7 +472,7 @@ class SharedPreferencesHelper(context: Context) {
             android.util.Log.w("SharedPrefsHelper", "Failed to cache friends: ${e.message}")
         }
     }
-    
+
     fun getCachedFriends(): String? {
         return try {
             sharedPreferences.getString("cached_friends", null)
@@ -473,13 +480,11 @@ class SharedPreferencesHelper(context: Context) {
             null
         }
     }
-    
+
     fun getCachedFriendsTimestamp(): Long {
         return sharedPreferences.getLong("cached_friends_timestamp", 0L)
     }
 
-    // In-app update: skip the launched update (keyed by update ID so a new
-    // admin launch with a new ID always surfaces the icon again)
     fun setSkippedUpdate(updateId: String) {
         sharedPreferences.edit().putString("skipped_update_id", updateId).apply()
     }
@@ -488,7 +493,6 @@ class SharedPreferencesHelper(context: Context) {
         return sharedPreferences.getString("skipped_update_id", "") ?: ""
     }
 
-    // In-app update: pending update ID (from admin-launched update)
     fun setPendingUpdateId(updateId: String) {
         sharedPreferences.edit().putString("pending_update_id", updateId).apply()
     }
@@ -501,12 +505,43 @@ class SharedPreferencesHelper(context: Context) {
         sharedPreferences.edit().remove("pending_update_id").apply()
     }
 
-    // In-app update: full-screen gate skip (hides the gate but keeps the icon)
     fun setGateSkippedUpdateId(updateId: String) {
         sharedPreferences.edit().putString("gate_skipped_update_id", updateId).apply()
     }
 
     fun getGateSkippedUpdateId(): String {
         return sharedPreferences.getString("gate_skipped_update_id", "") ?: ""
+    }
+
+    fun setChatBackgroundPath(path: String?) {
+        if (path != null) {
+            sharedPreferences.edit().putString("chat_background_path", path).apply()
+        } else {
+            sharedPreferences.edit().remove("chat_background_path").apply()
+        }
+    }
+
+    fun getChatBackgroundPath(): String? {
+        return sharedPreferences.getString("chat_background_path", null)
+    }
+
+    fun clearChatBackground() {
+        sharedPreferences.edit().remove("chat_background_path").apply()
+    }
+
+    fun setChatBackgroundForUser(userId: String, path: String?) {
+        if (path != null) {
+            sharedPreferences.edit().putString("chat_bg_$userId", path).apply()
+        } else {
+            sharedPreferences.edit().remove("chat_bg_$userId").apply()
+        }
+    }
+
+    fun getChatBackgroundForUser(userId: String): String? {
+        return sharedPreferences.getString("chat_bg_$userId", null)
+    }
+
+    fun clearChatBackgroundForUser(userId: String) {
+        sharedPreferences.edit().remove("chat_bg_$userId").apply()
     }
 }

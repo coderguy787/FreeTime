@@ -1,65 +1,51 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-
 buildscript {
     ext {
-        // SDK and tools
         compileSdkVersion = 34
         minSdkVersion = 24
         targetSdkVersion = 34
-        
-        // Dependencies versions
+
         kotlinVersion = '1.9.22'
         hiltVersion = '2.50'
         navVersion = '2.7.7'
-        composeCompilerVersion = '1.5.8'  // Matches Kotlin 1.9.22
-        kspVersion = '1.9.22-1.0.16'  // Updated KSP version for Kotlin 1.9.22
-        
-        // WebRTC - Using stable version from Maven Central
+        composeCompilerVersion = '1.5.8'
+        kspVersion = '1.9.22-1.0.16'
+
         webrtcVersion = '111.0.0'
-        
-        // Testing
+
         junitVersion = '4.13.2'
         extJunitVersion = '1.1.5'
         espressoVersion = '3.5.1'
-        
-        // AndroidX
-        coreKtxVersion = '1.12.0'  // Updated
+
+        coreKtxVersion = '1.12.0'
         appcompatVersion = '1.6.1'
-        materialVersion = '1.11.0'  // Updated
+        materialVersion = '1.11.0'
         constraintLayoutVersion = '2.1.4'
         lifecycleVersion = '2.7.0'
-        navigationVersion = '2.7.7'  // Updated to match navVersion
-        
-        // Compose
-        composeBomVersion = '2024.01.00'  // Using BOM version
-        composeVersion = '1.6.0'  // Explicit version for Compose components
-        activityComposeVersion = '1.8.2'  // Updated
-        
-        // Networking
+        navigationVersion = '2.7.7'
+
+        composeBomVersion = '2024.01.00'
+        composeVersion = '1.6.0'
+        activityComposeVersion = '1.8.2'
+
         retrofitVersion = '2.9.0'
-        okhttpVersion = '4.12.0'  // Updated to latest stable
-        
-        // Room
-        roomVersion = '2.6.1'  // Latest stable
-        
-        // WorkManager
-        workVersion = '2.9.0'  // Updated to latest stable
-        
-        // Coil
-        coilVersion = '2.5.0'  // Updated to latest stable
-        
-        // Firebase
+        okhttpVersion = '4.12.0'
+
+        roomVersion = '2.6.1'
+
+        workVersion = '2.9.0'
+
+        coilVersion = '2.5.0'
+
         googleServicesVersion = '4.4.1'
         crashlyticsGradleVersion = '2.9.9'
     }
-    
+
     repositories {
         google()
         mavenCentral()
         maven { url 'https://maven.google.com' }
         gradlePluginPortal()
-        
-        // Add Maven mirror for WebRTC if needed
+
         maven {
             url 'https://maven.google.com/'
             content {
@@ -67,9 +53,9 @@ buildscript {
             }
         }
     }
-    
+
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.2'  // Match the version in plugins block
+        classpath 'com.android.tools.build:gradle:8.2.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
         classpath "org.jetbrains.kotlin:kotlin-serialization:$kotlinVersion"
         classpath "com.google.dagger:hilt-android-gradle-plugin:$hiltVersion"
@@ -77,12 +63,10 @@ buildscript {
         classpath "com.google.gms:google-services:$googleServicesVersion"
         classpath "com.google.firebase:firebase-crashlytics-gradle:$crashlyticsGradleVersion"
         classpath "com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:$kspVersion"
-        // Toolchain resolver for automatic JDK download
-        classpath 'org.gradle.toolchains.foojay-resolver:org.gradle.toolchains.foojay-resolver.gradle.plugin:0.7.0'  // Updated to latest
+        classpath 'org.gradle.toolchains.foojay-resolver:org.gradle.toolchains.foojay-resolver.gradle.plugin:0.7.0'
     }
 }
 
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
     id 'com.android.application' version '8.2.2' apply false
     id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
@@ -94,16 +78,8 @@ plugins {
     id 'com.google.firebase.crashlytics' version '2.9.9' apply false
 }
 
-// (Removed) JitPack repository injection; not needed when using org.webrtc from Maven Central
-
-// All project-level repositories are now in settings.gradle
-// to avoid conflicts with the new Gradle repository handling
-
-// Configure all projects (including the root project)
 allprojects {
-    // Only apply Java 21 to server module, not Android app
     if (project.name != 'app') {
-        // Set Java toolchain language level for server module
         plugins.withType(JavaPlugin).configureEach {
             java {
                 toolchain {
@@ -116,7 +92,6 @@ allprojects {
             }
         }
 
-        // Configure Kotlin compilation for server module
         afterEvaluate {
             tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
                 kotlinOptions {
@@ -125,14 +100,12 @@ allprojects {
             }
         }
     }
-    // Android app uses Java 17 (configured in app/build.gradle)
 }
 
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
 
-// Wrapper task configuration
 wrapper {
     gradleVersion = '8.5'
     distributionType = Wrapper.DistributionType.BIN

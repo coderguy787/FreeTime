@@ -1,13 +1,14 @@
 package com.freetime.app.ui.composables
 
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,280 +16,302 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.theme.CyberpunkTheme
 import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.*
 
-/**
- * ✅ WhatsApp-style context menu for messages
- * Appears on long press with options: Reply, Copy, React, Delete, etc.
- */
 @Composable
 fun MessageContextMenu(
     messageId: String,
-    @Suppress("UNUSED_PARAMETER") messageText: String,
+    messageText: String,
     isOwnMessage: Boolean,
     showMenu: Boolean,
     onDismiss: () -> Unit,
     onCopy: () -> Unit,
-    @Suppress("UNUSED_PARAMETER") onDelete: () -> Unit,
+    onDelete: () -> Unit,
     onReact: (emoji: String) -> Unit,
     onReply: () -> Unit,
-    @Suppress("UNUSED_PARAMETER") onEdit: () -> Unit,
-    @Suppress("UNUSED_PARAMETER") currentReactions: Map<String, List<String>> = emptyMap(),
+    onEdit: () -> Unit,
+    onSelect: () -> Unit = {},
+    currentReactions: Map<String, List<String>> = emptyMap(),
     hasPublicMedia: Boolean = false,
-    @Suppress("UNUSED_PARAMETER") onDownload: () -> Unit = {}
+    onDownload: () -> Unit = {}
 ) {
-    @Suppress("UNUSED_VARIABLE")
-    val context = LocalContext.current
     var showEmojiPicker by remember { mutableStateOf(false) }
-    var isReacting by remember { mutableStateOf(false) }  // ✅ FIX: Track reaction state to prevent menu auto-close
-    
-    if (!showMenu) {
-        android.util.Log.d("FREETIME_MESSAGE_MENU", "📋 Menu dismissed (showMenu=false)")
-        return
-    }
-    
-    // Emoji picker list (8-10 quick reactions)
-    val quickEmojis = listOf("👍", "❤️", "😂", "😮", "😢", "🔥", "👌", "🎉")
-    
-    android.util.Log.d("FREETIME_MESSAGE_MENU", "📋 MessageContextMenu showing for messageId: $messageId, isOwnMessage: $isOwnMessage")
-    
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable { onDismiss() }
-            .background(Color.Black.copy(alpha = 0.3f)),
-        contentAlignment = Alignment.Center
+
+    if (!showMenu) return
+
+    val quickEmojis = listOf("\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDD25", "\uD83D\uDC4C", "\uD83C\uDF89")
+
+    AnimatedVisibility(
+        visible = showMenu,
+        enter = fadeIn(tween(150)) + scaleIn(tween(200), initialScale = 0.92f),
+        exit = fadeOut(tween(120)) + scaleOut(tween(150), targetScale = 0.92f)
     ) {
-        Surface(
+        Box(
             modifier = Modifier
-                .widthIn(max = 320.dp)
-                .background(
-                    color = Color(0xFF1A1A2E),
-                    shape = RoundedCornerShape(16.dp)
-                ),
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF1A1A2E),
-            border = androidx.compose.foundation.BorderStroke(1.dp, CyberpunkTheme.PrimaryPurple)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable { onDismiss() },
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .widthIn(max = 340.dp)
+                    // context menu for messages
+                    .clickable {  },
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF1E1E30),
+                shadowElevation = 16.dp,
+                tonalElevation = 8.dp
             ) {
-                // ✅ Quick Emoji Reactions Row
-                if (!showEmojiPicker) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(quickEmojis) { emoji ->
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(
-                                        color = Color(0xFF2A2A3E),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        android.util.Log.d("FREETIME_MESSAGE_MENU", "👆 Emoji clicked: $emoji, isReacting: $isReacting")
-                                        isReacting = true
-                                        onReact(emoji)
-                                        android.util.Log.d("FREETIME_MESSAGE_MENU", "✅ onReact callback completed for $emoji")
-                                        // ✅ FIX: Don't close menu - let user react with multiple emojis like WhatsApp
-                                        // Users can swipe/click elsewhere to close the menu
-                                        // Delay reset to ensure any async operations complete
-                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                            isReacting = false
-                                            android.util.Log.d("FREETIME_MESSAGE_MENU", "✅ isReacting reset after emoji reaction")
-                                        }, 100)
-                                    },
-                                contentAlignment = Alignment.Center
+                Column(
+                    modifier = Modifier.padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (messageText.isNotEmpty()) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF2A2A40)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
                             ) {
-                                Text(emoji, fontSize = 20.sp)
-                            }
-                        }
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(
-                                        color = Color(0xFF2A2A3E),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { showEmojiPicker = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.AddCircleOutline,
-                                    contentDescription = "More emojis",
-                                    tint = CyberpunkTheme.PrimaryPurple,
-                                    modifier = Modifier.size(20.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(32.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(CyberpunkTheme.CyberCyan)
+                                )
+                                Text(
+                                    text = messageText,
+                                    color = CyberpunkTheme.LightGray,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 16.sp,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
                     }
-                    HorizontalDivider(
-                        color = Color(0xFF2A2A3E),
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                }
-                
-                // ✅ Menu Actions
-                // Copy
-                MenuAction(
-                    icon = Icons.Default.ContentCopy,
-                    label = "Copy",
-                    onClick = {
-                        onCopy()
-                        onDismiss()
-                    }
-                )
-                
-                // Reply
-                MenuAction(
-                    icon = Icons.AutoMirrored.Filled.Reply,
-                    label = "Reply",
-                    onClick = {
-                        onReply()
-                        onDismiss()
-                    }
-                )
-                
-                // Download (for public media)
-                if (hasPublicMedia) {
-                    MenuAction(
-                        icon = Icons.Default.Download,
-                        label = "Download",
-                        onClick = {
-                            onDownload()
-                            onDismiss()
+
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+                    ) {
+                        items(quickEmojis) { emoji ->
+                            Surface(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .clickable { onReact(emoji) },
+                                shape = CircleShape,
+                                color = Color(0xFF2A2A40)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(emoji, fontSize = 22.sp)
+                                }
+                            }
                         }
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .clickable { showEmojiPicker = true },
+                                shape = CircleShape,
+                                color = Color(0xFF2A2A40)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = "More emojis",
+                                        tint = CyberpunkTheme.PrimaryPurple,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = Color(0xFF2A2A40),
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     )
+
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        WhatsAppMenuAction(
+                            icon = Icons.AutoMirrored.Filled.Reply,
+                            label = "Reply",
+                            iconTint = CyberpunkTheme.CyberCyan
+                        ) {
+                            onReply(); onDismiss()
+                        }
+
+                        WhatsAppMenuAction(
+                            icon = Icons.Default.ContentCopy,
+                            label = "Copy"
+                        ) {
+                            onCopy(); onDismiss()
+                        }
+
+                        if (hasPublicMedia) {
+                            WhatsAppMenuAction(
+                                icon = Icons.Default.Download,
+                                label = "Download",
+                                iconTint = Color(0xFF00FF88)
+                            ) {
+                                onDownload(); onDismiss()
+                            }
+                        }
+
+                        WhatsAppMenuAction(
+                            icon = Icons.Default.CheckCircleOutline,
+                            label = "Select",
+                            iconTint = Color(0xFF00C9FF)
+                        ) {
+                            onSelect(); onDismiss()
+                        }
+
+                        if (isOwnMessage) {
+                            HorizontalDivider(
+                                color = Color(0xFF2A2A40),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                            )
+                            WhatsAppMenuAction(
+                                icon = Icons.Default.Delete,
+                                label = "Delete",
+                                iconTint = Color(0xFFFF4444),
+                                textColor = Color(0xFFFF4444)
+                            ) {
+                                onDelete(); onDismiss()
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-}
 
-@Composable
-fun MenuAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    textColor: Color = Color.White,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = textColor,
-            modifier = Modifier.size(20.dp)
-        )
-        Text(
-            label,
-            color = textColor,
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f)
+    if (showEmojiPicker) {
+        EmojiPickerDialog(
+            onEmojiSelected = { emoji -> onReact(emoji) },
+            onDismiss = { showEmojiPicker = false }
         )
     }
 }
 
-/**
- * ✅ Full emoji picker for additional reactions
- */
+@Composable
+fun WhatsAppMenuAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    iconTint: Color = CyberpunkTheme.LightGray,
+    textColor: Color = Color.White,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        color = Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                label,
+                color = textColor,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
 @Composable
 fun EmojiPickerDialog(
     onEmojiSelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val emojis = listOf(
-        "👍", "👎", "❤️", "🧡", "💛", "💚", "💙", "💜",
-        "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
-        "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰",
-        "😘", "😗", "😙", "😚", "😋", "😛", "😜", "🤪",
-        "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨",
-        "😐", "😑", "😶", "😏", "😒", "🙁", "😞", "😔",
-        "😌", "😕", "😲", "😱", "😳", "🥺", "😦", "😧",
-        "😨", "😰", "😥", "😢", "😭", "😱", "😖", "😣",
-        "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠",
-        "🤬", "😈", "👿", "💀", "☠️", "💩", "🤡", "👹",
-        "👺", "👻", "👽", "👾", "🤖", "😺", "😸", "😹",
-        "😻", "😼", "😽", "🙀", "😿", "😾", "🔥", "⭐",
-        "✨", "💫", "💥", "⚡", "🎉", "🎊", "🎈", "🎁",
-        "✌️", "🤞", "🤟", "🤘", "🤙", "👋", "🤚", "🖐️"
+        "\uD83D\uDC4D", "\uD83D\uDC4E", "\u2764\uFE0F", "\uD83E\uDDE1", "\uD83D\uDD25", "\uD83D\uDCAB",
+        "\uD83C\uDF1F", "\u2B50", "\uD83C\uDF08", "\uD83C\uDF39", "\uD83C\uDF89", "\uD83D\uDCAA",
+        "\uD83D\uDE0D", "\uD83D\uDE18", "\uD83D\uDE0E", "\uD83E\uDD29", "\uD83E\uDD14", "\uD83D\uDE0A",
+        "\uD83D\uDE02", "\uD83D\uDE2D", "\uD83D\uDE21", "\uD83D\uDE31", "\uD83D\uDE08", "\uD83D\uDC7F",
+        "\uD83D\uDC4D", "\uD83D\uDC4E", "\uD83D\uDC4B", "\uD83D\uDC4F", "\uD83D\uDE4F", "\uD83D\uDCAA"
     )
-    
+
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
-            .fillMaxWidth(0.9f)
-            .background(
-                color = Color(0xFF1A1A2E),
-                shape = RoundedCornerShape(16.dp)
-            ),
+            .fillMaxWidth(0.92f)
+            .clip(RoundedCornerShape(20.dp)),
         title = {
-            Text("Choose an emoji", color = CyberpunkTheme.PrimaryPurple, fontSize = 16.sp)
+            Text("React", color = CyberpunkTheme.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp)
-            ) {
-                repeat(emojis.size / 8) { row ->
+            Column {
+                emojis.chunked(6).forEach { row ->
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(4.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        repeat(8) { col ->
-                            val index = row * 8 + col
-                            if (index < emojis.size) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .background(
-                                            color = Color(0xFF2A2A3E),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable {
-                                            onEmojiSelected(emojis[index])
-                                            onDismiss()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(emojis[index], fontSize = 18.sp)
+                        row.forEach { emoji ->
+                            Surface(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        onEmojiSelected(emoji)
+                                        onDismiss()
+                                    },
+                                shape = CircleShape,
+                                color = Color(0xFF2A2A40)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(emoji, fontSize = 22.sp)
                                 }
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
             }
         },
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = CyberpunkTheme.PrimaryPurple)
+                Text("Cancel", color = CyberpunkTheme.CyberCyan)
             }
         },
-        containerColor = Color(0xFF1A1A2E)
+        containerColor = Color(0xFF1E1E30),
+        titleContentColor = CyberpunkTheme.White,
+        textContentColor = CyberpunkTheme.White
     )
 }

@@ -18,15 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-/**
- * Friend System Extensions
- * Adds username-based friend request functionality similar to Discord
- * Features:
- * - Send friend request using @username instead of userId
- * - Cancel pending friend request ("End Request")
- * - View pending requests
- * - Accept/Deny friend requests
- */
 class FriendSystemApi(
     private val database: FreeTimeDatabase,
     private val context: Context,
@@ -38,10 +29,6 @@ class FriendSystemApi(
         private const val TAG = "FriendSystemApi"
     }
 
-    /**
-     * Send friend request by username (Discord-style)
-     * Example: "sendFriendRequestByUsername("@leonardo")"
-     */
     suspend fun sendFriendRequestByUsername(
         usernameOrTag: String
     ): Result<FriendRequestResponse> = withContext(Dispatchers.IO) {
@@ -49,9 +36,9 @@ class FriendSystemApi(
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = com.freetime.app.data.network.ApiClient.getBaseUrl()
 
-            // Remove @ symbol if present
+            // strip the @ before validating the username
             val username = usernameOrTag.removePrefix("@").trim()
-            
+
             if (username.isEmpty()) {
                 return@withContext Result.failure(Exception("Username cannot be empty"))
             }
@@ -62,7 +49,6 @@ class FriendSystemApi(
 
             Log.d(TAG, "Sending friend request to username: $username")
 
-            // Call API to send friend request
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/friends/request/username",
                 "{\"username\": \"$username\"}",
@@ -73,9 +59,8 @@ class FriendSystemApi(
             )
 
             return@withContext if (response.statusCode == 200 || response.statusCode == 201) {
-                // Parse response
                 val responseBody = response.body
-                  Log.d(TAG, "Friend request sent successfully to $username")                
+                  Log.d(TAG, "Friend request sent successfully to $username")
                 Result.success(FriendRequestResponse(
                     success = true,
                     message = "Friend request sent to @$username",
@@ -91,10 +76,6 @@ class FriendSystemApi(
         }
     }
 
-    /**
-     * Cancel pending friend request ("End Request" like Discord)
-     * Can only cancel requests that are in "pending" status
-     */
     suspend fun cancelFriendRequest(
         requestId: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -104,7 +85,6 @@ class FriendSystemApi(
 
             Log.d(TAG, "Canceling friend request: $requestId")
 
-            // Call API to cancel request
             val response = RawSocketHttpClient.deleteResponse(
                 "$baseUrl/api/friends/requests/$requestId",
                 mapOf("Authorization" to "Bearer $token")
@@ -123,11 +103,7 @@ class FriendSystemApi(
         }
     }
 
-    /**
-     * Get all pending outgoing friend requests
-     * Returns requests sent by the current user that haven't been accepted/denied yet
-     */
-    suspend fun getPendingOutgoingRequests(): Result<List<PendingFriendRequest>> = 
+    suspend fun getPendingOutgoingRequests(): Result<List<PendingFriendRequest>> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -154,11 +130,7 @@ class FriendSystemApi(
         }
     }
 
-    /**
-     * Get all pending incoming friend requests
-     * Returns requests from other users to the current user
-     */
-    suspend fun getPendingIncomingRequests(): Result<List<PendingFriendRequest>> = 
+    suspend fun getPendingIncomingRequests(): Result<List<PendingFriendRequest>> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -185,9 +157,6 @@ class FriendSystemApi(
         }
     }
 
-    /**
-     * Accept a friend request
-     */
     suspend fun acceptFriendRequest(
         requestId: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -219,9 +188,6 @@ class FriendSystemApi(
         }
     }
 
-    /**
-     * Deny/Reject a friend request
-     */
     suspend fun denyFriendRequest(
         requestId: String,
         reason: String = "User declined"
@@ -254,10 +220,6 @@ class FriendSystemApi(
         }
     }
 
-    /**
-     * Search for users by username
-     * Supports partial matching (e.g., "leo" matches "leonardo")
-     */
     suspend fun searchUsersByUsername(
         query: String
     ): Result<List<UserSearchResult>> = withContext(Dispatchers.IO) {
@@ -286,11 +248,8 @@ class FriendSystemApi(
         }
     }
 
-    // Helper functions
-
     private fun extractRequestId(responseBody: String): String {
         return try {
-            // Simple JSON parsing for requestId
             val startIdx = responseBody.indexOf("\"requestId\"") + 13
             val endIdx = responseBody.indexOf("\"", startIdx)
             responseBody.substring(startIdx, endIdx)
@@ -302,17 +261,15 @@ class FriendSystemApi(
     private fun parsePendingRequests(jsonBody: String): List<PendingFriendRequest> {
         return try {
             val gson = Gson()
-            // Parse as JSON array
             val jsonArray = JsonParser.parseString(jsonBody).asJsonArray
             val requests = mutableListOf<PendingFriendRequest>()
-            
+
             for (element in jsonArray) {
                 try {
                     val request = gson.fromJson(element, PendingFriendRequest::class.java)
                     requests.add(request)
                 } catch (e: JsonSyntaxException) {
                     Log.e(TAG, "Failed to parse individual pending request", e)
-                    // Continue with other requests
                 }
             }
             requests
@@ -325,17 +282,15 @@ class FriendSystemApi(
     private fun parseUserSearchResults(jsonBody: String): List<UserSearchResult> {
         return try {
             val gson = Gson()
-            // Parse as JSON array
             val jsonArray = JsonParser.parseString(jsonBody).asJsonArray
             val results = mutableListOf<UserSearchResult>()
-            
+
             for (element in jsonArray) {
                 try {
                     val result = gson.fromJson(element, UserSearchResult::class.java)
                     results.add(result)
                 } catch (e: JsonSyntaxException) {
                     Log.e(TAG, "Failed to parse individual user search result", e)
-                    // Continue with other results
                 }
             }
             results
@@ -346,18 +301,12 @@ class FriendSystemApi(
     }
 }
 
-/**
- * Model for friend request response
- */
 data class FriendRequestResponse(
     val success: Boolean,
     val message: String,
     val requestId: String? = null
 )
 
-/**
- * Model for pending friend request
- */
 data class PendingFriendRequest(
     val requestId: String,
     val fromUserId: String,
@@ -365,12 +314,9 @@ data class PendingFriendRequest(
     val toUserId: String,
     val toUsername: String,
     val sentAt: Long,
-    val status: String = "pending" // "pending", "accepted", "denied"
+    val status: String = "pending"
 )
 
-/**
- * Model for user search result
- */
 data class UserSearchResult(
     val userId: String,
     val username: String,

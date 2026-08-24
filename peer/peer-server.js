@@ -1,22 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * FreeTime Peer Server
- * 
- * Handles distributed messaging, calls, and user verification
- * Capacity: 80,000 concurrent users per peer
- * Architecture: Node.js cluster with multi-core support + Redis session backend
- * 
- * Features:
- * - Multi-worker clustering
- * - WebSocket connection pooling (Socket.io + Redis adapter)
- * - Distributed session management via Redis
- * - Master server synchronization for account verification
- * - Call signaling and message routing
- * - 2FA security checks via master server
- * - Real-time metrics and health monitoring
- */
-
 require('dotenv').config({ path: './config/.env' });
 
 const cluster = require('cluster');
@@ -33,8 +16,6 @@ const rateLimit = require('express-rate-limit');
 const winston = require('winston');
 const { v4: uuidv4 } = require('uuid');
 const RedisConnectionManager = require('./redis-connection');
-
-// ==================== CONFIGURATION ====================
 
 const config = {
     NODE_ENV: process.env.NODE_ENV || 'development',
@@ -54,9 +35,6 @@ const config = {
     LOG_LEVEL: process.env.LOG_LEVEL || 'info'
 };
 
-// ==================== CONFIGURATION VALIDATION ====================
-
-// Validate critical configuration before startup
 if (!config.MASTER_API_KEY || config.MASTER_API_KEY === 'your-unique-peer-api-key-here-32-chars') {
     console.error('\n[FATAL] MASTER_API_KEY is not set or still has placeholder value');
     console.error('        Set MASTER_API_KEY in config/.env with a unique 32+ character string');
@@ -75,8 +53,6 @@ if (config.MASTER_PORT !== 443 && config.MASTER_URL.startsWith('https://')) {
     console.warn('        This may cause connection failures');
 }
 
-// ==================== LOGGING ====================
-
 const logger = winston.createLogger({
     level: config.LOG_LEVEL,
     format: winston.format.combine(
@@ -86,12 +62,12 @@ const logger = winston.createLogger({
     ),
     defaultMeta: { service: config.PEER_NAME, pid: process.pid },
     transports: [
-        new winston.transports.File({ 
-            filename: 'logs/error.log', 
-            level: 'error' 
+        new winston.transports.File({
+            filename: 'logs/error.log',
+            level: 'error'
         }),
-        new winston.transports.File({ 
-            filename: 'logs/combined.log' 
+        new winston.transports.File({
+            filename: 'logs/combined.log'
         })
     ]
 });
@@ -105,10 +81,9 @@ if (config.NODE_ENV !== 'production') {
     }));
 }
 
-// ==================== MASTER CLUSTERING ====================
-
-const numWorkers = config.WORKER_PROCESSES === 0 
-    ? os.cpus().length 
+// worker process count
+const numWorkers = config.WORKER_PROCESSES === 0
+    ? os.cpus().length
     : config.WORKER_PROCESSES;
 
 const connectionsPerWorker = Math.floor(config.MAX_CONNECTIONS / numWorkers);
@@ -123,7 +98,7 @@ if (cluster.isMaster) {
 ║    Per-Worker Limit: ${String(connectionsPerWorker).padEnd(25)}║
 ╚════════════════════════════════════════════════════╝
     `);
-    
+
     logger.info('Master process started', {
         pid: process.pid,
         workers: numWorkers,
@@ -131,13 +106,11 @@ if (cluster.isMaster) {
         connectionsPerWorker
     });
 
-    // Fork workers
     for (let i = 0; i < numWorkers; i++) {
         const worker = cluster.fork();
         logger.info(`Worker ${worker.id} forked`, { workerId: worker.id, pid: worker.process.pid });
     }
 
-    // Handle worker crashes
     cluster.on('exit', (worker, code, signal) => {
         logger.error(`Worker ${worker.id} died`, {
             workerId: worker.id,
@@ -145,13 +118,11 @@ if (cluster.isMaster) {
             signal,
             restart: 'immediate'
         });
-        
-        // Respawn worker
+
         const newWorker = cluster.fork();
         logger.info(`Worker respawned`, { newWorkerId: newWorker.id });
     });
 
-    // Graceful shutdown
     process.on('SIGTERM', () => {
         logger.info('Master received SIGTERM - shutting down gracefully');
         for (const id in cluster.workers) {
@@ -161,8 +132,6 @@ if (cluster.isMaster) {
     });
 
 } else {
-    // ==================== WORKER PROCESS ====================
-    
     const app = express();
     const server = require('http').createServer(app);
     const io = socketIo(server, {
@@ -170,8 +139,6 @@ if (cluster.isMaster) {
         maxHttpBufferSize: 1024 * 1024,
         transports: ['websocket', 'polling']
     });
-
-    // ==================== REDIS CLIENTS ====================
 
     const redisManager = new RedisConnectionManager({
         host: config.REDIS_HOST,
@@ -186,7 +153,6 @@ if (cluster.isMaster) {
         circuitBreakerResetMs: 30000
     });
 
-    // Keep pub/sub clients separate for Socket.IO adapter
     const pubClient = redis.createClient({
         host: config.REDIS_HOST,
         port: config.REDIS_PORT,
@@ -199,7 +165,6 @@ if (cluster.isMaster) {
         db: config.REDIS_DB
     });
 
-    // Initialize Redis connection manager on startup
     redisManager.initialize(1).then(() => {
         logger.info('Redis connection manager initialized successfully');
     }).catch(err => {
@@ -209,9 +174,8 @@ if (cluster.isMaster) {
         }
     });
 
-    // Pub/sub client error handlers
     pubClient.on('error', (err) => {
-        logger.error('Redis pub client error', { 
+        logger.error('Redis pub client error', {
             error: err.message,
             host: config.REDIS_HOST,
             port: config.REDIS_PORT
@@ -219,7 +183,7 @@ if (cluster.isMaster) {
     });
 
     subClient.on('error', (err) => {
-        logger.error('Redis sub client error', { 
+        logger.error('Redis sub client error', {
             error: err.message,
             host: config.REDIS_HOST,
             port: config.REDIS_PORT
@@ -228,8 +192,6 @@ if (cluster.isMaster) {
 
     pubClient.on('ready', () => logger.info('Redis pub client connected'));
     subClient.on('ready', () => logger.info('Redis sub client connected'));
-
-    // ==================== MIDDLEWARE ====================
 
     app.use(helmet());
     app.use(compression());
@@ -243,15 +205,12 @@ if (cluster.isMaster) {
     });
     app.use('/api/', limiter);
 
-    // ==================== SOCKET.IO WITH REDIS ADAPTER ====================
-
+    // shared rooms across workers via redis
     io.adapter(createAdapter(pubClient, subClient));
 
     const connectionManager = new Map();
     const messageQueue = [];
     let activeConnections = 0;
-
-    // ==================== MASTER SERVER VERIFICATION ====================
 
     const masterConnector = {
         async verifyToken(token) {
@@ -310,11 +269,6 @@ if (cluster.isMaster) {
         }
     };
 
-    // ==================== SOCKET.IO EVENT HANDLERS ====================
-
-    const CallHandler = require('./lib/call-handler');
-    const callHandler = new CallHandler(redisClient, io, masterConnector, logger);
-
     io.on('connection', (socket) => {
         const connectionId = uuidv4();
         activeConnections++;
@@ -325,7 +279,6 @@ if (cluster.isMaster) {
             totalConnections: activeConnections
         });
 
-        // Store connection metadata
         const connection = {
             id: connectionId,
             socketId: socket.id,
@@ -338,11 +291,8 @@ if (cluster.isMaster) {
 
         connectionManager.set(socket.id, connection);
 
-        // ==================== AUTHENTICATION ====================
-
         socket.on('authenticate', async (token, deviceId, callback) => {
             try {
-                // Verify token with master server
                 const verified = await masterConnector.verifyToken(token);
 
                 if (!verified || !verified.user) {
@@ -355,7 +305,6 @@ if (cluster.isMaster) {
                 connection.token = token;
                 connection.lastActivity = Date.now();
 
-                // Store in Redis with TTL
                 await redisManager.set(
                     `session:${socket.id}`,
                     JSON.stringify(connection),
@@ -378,8 +327,6 @@ if (cluster.isMaster) {
             }
         });
 
-        // ==================== MESSAGING ====================
-
         socket.on('send_message', async (data, callback) => {
             try {
                 if (!connection.userId) {
@@ -396,13 +343,11 @@ if (cluster.isMaster) {
                     deviceId: connection.deviceId
                 };
 
-                // Store in Redis for delivery guarantee
                 await redisManager.lpush(
                     `message_queue:${data.recipientId}`,
                     JSON.stringify(message)
                 );
 
-                // Route to recipient if online
                 io.to(`user:${data.recipientId}`).emit('receive_message', message);
 
                 logger.debug('Message routed', {
@@ -417,75 +362,6 @@ if (cluster.isMaster) {
                 callback({ success: false, error: error.message });
             }
         });
-
-        // ==================== CALL SIGNALING (NEW IMPLEMENTATION) ====================
-
-        socket.on('call:initiate', async (data, callback) => {
-            try {
-                if (!connection.userId) {
-                    return callback({ success: false, error: 'Not authenticated' });
-                }
-                const call = await callHandler.initiateCall(connection.userId, data.recipientId, data.callType, data.offer);
-                callback({ success: true, callId: call.id });
-            } catch (error) {
-                logger.error('Call initiation error', { error: error.message, stack: error.stack });
-                callback({ success: false, error: 'Failed to initiate call' });
-            }
-        });
-
-        socket.on('call:answer', async (data, callback) => {
-            try {
-                if (!connection.userId) {
-                    return callback({ success: false, error: 'Not authenticated' });
-                }
-                const call = await callHandler.answerCall(data.callId, connection.userId, data.answer, data.totpCode, connection.deviceId);
-                callback({ success: true, call });
-            } catch (error) {
-                logger.error('Call answer error', { error: error.message, stack: error.stack });
-                callback({ success: false, error: error.message || 'Failed to answer call' });
-            }
-        });
-
-        socket.on('call:ice-candidate', async (data, callback) => {
-            try {
-                if (!connection.userId) {
-                    return callback({ success: false, error: 'Not authenticated' });
-                }
-                await callHandler.addICECandidate(data.callId, connection.userId, data.candidate);
-                callback({ success: true });
-            } catch (error) {
-                logger.error('ICE candidate error', { error: error.message, stack: error.stack });
-                callback({ success: false, error: 'Failed to add ICE candidate' });
-            }
-        });
-
-        socket.on('call:reject', async (data, callback) => {
-            try {
-                if (!connection.userId) {
-                    return callback({ success: false, error: 'Not authenticated' });
-                }
-                await callHandler.rejectCall(data.callId, connection.userId, data.reason);
-                callback({ success: true });
-            } catch (error) {
-                logger.error('Call rejection error', { error: error.message, stack: error.stack });
-                callback({ success: false, error: 'Failed to reject call' });
-            }
-        });
-
-        socket.on('call:end', async (data, callback) => {
-            try {
-                if (!connection.userId) {
-                    return callback({ success: false, error: 'Not authenticated' });
-                }
-                await callHandler.endCall(data.callId);
-                callback({ success: true });
-            } catch (error) {
-                logger.error('Call end error', { error: error.message, stack: error.stack });
-                callback({ success: false, error: 'Failed to end call' });
-            }
-        });
-
-        // ==================== CONNECTIVITY ====================
 
         socket.on('disconnect', async () => {
             activeConnections--;
@@ -507,8 +383,6 @@ if (cluster.isMaster) {
             });
         });
     });
-
-    // ==================== REST ENDPOINTS ====================
 
     app.get('/health', async (req, res) => {
         try {
@@ -542,7 +416,7 @@ if (cluster.isMaster) {
         try {
             const redisHealth = await redisManager.healthCheck();
             const stats = redisManager.getStats();
-            
+
             res.json({
                 timestamp: new Date().toISOString(),
                 redis: {
@@ -551,7 +425,7 @@ if (cluster.isMaster) {
                     health: redisHealth,
                     stats: stats
                 },
-                message: redisHealth.healthy 
+                message: redisHealth.healthy
                     ? 'Redis connection pool is operational'
                     : 'Redis connection pool degraded or unavailable'
             });
@@ -581,15 +455,13 @@ if (cluster.isMaster) {
     app.post('/api/peer/route-message', express.json(), (req, res) => {
         try {
             const { recipientId, message } = req.body;
-            
+
             io.to(`user:${recipientId}`).emit('receive_message', message);
             res.json({ status: 'routed' });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
     });
-
-    // ==================== METRICS REPORTING ====================
 
     setInterval(async () => {
         const metrics = {
@@ -604,16 +476,13 @@ if (cluster.isMaster) {
         await masterConnector.reportMetrics(metrics);
     }, 10000);
 
-    // ==================== GRACEFUL SHUTDOWN ====================
-
     process.on('SIGTERM', async () => {
         logger.info('Worker received SIGTERM - shutting down', { workerId: cluster.worker.id });
-        
+
         io.emit('server_shutdown', { message: 'Peer server shutting down' });
-        
-        // Gracefully shutdown Redis
+
         await redisManager.shutdown();
-        
+
         server.close(() => {
             process.exit(0);
         });
@@ -623,8 +492,6 @@ if (cluster.isMaster) {
             process.exit(1);
         }, 30000);
     });
-
-    // ==================== START SERVER ====================
 
     server.listen(config.PEER_PORT + cluster.worker.id, () => {
         logger.info(`Worker listening`, {

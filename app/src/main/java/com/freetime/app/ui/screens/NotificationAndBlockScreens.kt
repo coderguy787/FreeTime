@@ -22,14 +22,13 @@ import androidx.compose.ui.unit.sp
 import com.freetime.app.data.local.SharedPreferencesHelper
 import com.freetime.app.ui.components.CyberpunkTheme
 
-
 data class NotificationSetting(val label: String, val description: String, val key: String, var isEnabled: Boolean = true)
 
 @Composable
 fun NotificationSettingsScreenEnhanced(onBackClick: () -> Unit = {}) {
     val context = LocalContext.current
     val prefsHelper = remember { SharedPreferencesHelper(context) }
-    
+
     var settings by remember {
         mutableStateOf(listOf(
             NotificationSetting("MESSAGE_ALERTS", "Get notified on new messages", "notify_messages", true),
@@ -39,8 +38,8 @@ fun NotificationSettingsScreenEnhanced(onBackClick: () -> Unit = {}) {
             NotificationSetting("VIBRATION", "Vibration feedback", "notify_vibration", true)
         ))
     }
-    
-    // Load settings from SharedPreferences on first composition
+
+    // notification and blocked users settings
     LaunchedEffect(Unit) {
         settings = settings.map { setting ->
             val savedValue = when (setting.key) {
@@ -112,7 +111,6 @@ fun NotificationSettingsScreenEnhanced(onBackClick: () -> Unit = {}) {
                                     settings = settings.mapIndexed { i, s ->
                                         if (i == index) s.copy(isEnabled = newValue) else s
                                     }
-                                    // Save to SharedPreferences immediately
                                     when (setting.key) {
                                         "notify_messages" -> prefsHelper.setNotifyMessages(newValue)
                                         "notify_friend_requests" -> prefsHelper.setNotifyFriendRequests(newValue)
@@ -120,7 +118,7 @@ fun NotificationSettingsScreenEnhanced(onBackClick: () -> Unit = {}) {
                                         "notify_sound" -> prefsHelper.setNotifySound(newValue)
                                         "notify_vibration" -> prefsHelper.setNotifyVibration(newValue)
                                     }
-                                    android.util.Log.d("NotificationSettings", "💾 ${setting.key} saved: $newValue")
+                                    android.util.Log.d("NotificationSettings", " ${setting.key} saved: $newValue")
                                 }
                                 .border(1.dp, if (setting.isEnabled) CyberpunkTheme.CyberCyan else CyberpunkTheme.DarkGray,
                                     RoundedCornerShape(14.dp)),
@@ -221,5 +219,4 @@ fun BlockedUsersScreenEnhanced(onBackClick: () -> Unit = {}) {
         }
     }
 }
-
 

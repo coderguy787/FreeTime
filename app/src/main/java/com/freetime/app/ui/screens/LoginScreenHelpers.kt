@@ -34,9 +34,6 @@ import androidx.compose.foundation.clickable
 import com.freetime.app.ui.theme.PrimaryPurple
 import com.freetime.app.ui.utils.*
 
-/**
- * Helper Composable for Login Form Fields
- */
 @Composable
 fun LoginFormFields(
     username: String,
@@ -49,12 +46,12 @@ fun LoginFormFields(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val deviceSize = rememberDeviceSize(context)
-    
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(responsiveSpacingMedium(deviceSize))
     ) {
-        // Username Field - Animated Entry
+        // login form animations
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300)) + slideInHorizontally(
@@ -95,7 +92,6 @@ fun LoginFormFields(
             )
         }
 
-        // Password Field - Animated Entry with Delay
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = 100)) + slideInHorizontally(
@@ -149,7 +145,6 @@ fun LoginFormFields(
             )
         }
 
-        // Auto-login info: Always enabled for 30 days
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = 200)) + slideInHorizontally(
@@ -159,7 +154,7 @@ fun LoginFormFields(
             exit = fadeOut() + slideOutHorizontally()
         ) {
             androidx.compose.material3.Text(
-                text = "✓ Auto-login enabled for 30 days",
+                text = " Auto-login enabled for 30 days",
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                 color = Color(0xFF00FF00).copy(alpha = 0.7f),
                 fontSize = 11.sp,
@@ -190,14 +185,13 @@ fun SignUpFormFields(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val deviceSize = rememberDeviceSize(context)
-    
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(responsiveSpacingSmall(deviceSize))
     ) {
         var animationDelay = 0
-        
-        // Username Field - Animated
+
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = animationDelay)) + slideInHorizontally(
@@ -238,7 +232,6 @@ fun SignUpFormFields(
             )
         }
 
-        // Email Field - Animated with delay
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = 100)) + slideInHorizontally(
@@ -278,7 +271,6 @@ fun SignUpFormFields(
             )
         }
 
-        // Display Name Field - Animated with delay
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = 200)) + slideInHorizontally(
@@ -318,7 +310,6 @@ fun SignUpFormFields(
             )
         }
 
-        // Password Field - Animated with delay
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = 300)) + slideInHorizontally(
@@ -371,7 +362,6 @@ fun SignUpFormFields(
             )
         }
 
-        // Confirm Password Field - Animated with delay
         AnimatedVisibility(
             visible = true,
             enter = fadeIn(animationSpec = tween(300, delayMillis = 400)) + slideInHorizontally(
@@ -425,5 +415,4 @@ fun SignUpFormFields(
         }
     }
 }
-
 

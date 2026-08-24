@@ -15,31 +15,18 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import java.util.UUID
 
-/**
- * Friend System Repository
- * Wraps FriendSystemApi with caching and error handling
- * Manages friend requests, acceptances, and rejections
- * with proper offline caching and error recovery
- */
 class FriendSystemRepository(
     private val database: FreeTimeDatabase,
     private val prefs: SharedPreferencesHelper,
     private val friendSystemApi: FriendSystemApi
 ) {
     private val friendRequestDao = database.friendRequestDao()
-    
+
     companion object {
         private const val TAG = "FriendSystemRepository"
-        private const val CACHE_EXPIRY_MS = 300000L // 5 minutes
+        private const val CACHE_EXPIRY_MS = 300000L
     }
 
-    // ============ Pending Requests ============
-
-    /**
-     * Get all pending friend requests for the current user
-     * Attempts to fetch from API first, falls back to local cache
-     * @return Flow of pending friend requests
-     */
     fun getPendingRequests(): Flow<List<FriendRequestEntity>> {
         return try {
             friendRequestDao.getPendingRequests(prefs.getUserId() ?: return flowOf(emptyList()))
@@ -49,10 +36,7 @@ class FriendSystemRepository(
         }
     }
 
-    /**
-     * Fetch pending requests from server and update local cache
-     */
-    suspend fun refreshPendingRequests(): Result<List<FriendRequestEntity>> = 
+    suspend fun refreshPendingRequests(): Result<List<FriendRequestEntity>> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -67,12 +51,11 @@ class FriendSystemRepository(
 
             return@withContext if (response.statusCode == 200) {
                 val requests = parseFriendRequests(response.body)
-                
-                // Update local cache
+
                 requests.forEach { request ->
                     friendRequestDao.insertRequest(request)
                 }
-                
+
                 Log.d(TAG, "Cached ${requests.size} pending requests")
                 Result.success(requests)
             } else {
@@ -85,14 +68,7 @@ class FriendSystemRepository(
         }
     }
 
-    // ============ Accept Friend Request ============
-
-    /**
-     * Accept a friend request
-     * Updates local database and syncs with server
-     * @param requestId The ID of the friend request to accept
-     */
-    suspend fun acceptFriendRequest(requestId: String): Result<String> = 
+    suspend fun acceptFriendRequest(requestId: String): Result<String> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -100,13 +76,12 @@ class FriendSystemRepository(
 
             Log.d(TAG, "Accepting friend request: $requestId")
 
-            // Update local database immediately (optimistic update)
+            // update ui first, roll back if the request fails
             val request = friendRequestDao.getRequestById(requestId)
             if (request != null) {
                 friendRequestDao.updateRequest(request.copy(status = "accepted"))
             }
 
-            // Sync with server
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/friends/requests/$requestId/accept",
                 "{}",
@@ -120,7 +95,6 @@ class FriendSystemRepository(
                 Log.d(TAG, "Friend request accepted successfully")
                 Result.success(requestId)
             } else {
-                // Revert optimistic update on failure
                 if (request != null) {
                     friendRequestDao.updateRequest(request.copy(status = "pending"))
                 }
@@ -133,14 +107,7 @@ class FriendSystemRepository(
         }
     }
 
-    // ============ Reject Friend Request ============
-
-    /**
-     * Reject a friend request
-     * Updates local database and syncs with server
-     * @param requestId The ID of the friend request to reject
-     */
-    suspend fun rejectFriendRequest(requestId: String): Result<String> = 
+    suspend fun rejectFriendRequest(requestId: String): Result<String> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -148,13 +115,11 @@ class FriendSystemRepository(
 
             Log.d(TAG, "Rejecting friend request: $requestId")
 
-            // Update local database immediately (optimistic update)
             val request = friendRequestDao.getRequestById(requestId)
             if (request != null) {
                 friendRequestDao.updateRequest(request.copy(status = "rejected"))
             }
 
-            // Sync with server
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/friends/requests/$requestId/reject",
                 "{}",
@@ -168,7 +133,6 @@ class FriendSystemRepository(
                 Log.d(TAG, "Friend request rejected successfully")
                 Result.success(requestId)
             } else {
-                // Revert optimistic update on failure
                 if (request != null) {
                     friendRequestDao.updateRequest(request.copy(status = "pending"))
                 }
@@ -181,14 +145,7 @@ class FriendSystemRepository(
         }
     }
 
-    // ============ Cancel Friend Request ============
-
-    /**
-     * Cancel a friend request (sent by current user)
-     * Updates local database and syncs with server
-     * @param requestId The ID of the friend request to cancel
-     */
-    suspend fun cancelFriendRequest(requestId: String): Result<String> = 
+    suspend fun cancelFriendRequest(requestId: String): Result<String> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -196,13 +153,11 @@ class FriendSystemRepository(
 
             Log.d(TAG, "Canceling friend request: $requestId")
 
-            // Update local database immediately (optimistic update)
             val request = friendRequestDao.getRequestById(requestId)
             if (request != null) {
                 friendRequestDao.updateRequest(request.copy(status = "canceled"))
             }
 
-            // Sync with server
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/friends/requests/$requestId/cancel",
                 "{}",
@@ -216,7 +171,6 @@ class FriendSystemRepository(
                 Log.d(TAG, "Friend request canceled successfully")
                 Result.success(requestId)
             } else {
-                // Revert optimistic update on failure
                 if (request != null) {
                     friendRequestDao.updateRequest(request.copy(status = "pending"))
                 }
@@ -229,27 +183,19 @@ class FriendSystemRepository(
         }
     }
 
-    // ============ Helper Functions ============
-
-    /**
-     * Parse friend requests from JSON response
-     */
     private fun parseFriendRequests(jsonString: String): List<FriendRequestEntity> {
         return try {
             val requests = mutableListOf<FriendRequestEntity>()
-            
-            // Simple JSON parsing - in production, use Gson/Moshi
+
             if (jsonString.trim() == "[]") {
                 return emptyList()
             }
 
-            // For each request object in the array
             val requestsArray = jsonString.trim().removePrefix("[").removeSuffix("]")
             if (requestsArray.isEmpty()) {
                 return emptyList()
             }
 
-            // Basic parsing - extract request objects
             requestsArray.split("},{").forEach { item ->
                 val cleanItem = item.trim()
                     .removePrefix("{")
@@ -284,9 +230,6 @@ class FriendSystemRepository(
         }
     }
 
-    /**
-     * Extract a field value from JSON string
-     */
     private fun extractJsonField(json: String, fieldName: String, defaultValue: String): String {
         return try {
             val pattern = """"$fieldName"\s*:\s*"([^"]*)"?""".toRegex()
@@ -298,7 +241,6 @@ class FriendSystemRepository(
         }
     }
 
-    // Stub methods for ViewModel compatibility
     suspend fun getIncomingRequests(): List<FriendRequest> {
         return emptyList()
     }
@@ -312,7 +254,6 @@ class FriendSystemRepository(
     }
 }
 
-// Data models for friend system
 data class FriendRequest(
     val id: String,
     val senderId: String,

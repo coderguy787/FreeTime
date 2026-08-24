@@ -3,16 +3,18 @@ package com.freetime.app.ui.animations
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 
-/**
- * Smooth fade in animation for screen transitions
- */
 @Composable
 fun FadeInAnimation(
     content: @Composable () -> Unit,
@@ -26,9 +28,6 @@ fun FadeInAnimation(
     }
 }
 
-/**
- * Slide in from bottom animation
- */
 @Composable
 fun SlideInFromBottomAnimation(
     content: @Composable () -> Unit,
@@ -48,21 +47,31 @@ fun SlideInFromBottomAnimation(
     }
 }
 
-/**
- * Scale animation for button presses
- */
-@Composable
-fun scaleOnPress(): Modifier {
-    val interactionSource = remember { MutableInteractionSource() }
-    return Modifier.clickable(
-        interactionSource = interactionSource,
-        indication = null
-    ) { }
+fun Modifier.scaleOnPressEffect(
+    scaleDown: Float = 0.92f,
+    onPress: (() -> Unit)? = null
+): Modifier = this.composed {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) scaleDown else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
+        label = "scaleOnPressEffect"
+    )
+    graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }.pointerInput(Unit) {
+        // track presses so the scale can kick in
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            pressed = true
+            onPress?.invoke()
+            waitForUpOrCancellation()
+            pressed = false
+        }
+    }
 }
 
-/**
- * Button press animation - scale down and back up
- */
 @Composable
 fun AnimatedButtonPress(
     isPressed: Boolean,
@@ -86,9 +95,6 @@ fun AnimatedButtonPress(
     }
 }
 
-/**
- * Loading spinner with rotation animation
- */
 @Composable
 fun RotatingAnimation(
     duration: Int = 1000,
@@ -108,9 +114,6 @@ fun RotatingAnimation(
     content(Modifier.graphicsLayer { rotationZ = rotation.value })
 }
 
-/**
- * Pulse animation for attention-grabbing elements
- */
 @Composable
 fun PulseAnimation(
     duration: Int = 1500,
@@ -132,9 +135,6 @@ fun PulseAnimation(
     content(Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value })
 }
 
-/**
- * Shake animation for errors
- */
 @Composable
 fun ShakeAnimation(
     duration: Int = 500,
@@ -155,9 +155,6 @@ fun ShakeAnimation(
     content(Modifier.graphicsLayer { translationX = offsetX.value })
 }
 
-/**
- * Expand/collapse animation
- */
 @Composable
 fun ExpandableAnimation(
     isExpanded: Boolean,
@@ -179,9 +176,6 @@ fun ExpandableAnimation(
     }
 }
 
-/**
- * Smooth color transition animation
- */
 @Composable
 fun ColorTransitionAnimation(
     targetColor: androidx.compose.ui.graphics.Color,
@@ -195,9 +189,6 @@ fun ColorTransitionAnimation(
     ).value
 }
 
-/**
- * Slide animation for items in lists
- */
 @Composable
 fun SlideInAnimation(
     content: @Composable () -> Unit,
@@ -219,9 +210,6 @@ fun SlideInAnimation(
     }
 }
 
-/**
- * Bounce animation for emphasis
- */
 @Composable
 fun BounceAnimation(
     duration: Int = 600,
@@ -241,11 +229,6 @@ fun BounceAnimation(
     content(Modifier.graphicsLayer { translationY = offsetY.value })
 }
 
-/**
- * Staggered list item animation - items fade and slide in one by one
- * @param index the position of this item in the list (0-based)
- * @param staggerDelayMs delay between each item's animation start
- */
 @Composable
 fun StaggeredListItemAnimation(
     index: Int,
@@ -268,9 +251,6 @@ fun StaggeredListItemAnimation(
     }
 }
 
-/**
- * Vertical staggered list animation - items slide up from below
- */
 @Composable
 fun StaggeredVerticalItemAnimation(
     index: Int,
@@ -293,10 +273,6 @@ fun StaggeredVerticalItemAnimation(
     }
 }
 
-/**
- * Animated scale effect for button press micro-interaction
- * Wraps content in a Box with animated scale on press
- */
 @Composable
 fun ScaleOnPressContent(
     isPressed: Boolean,
@@ -318,10 +294,6 @@ fun ScaleOnPressContent(
     }
 }
 
-/**
- * Fade-slide screen transition helper
- * Usage: pass enter/exit to AnimatedContent or AnimatedNavHost
- */
 val fadeSlideIn: EnterTransition = slideInHorizontally(
     initialOffsetX = { it / 3 },
     animationSpec = tween(350, easing = EaseOutCubic)

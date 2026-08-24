@@ -15,27 +15,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-/**
- * Group Voting System
- * Allows groups to vote on important actions like:
- * - Delete group (requires >50% member approval)
- * - Remove member (requires >50% member approval)
- * - Change group name/settings (admin action)
- */
 class GroupVotingSystem(
     private val database: FreeTimeDatabase,
     private val prefs: SharedPreferencesHelper
 ) {
     companion object {
         private const val TAG = "GroupVotingSystem"
-        private const val VOTE_APPROVAL_THRESHOLD = 0.5 // >50% for approval
+        private const val VOTE_APPROVAL_THRESHOLD = 0.5
+        // votes not resolved in time just expire
         private const val VOTE_EXPIRY_HOURS = 24
     }
 
-    /**
-     * Initiate group deletion vote
-     * Only group admin can initiate
-     */
     suspend fun initiateGroupDeletionVote(
         groupId: String,
         groupName: String
@@ -73,14 +63,10 @@ class GroupVotingSystem(
         }
     }
 
-    /**
-     * Cast vote on group deletion
-     * Each member can vote once
-     */
     suspend fun castVoteOnGroupDeletion(
         groupId: String,
         voteId: String,
-        voteChoice: Boolean // true = approve, false = reject
+        voteChoice: Boolean
     ): Result<VoteCastResponse> = withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
@@ -117,9 +103,6 @@ class GroupVotingSystem(
         }
     }
 
-    /**
-     * Get current voting status for a group
-     */
     suspend fun getGroupVotingStatus(
         groupId: String
     ): Result<GroupVoteStatus> = withContext(Dispatchers.IO) {
@@ -148,9 +131,6 @@ class GroupVotingSystem(
         }
     }
 
-    /**
-     * Get voting results (after voting period ends)
-     */
     suspend fun getGroupVoteResults(
         groupId: String,
         voteId: String
@@ -181,9 +161,6 @@ class GroupVotingSystem(
         }
     }
 
-    /**
-     * Get all active votes in a group
-     */
     suspend fun getGroupActiveVotes(
         groupId: String
     ): Result<List<ActiveGroupVote>> = withContext(Dispatchers.IO) {
@@ -210,8 +187,6 @@ class GroupVotingSystem(
             Result.failure(e)
         }
     }
-
-    // Helper functions
 
     private fun extractVoteId(responseBody: String): String {
         return try {
@@ -274,14 +249,13 @@ class GroupVotingSystem(
             val gson = Gson()
             val jsonArray = JsonParser.parseString(jsonBody).asJsonArray
             val votes = mutableListOf<ActiveGroupVote>()
-            
+
             for (element in jsonArray) {
                 try {
                     val vote = gson.fromJson(element, ActiveGroupVote::class.java)
                     votes.add(vote)
                 } catch (e: JsonSyntaxException) {
                     Log.e(TAG, "Failed to parse individual vote", e)
-                    // Continue with other votes
                 }
             }
             votes
@@ -292,9 +266,6 @@ class GroupVotingSystem(
     }
 }
 
-/**
- * Response for vote initiation
- */
 data class GroupVoteResponse(
     val success: Boolean,
     val message: String,
@@ -302,18 +273,12 @@ data class GroupVoteResponse(
     val durationHours: Int
 )
 
-/**
- * Response for casting a vote
- */
-/**
- * Current status of a group vote
- */
 data class GroupVoteStatus(
     val voteId: String,
     val groupId: String,
-    val voteType: String, // "deletion", "remove_member", "settings_change"
-    val status: String, // "active", "completed", "expired"
-    val approvalThreshold: Int, // 50 for >50%
+    val voteType: String,
+    val status: String,
+    val approvalThreshold: Int,
     val totalMembers: Int,
     val votesReceived: Int,
     val approvingVotes: Int,
@@ -323,9 +288,6 @@ data class GroupVoteStatus(
     val hasVoted: Boolean
 )
 
-/**
- * Results of a completed vote
- */
 data class GroupVoteResults(
     val voteId: String,
     val approved: Boolean,
@@ -333,16 +295,13 @@ data class GroupVoteResults(
     val totalMembers: Int,
     val approvingVotes: Int,
     val rejectingVotes: Int,
-    val result: String // "approved", "rejected", "expired"
+    val result: String
 )
 
-/**
- * Active vote in a group (for listing)
- */
 data class ActiveGroupVote(
     val voteId: String,
     val voteType: String,
-    val initiatedBy: String, // username
+    val initiatedBy: String,
     val status: String,
     val approvalThreshold: Int,
     val approvingVotes: Int,

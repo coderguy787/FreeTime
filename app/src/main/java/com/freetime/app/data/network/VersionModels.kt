@@ -2,6 +2,7 @@ package com.freetime.app.data.network
 
 import kotlinx.serialization.Serializable
 
+// version info used for update checks
 @Serializable
 data class VersionCheckRequest(
     val clientVersion: String,

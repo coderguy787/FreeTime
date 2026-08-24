@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -33,17 +34,17 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 
-// ✅ NEW: Helper function to get profile name color based on tags and role
+// public profile view
 fun getProfileNameColor(
     tags: List<String>,
     role: String? = null
 ): Color {
     return when {
-        tags.contains("OWNER") -> Color(0xFFFF00FF)  // Magenta
-        tags.contains("VIP") -> Color(0xFFFFFF00)  // Yellow
-        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)  // Cyan
-        role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)  // Red
-        role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)  // Orange
+        tags.contains("OWNER") -> Color(0xFFFF00FF)
+        tags.contains("VIP") -> Color(0xFFFFFF00)
+        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+        role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)
+        role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)
         else -> CyberpunkTheme.White
     }
 }
@@ -57,23 +58,23 @@ fun PublicProfileScreen(
     val apiService = remember { FreeTimeApiService(context) }
     val scope = rememberCoroutineScope()
     val prefs = SharedPreferencesHelper(context)
-    
+
     var displayName by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var bio by remember { mutableStateOf("") }
     var pronouns by remember { mutableStateOf("") }
     var avatar by remember { mutableStateOf<String?>(null) }
-    var tags by remember { mutableStateOf(listOf<String>()) }  // NEW: Tags display
-    var role by remember { mutableStateOf<String?>(null) }  // ✅ NEW: Store role for color display
+    var banner by remember { mutableStateOf<String?>(null) }
+    var tags by remember { mutableStateOf(listOf<String>()) }
+    var role by remember { mutableStateOf<String?>(null) }
     var badges by remember { mutableStateOf(listOf<BadgeDetail>()) }
     var isLoading by remember { mutableStateOf(true) }
     var isCurrentUser by remember { mutableStateOf(false) }
     var friendRequestSent by remember { mutableStateOf(false) }
-    var isAlreadyFriend by remember { mutableStateOf(false) }  // NEW: Track existing friendship
-    var showRemoveDialog by remember { mutableStateOf(false) }  // NEW: Confirm remove friend
-    var isProcessingAction by remember { mutableStateOf(false) }  // NEW: Loading state for actions
-    
-    // Load profile and check friendship status on mount
+    var isAlreadyFriend by remember { mutableStateOf(false) }
+    var showRemoveDialog by remember { mutableStateOf(false) }
+    var isProcessingAction by remember { mutableStateOf(false) }
+
     LaunchedEffect(userId) {
         scope.launch {
             try {
@@ -84,15 +85,15 @@ fun PublicProfileScreen(
                     bio = profile.bio
                     pronouns = profile.pronouns
                     avatar = profile.avatar
-                    tags = profile.tags ?: emptyList()  // NEW: Load tags
-                    role = profile.role  // ✅ NEW: Load role
+                    banner = profile.banner
+                    tags = profile.tags ?: emptyList()
+                    role = profile.role
                     badges = profile.badges
                     isCurrentUser = profile.isCurrentUser
                 }.onFailure {
                     displayName = "User Not Found"
                 }
-                
-                // NEW: Check if already friends
+
                 if (!isCurrentUser) {
                     try {
                         val token = prefs.getToken() ?: ""
@@ -104,26 +105,23 @@ fun PublicProfileScreen(
                         android.util.Log.e("PublicProfileScreen", "Error checking friendship: ${e.message}")
                     }
                 }
-                
+
                 isLoading = false
             } catch (e: Exception) {
                 isLoading = false
             }
         }
     }
-    
-    // NEW: Function to remove friend
+
     val removeFriend: () -> Unit = {
         isProcessingAction = true
         scope.launch {
             try {
                 val token = prefs.getToken() ?: ""
-                // Remove friend by user ID
                 val deleteResponse = apiService.removeFriend(userId, "Bearer $token")
                 if (deleteResponse.isSuccess) {
                     android.util.Log.d("PublicProfileScreen", "Friend removed successfully")
                     isAlreadyFriend = false
-                    // Also delete chat history
                     try {
                         val chatDeleteResponse = apiService.deleteChatHistory(userId)
                         android.util.Log.d("PublicProfileScreen", "Chat history deleted")
@@ -141,27 +139,15 @@ fun PublicProfileScreen(
             }
         }
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(CyberpunkTheme.DarkBlack)
     ) {
-        // Header with background gradient
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f),
-                            CyberpunkTheme.DarkBlack
-                        ),
-                        endY = 300f
-                    )
-                )
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Top Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -177,278 +163,330 @@ fun PublicProfileScreen(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                
+
                 Text(
                     "Profile",
                     style = MaterialTheme.typography.headlineSmall,
                     color = CyberpunkTheme.White,
                     fontWeight = FontWeight.Bold
                 )
-                
-                if (!isCurrentUser) {
-                    IconButton(onClick = { /* menu */ }) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "More",
-                            tint = CyberpunkTheme.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.width(40.dp))
-                }
+
+                Spacer(modifier = Modifier.width(40.dp))
             }
-            
+
             if (!isLoading) {
-                // Avatar
-                Box(
+                Column(
                     modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(vertical = 24.dp)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    val resolvedAvatarUrl = apiService.resolveAvatarUrl(avatar)
-                    
-                    if (!resolvedAvatarUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(resolvedAvatarUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "User Avatar",
-                            modifier = Modifier
-                                .size(120.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, CyberpunkTheme.PrimaryPurple, CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(120.dp)
-                                .background(
-                                    color = CyberpunkTheme.PrimaryPurple,
-                                    shape = CircleShape
-                                )
-                                .clip(CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                (displayName.ifEmpty { "U" }).firstOrNull()?.uppercaseChar()?.toString() ?: "U",
-                                fontSize = 48.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = CyberpunkTheme.White
+                    val bannerColor = when {
+                        tags.contains("OWNER") -> Color(0xFFFF00FF)
+                        tags.contains("VIP") -> Color(0xFFFFFF00)
+                        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+                        role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)
+                        role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)
+                        else -> CyberpunkTheme.PrimaryPurple
+                    }
+
+                    val resolvedBannerUrl = if (!banner.isNullOrEmpty()) {
+                        apiService.resolveAvatarUrl(banner)
+                    } else null
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    ) {
+                        if (!resolvedBannerUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(resolvedBannerUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Profile Banner",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.Transparent,
+                                                Color.Black.copy(alpha = 0.4f)
+                                            )
+                                        )
+                                    )
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                bannerColor.copy(alpha = 0.7f),
+                                                bannerColor.copy(alpha = 0.15f)
+                                            )
+                                        )
+                                    )
                             )
                         }
                     }
-                }
-                
-                // Display Name
-                Text(
-                    displayName.ifEmpty { "User" },
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = getProfileNameColor(tags, role),  // ✅ NEW: Apply color based on tags and role
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-                
-                // Username
-                Text(
-                    "@${username.ifEmpty { "unknown" }}",
-                    fontSize = 14.sp,
-                    color = CyberpunkTheme.LightGray,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 4.dp)
-                )
-                
-                // Pronouns/Tags
-                if (pronouns.isNotEmpty()) {
-                    Surface(
+
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(top = 8.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = CyberpunkTheme.DarkGray
+                            .offset(y = (-50).dp)
+                            .padding(start = 12.dp)
                     ) {
-                        Text(
-                            pronouns,
-                            fontSize = 12.sp,
-                            color = CyberpunkTheme.PrimaryPurple,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-                
-                // NEW: Display tags
-                if (tags.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(top = 12.dp)
-                            .wrapContentWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        tags.take(5).forEach { tag ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.6f)
+                        val resolvedAvatarUrl = apiService.resolveAvatarUrl(avatar)
+
+                        if (!resolvedAvatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(resolvedAvatarUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "User Avatar",
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .clip(CircleShape)
+                                    .border(4.dp, CyberpunkTheme.DarkBlack, CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .background(
+                                        color = bannerColor,
+                                        shape = CircleShape
+                                    )
+                                    .clip(CircleShape)
+                                    .border(4.dp, CyberpunkTheme.DarkBlack, CircleShape),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "#$tag",
-                                    fontSize = 11.sp,
-                                    color = CyberpunkTheme.White,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    (displayName.ifEmpty { "U" }).firstOrNull()?.uppercaseChar()?.toString() ?: "U",
+                                    fontSize = 40.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberpunkTheme.White
+                                )
+                            }
+                        }
+
+                        if (isAlreadyFriend || isCurrentUser) {
+                            val statusColor = Color(0xFF00FF88)
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 2.dp, y = 2.dp),
+                                shape = CircleShape,
+                                color = CyberpunkTheme.DarkBlack
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .padding(4.dp)
+                                        .background(statusColor, CircleShape)
                                 )
                             }
                         }
                     }
-                }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-        
-        // Content below header
-        if (!isLoading) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Bio
-                if (bio.isNotEmpty()) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp)),
-                        color = CyberpunkTheme.DarkGray
+
+                    Column(
+                        modifier = Modifier.offset(y = (-36).dp)
                     ) {
-                        Text(
-                            bio,
-                            fontSize = 14.sp,
-                            color = CyberpunkTheme.White,
-                            fontStyle = FontStyle.Italic,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                }
-                
-                // Badges
-                if (badges.isNotEmpty()) {
-                    Column {
-                        Text(
-                            "Badges",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CyberpunkTheme.White,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp)),
-                            color = CyberpunkTheme.DarkGray
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            BadgesGrid(badges = badges)
-                        }
-                    }
-                }
-                
-                // Friend Request/Friend Management Buttons
-                if (!isCurrentUser) {
-                    when {
-                        isAlreadyFriend -> {
-                            // NEW: Show Remove and Block buttons if already friends
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .wrapContentHeight(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                // Remove Friend Button
-                                ElevatedButton(
-                                    onClick = { showRemoveDialog = true },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp),
-                                    enabled = !isProcessingAction,
-                                    colors = ButtonDefaults.elevatedButtonColors(
-                                        containerColor = Color(0xFFFF6B6B)
-                                    )
+                            Text(
+                                displayName.ifEmpty { "User" },
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = getProfileNameColor(tags, role)
+                            )
+                            if (pronouns.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = CyberpunkTheme.DarkGray
                                 ) {
-                                    Icon(Icons.Filled.PersonRemove, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Remove", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text(
+                                        pronouns,
+                                        fontSize = 11.sp,
+                                        color = CyberpunkTheme.LightGray,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
                                 }
                             }
                         }
-                        friendRequestSent -> {
-                            // Request already sent
-                            ElevatedButton(
-                                onClick = {},
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp),
-                                enabled = false,
-                                colors = ButtonDefaults.elevatedButtonColors(
-                                    containerColor = Color(0xFF4CAF50),
-                                    disabledContainerColor = Color(0xFF4CAF50)
-                                )
+
+                        Text(
+                            "@${username.ifEmpty { "unknown" }}",
+                            fontSize = 14.sp,
+                            color = CyberpunkTheme.LightGray,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+
+                        if (tags.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Filled.Check, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Request Sent", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        else -> {
-                            // Send Friend Request Button
-                            ElevatedButton(
-                                onClick = {
-                                    friendRequestSent = true
-                                    onSendFriendRequest(userId)
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp),
-                                colors = ButtonDefaults.elevatedButtonColors(
-                                    containerColor = CyberpunkTheme.PrimaryPurple
-                                )
-                            ) {
-                                Icon(Icons.Filled.PersonAdd, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Send Friend Request", fontWeight = FontWeight.Bold)
+                                tags.take(5).forEach { tag ->
+                                    val tagColor = when (tag.uppercase()) {
+                                        "OWNER" -> Color(0xFFFF00FF)
+                                        "VIP" -> Color(0xFFFFFF00)
+                                        "BETA TESTER" -> Color(0xFF00FFFF)
+                                        else -> CyberpunkTheme.PrimaryPurple
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = tagColor.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            "#$tag",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = tagColor,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                }
-                
-                // NEW: Remove Friend Confirmation Dialog
-                if (showRemoveDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showRemoveDialog = false },
-                        title = { Text("Remove Friend") },
-                        text = { Text("Are you sure you want to remove $displayName as a friend? Your chat history will also be deleted.") },
-                        dismissButton = {
-                            TextButton(onClick = { showRemoveDialog = false }, enabled = !isProcessingAction) {
-                                Text("Cancel")
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = removeFriend, enabled = !isProcessingAction) {
-                                Text("Remove", color = Color(0xFFFF6B6B))
+
+                    HorizontalDivider(color = CyberpunkTheme.DarkGray, thickness = 2.dp)
+
+                    if (bio.isNotEmpty()) {
+                        Column {
+                            Text(
+                                "ABOUT ME",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = CyberpunkTheme.LightGray,
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                color = CyberpunkTheme.DarkGray.copy(alpha = 0.5f)
+                            ) {
+                                Text(
+                                    bio,
+                                    fontSize = 14.sp,
+                                    color = CyberpunkTheme.White,
+                                    modifier = Modifier.padding(14.dp),
+                                    lineHeight = 20.sp
+                                )
                             }
                         }
-                    )
+                    }
+
+                    if (badges.isNotEmpty()) {
+                        Column {
+                            Text(
+                                "BADGES",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = CyberpunkTheme.LightGray,
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                color = CyberpunkTheme.DarkGray.copy(alpha = 0.5f)
+                            ) {
+                                BadgesGrid(badges = badges)
+                            }
+                        }
+                    }
+
+                    if (!isCurrentUser) {
+                        when {
+                            isAlreadyFriend -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { showRemoveDialog = true },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = !isProcessingAction,
+                                        border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.6f)),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF6B6B))
+                                    ) {
+                                        Icon(Icons.Filled.PersonRemove, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Remove Friend", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            friendRequestSent -> {
+                                Button(
+                                    onClick = {},
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = false,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF4CAF50),
+                                        disabledContainerColor = Color(0xFF4CAF50)
+                                    )
+                                ) {
+                                    Icon(Icons.Filled.Check, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Request Sent", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            else -> {
+                                Button(
+                                    onClick = {
+                                        friendRequestSent = true
+                                        onSendFriendRequest(userId)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberpunkTheme.PrimaryPurple)
+                                ) {
+                                    Icon(Icons.Filled.PersonAdd, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Send Friend Request", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
-        
-        // Loading indicator
+
+        if (showRemoveDialog) {
+            AlertDialog(
+                onDismissRequest = { showRemoveDialog = false },
+                title = { Text("Remove Friend") },
+                text = { Text("Are you sure you want to remove $displayName as a friend? Your chat history will also be deleted.") },
+                dismissButton = {
+                    TextButton(onClick = { showRemoveDialog = false }, enabled = !isProcessingAction) {
+                        Text("Cancel")
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = removeFriend, enabled = !isProcessingAction) {
+                        Text("Remove", color = Color(0xFFFF6B6B))
+                    }
+                }
+            )
+        }
+
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
@@ -458,9 +496,6 @@ fun PublicProfileScreen(
     }
 }
 
-/**
- * Badges Grid Component
- */
 @Composable
 fun BadgesGrid(badges: List<BadgeDetail>) {
     Column(
@@ -468,8 +503,8 @@ fun BadgesGrid(badges: List<BadgeDetail>) {
             .fillMaxWidth()
             .padding(16.dp)
     ) {
-        var rows = (badges.size + 3) / 4  // 4 badges per row
-        
+        var rows = (badges.size + 3) / 4
+
         repeat(rows) { rowIndex ->
             Row(
                 modifier = Modifier
@@ -490,18 +525,14 @@ fun BadgesGrid(badges: List<BadgeDetail>) {
     }
 }
 
-/**
- * Individual Badge Display
- */
 @Composable
 fun BadgeItem(badge: BadgeDetail) {
-    // Parse hex color or use theme color
     val badgeColor = try {
         Color(android.graphics.Color.parseColor(badge.color))
     } catch (e: Exception) {
         CyberpunkTheme.PrimaryPurple
     }
-    
+
     Surface(
         modifier = Modifier
             .size(60.dp)

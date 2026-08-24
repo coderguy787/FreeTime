@@ -1,8 +1,3 @@
-/**
- * Android Integration Module
- * Provides Android-specific integration features for the FreeTime API
- */
-
 class AndroidIntegration {
     constructor(config = {}) {
         this.config = {
@@ -12,12 +7,9 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Request validator middleware
-     */
     requestValidator() {
         return (req, res, next) => {
-            // Validate Android client headers if present
+            // identify android clients by headers
             const clientVersion = req.headers['x-client-version'];
             const clientType = req.headers['x-client-type'];
 
@@ -32,9 +24,6 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Health check endpoint for Android clients
-     */
     healthCheckEndpoint() {
         return (req, res) => {
             res.json({
@@ -45,9 +34,6 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Get Android client configuration
-     */
     getClientConfig() {
         return {
             minVersion: this.config.minClientVersion,

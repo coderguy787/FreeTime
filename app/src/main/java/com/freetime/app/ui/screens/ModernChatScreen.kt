@@ -48,10 +48,10 @@ import com.freetime.app.R
 import com.freetime.app.ui.composables.MessageContextMenu
 import com.freetime.app.ui.composables.GifPickerDialog
 import com.freetime.app.ui.components.CyberpunkTheme
+import com.freetime.app.ui.animations.scaleOnPressEffect
 import com.freetime.app.data.network.ApiClient
 import com.freetime.app.data.network.SendMessageRequest
 import com.freetime.app.data.local.SharedPreferencesHelper
-import com.freetime.app.model.CallState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -75,17 +75,11 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import android.provider.DocumentsContract
-import com.freetime.app.services.CallStateManager
 import com.freetime.app.services.ServerStatusManager
+import com.freetime.app.services.OfflineMessageQueue
 import com.freetime.app.ui.components.*
 import java.util.UUID
-import org.webrtc.IceCandidate
-import org.webrtc.SessionDescription
-import org.webrtc.MediaStream
 import org.json.JSONObject
-import com.freetime.app.webrtc.WebRTCFactory
-import com.freetime.app.webrtc.WebRTCManager
-import com.freetime.app.webrtc.toJson
 import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -93,30 +87,22 @@ import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-// ✅ NEW: Helper function to get username color based on tags and role
 fun getUsernameColor(
     tags: List<String> = emptyList(),
     isAdmin: Boolean = false,
     isModerator: Boolean = false,
-    role: String? = null  // ✅ NEW: Accept role parameter for flexibility
+    role: String? = null
 ): Color {
-    // ✅ CRITICAL FIX: Default to white if no tags/roles provided
     if (tags.isEmpty() && !isAdmin && !isModerator && role.isNullOrBlank()) {
         return CyberpunkTheme.White
     }
-    
+
     return when {
-        // Priority 1: OWNER tag → Bright Magenta
-        tags.contains("OWNER") -> Color(0xFFFF00FF)  // Bright Magenta
-        // Priority 2: VIP tag → Yellow
-        tags.contains("VIP") -> Color(0xFFFFFF00)  // Bright Yellow
-        // Priority 3: BETA TESTER tag → Cyan
-        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)  // Bright Cyan
-        // Priority 4: isAdmin or role=admin → Red
-        isAdmin || role == "admin" || role == "ADMIN" -> Color(0xFFFF0000)  // Bright Red
-        // Priority 5: isModerator or role=moderator → Orange
-        isModerator || role == "moderator" || role == "MODERATOR" -> Color(0xFFFF8C00)  // Bright Orange
-        // Default → White
+        tags.contains("OWNER") -> Color(0xFFFF00FF)
+        tags.contains("VIP") -> Color(0xFFFFFF00)
+        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+        isAdmin || role == "admin" || role == "ADMIN" -> Color(0xFFFF0000)
+        isModerator || role == "moderator" || role == "MODERATOR" -> Color(0xFFFF8C00)
         else -> CyberpunkTheme.White
     }
 }
@@ -130,23 +116,23 @@ data class Message(
     val isRead: Boolean = true,
     val hasReaction: String? = null,
     val reactions: List<String> = emptyList(),
-    val status: String = "sent", // "sending", "sent", "delivered", "failed"
+    val status: String = "sent",
     val replyToMessageId: String? = null,
     val replyToUsername: String? = null,
     val replyToText: String? = null,
     val senderId: String = "",
     val mediaId: String? = null,
-    val mediaType: String? = null,  // ✅ NEW: Media type (image/video/document)
-    val mediaName: String? = null,  // ✅ NEW: Original filename with extension
+    val mediaType: String? = null,
+    val mediaName: String? = null,
     val pendingRequests: List<com.freetime.app.services.WebSocketManager.MediaDownloadRequestData> = emptyList(),
-    val senderTags: List<String> = emptyList(),  // ✅ NEW: Tags for color coding
-    val senderIsAdmin: Boolean = false,  // ✅ NEW: Admin status
-    val senderIsModerator: Boolean = false,  // ✅ NEW: Moderator status
-    val senderRole: String = "",  // ✅ NEW: Role for flexible color matching
-    val subject: String? = null,  // ✅ NEW: Announcement subject
-    val isAnnouncement: Boolean = false,  // ✅ NEW: Announcement flag
-    val mediaShareMode: String? = null,  // ✅ NEW: "public" or "protected"
-    val senderAvatar: String? = null  // ✅ NEW: Sender's profile picture URL
+    val senderTags: List<String> = emptyList(),
+    val senderIsAdmin: Boolean = false,
+    val senderIsModerator: Boolean = false,
+    val senderRole: String = "",
+    val subject: String? = null,
+    val isAnnouncement: Boolean = false,
+    val mediaShareMode: String? = null,
+    val senderAvatar: String? = null
 )
 
 fun parseReactions(json: String): List<String> {
@@ -169,7 +155,6 @@ fun inferMediaShareMode(content: String): String? {
     }
 }
 
-// ✅ FIX: Resolve relative avatar paths from the backend into full URLs against the real server
 private fun resolvePrivateAvatarUrl(url: String?): String? {
     if (url.isNullOrEmpty() || url == "null" || url == "undefined") return null
     return when {
@@ -179,16 +164,15 @@ private fun resolvePrivateAvatarUrl(url: String?): String? {
     }
 }
 
-// Helper function to build clickable text with URL detection
+private val MEDIA_ID_REGEX = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
+private val URL_REGEX = """(https?://[^\s]+|www\.[^\s]+)""".toRegex()
+
 fun buildClickableText(text: String): AnnotatedString {
-    val urlRegex = """(https?://[^\s]+|www\.[^\s]+)""".toRegex()
     val annotatedString = buildAnnotatedString {
         var lastIndex = 0
-        urlRegex.findAll(text).forEach { match ->
-            // Add text before URL
+        URL_REGEX.findAll(text).forEach { match ->
             append(text.substring(lastIndex, match.range.first))
-            
-            // Add URL as clickable text
+
             val url = match.value
             val fullUrl = if (url.startsWith("www.")) "https://${url}" else url
             pushStringAnnotation(
@@ -204,10 +188,9 @@ fun buildClickableText(text: String): AnnotatedString {
                 append(url)
             }
             pop()
-            
+
             lastIndex = match.range.last + 1
         }
-        // Add remaining text after last URL
         append(text.substring(lastIndex))
     }
     return annotatedString
@@ -218,8 +201,6 @@ fun buildClickableText(text: String): AnnotatedString {
 fun ModernChatScreen(
     recipientId: String,
     chatName: String = "",
-    acceptCallOnOpen: Boolean = false,
-    pendingCallId: String = "",
     onNavigateBack: () -> Unit,
     onNavigateToHome: () -> Unit = {},
     onViewProfile: (userId: String) -> Unit = {}
@@ -231,12 +212,11 @@ fun ModernChatScreen(
     val apiService = remember { FreeTimeApiService(context) }
     val currentUserId = prefs.getUserId() ?: ""
     val currentUsername = prefs.getUsername() ?: "You"
-    
-    // ✅ NEW: Initialize Database and Repository for local encrypted storage
+
     val database = remember { com.freetime.app.data.local.database.FreeTimeDatabase.getInstance(context) }
     val encryptionManager = remember { com.freetime.app.data.local.encryption.EncryptionManager(context) }
     val messageRepository = remember { com.freetime.app.data.repository.MessageRepository(database, encryptionManager, context) }
-    
+
     var messageText by remember { mutableStateOf("") }
     var isInputFocused by remember { mutableStateOf(false) }
     var replyingToMessage by remember { mutableStateOf<Message?>(null) }
@@ -244,18 +224,20 @@ fun ModernChatScreen(
     var isTyping by remember { mutableStateOf(false) }
     var messages by remember { mutableStateOf(listOf<Message>()) }
     var isLoadingMessages by remember { mutableStateOf(false) }
-    
-    // ✅ Server health for degraded (offline) mode
+
     var isServerDown by remember { mutableStateOf(ServerStatusManager.isDown()) }
     LaunchedEffect(Unit) {
         ServerStatusManager.isServerDown.collect { down ->
             isServerDown = down
         }
     }
-    
+
     var isSendingMessage by remember { mutableStateOf(false) }
     var recipientName by remember { mutableStateOf(chatName) }
     var recipientIsOnline by remember { mutableStateOf(false) }
+    var recipientLastSeen by remember { mutableStateOf<String?>(null) }
+    var recipientIsMuted by remember { mutableStateOf(false) }
+    var currentChatBgPath by remember { mutableStateOf<String?>(null) }
     var recipientExists by remember { mutableStateOf(true) }
     var showDeleteHistoryDialog by remember { mutableStateOf(false) }
     var deleteHistoryStatus by remember { mutableStateOf("") }
@@ -264,21 +246,23 @@ fun ModernChatScreen(
     var visibleImageMediaIds by remember { mutableStateOf(setOf<String>()) }
     var selectedMessages by remember { mutableStateOf(setOf<String>()) }
     var isMultiSelectMode by remember { mutableStateOf(false) }
-    
-    // ✅ NEW: Message context menu state
+
     var showMessageContextMenu by remember { mutableStateOf(false) }
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
     var selectedMessageText by remember { mutableStateOf("") }
     var selectedMessageIsOwn by remember { mutableStateOf(false) }
 
-    var isFriend by remember { mutableStateOf(false) } // Track if recipient is a friend
-    var recipientTags by remember { mutableStateOf(listOf<String>()) }  // ✅ NEW: Recipient's tags for color coding
-    var recipientIsAdmin by remember { mutableStateOf(false) }  // ✅ NEW: Recipient's admin status
-    var recipientIsModerator by remember { mutableStateOf(false) }  // ✅ NEW: Recipient's moderator status
-    var recipientRole by remember { mutableStateOf("") }  // ✅ NEW: Recipient's role for flexible color matching
-    var recipientAvatar by remember { mutableStateOf<String?>(null) }  // ✅ NEW: Recipient's profile picture URL
+    var showForwardDialog by remember { mutableStateOf(false) }
+    var friendsList by remember { mutableStateOf(listOf<com.freetime.app.api.UserData>()) }
+    var isForwarding by remember { mutableStateOf(false) }
+
+    var isFriend by remember { mutableStateOf(false) }
+    var recipientTags by remember { mutableStateOf(listOf<String>()) }
+    var recipientIsAdmin by remember { mutableStateOf(false) }
+    var recipientIsModerator by remember { mutableStateOf(false) }
+    var recipientRole by remember { mutableStateOf("") }
+    var recipientAvatar by remember { mutableStateOf<String?>(null) }
     val isAnnouncementChat = recipientId == com.freetime.app.api.ANNOUNCEMENT_USER_ID
-    // Announcement auto-disappear after 3 minutes
     val announcementDeliveredAt = remember { mutableStateOf(mutableMapOf<String, Long>()) }
     val announcementNow = remember { mutableStateOf(System.currentTimeMillis()) }
     if (isAnnouncementChat) {
@@ -296,31 +280,24 @@ fun ModernChatScreen(
             }
         }
     }
-    // ✅ DEBOUNCE: Last send time to prevent duplicate sends
     var lastSendTimeMs by remember { mutableStateOf(0L) }
-    val SEND_DEBOUNCE_MS = 500L // Prevent double-taps within 500ms
+    val SEND_DEBOUNCE_MS = 500L
 
-    // ===== MESSAGE SEARCH =====
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
     var searchResults by remember { mutableStateOf<List<Message>>(emptyList()) }
     var showSearchResults by remember { mutableStateOf(false) }
     var lastSearchQuery by remember { mutableStateOf("") }
 
-    // ===== TYPING INDICATOR =====
     var isRecipientTyping by remember { mutableStateOf(false) }
     var typingTimeoutJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var lastTypingIndicatorSentMs by remember { mutableStateOf(0L) }
-    val TYPING_INDICATOR_DEBOUNCE_MS = 1000L // Send at most once per second
+    val TYPING_INDICATOR_DEBOUNCE_MS = 1000L
 
-    // ===== CONNECTION STATUS =====
     var wsConnected by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    // CRITICAL FIX: Intercept back press to dismiss keyboard first, preventing IME Send from firing.
-    // keyboardController.hide() does NOT release TextField focus, so we must clearFocus() too —
-    // otherwise isInputFocused stays true forever and onNavigateBack() is never reached.
     BackHandler {
         if (isInputFocused) {
             keyboardController?.hide()
@@ -329,17 +306,14 @@ fun ModernChatScreen(
             onNavigateBack()
         }
     }
-    
-    // Monitor WebSocket connection status
+
     LaunchedEffect(Unit) {
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
-        while (true) {
-            wsConnected = wsManager.isConnected()
-            delay(1000) // Check every second
+        wsManager.connectionState.collect { state ->
+            wsConnected = state == com.freetime.app.services.ConnectionState.CONNECTED
         }
     }
 
-    // Check friendship status
     LaunchedEffect(recipientId) {
         try {
             val result = apiService.getFriends()
@@ -354,10 +328,8 @@ fun ModernChatScreen(
         }
     }
 
-    // ✅ FIX: Update message sender names once recipient name is loaded (fixes "Friend" fallback)
     LaunchedEffect(recipientName) {
         if (recipientName.isNotEmpty() && recipientName != "User" && messages.isNotEmpty()) {
-            // Check if any messages still have "Friend" as sender name that should be updated
             messages = messages.map { message ->
                 if (!message.isSender && (message.senderName == "Friend" || message.senderName.isEmpty())) {
                     message.copy(senderName = recipientName)
@@ -365,11 +337,11 @@ fun ModernChatScreen(
                     message
                 }
             }
-            android.util.Log.d("FREETIME_CHAT", "✅ Updated message sender names with recipient: $recipientName")
+            android.util.Log.d("FREETIME_CHAT", " Updated message sender names with recipient: $recipientName")
         }
     }
 
-    // View-once timer logic (3 seconds)
+    // view-once images disappear after being opened
     LaunchedEffect(visibleImageMediaIds) {
         if (visibleImageMediaIds.isNotEmpty()) {
             val recentlyAdded = visibleImageMediaIds.last()
@@ -378,15 +350,13 @@ fun ModernChatScreen(
             android.util.Log.d("FREETIME_MEDIA", "View-once expired for: $recentlyAdded")
         }
     }
-    
-    // Function to handle media download request
+
     fun sendMediaDownloadRequests(mediaIds: List<String>) {
         scope.launch {
             try {
-                // Request each media individually
                 var successCount = 0
                 var failureCount = 0
-                
+
                 for (mediaId in mediaIds) {
                     try {
                         val result = apiService.requestMediaDownload(mediaId)
@@ -415,14 +385,12 @@ fun ModernChatScreen(
             }
         }
     }
-    
-    // ✅ NEW: Download and save media file when approval received
+
     fun downloadAndSaveMediaFile(data: com.freetime.app.services.WebSocketManager.MediaDownloadResponseData, originalFileName: String? = null) {
         scope.launch(Dispatchers.IO) {
             try {
-                android.util.Log.d("FREETIME_MEDIA", "🎬 Starting auto-download of approved media: ${data.mediaId}")
-                
-                // Build the download URL
+                android.util.Log.d("FREETIME_MEDIA", " Starting auto-download of approved media: ${data.mediaId}")
+
                 val downloadUrl = if (data.downloadUrl?.startsWith("http") == true) {
                     data.downloadUrl
                 } else if (!data.downloadUrl.isNullOrEmpty()) {
@@ -432,16 +400,14 @@ fun ModernChatScreen(
                     android.util.Log.e("FREETIME_MEDIA", "No download URL provided in approval")
                     return@launch
                 }
-                
-                // Step 1: Download encrypted bytes
+
                 val token = prefs.getToken() ?: return@launch
                 val request = okhttp3.Request.Builder()
                     .url(downloadUrl)
                     .addHeader("Authorization", "Bearer $token")
                     .get()
                     .build()
-                
-            // Create OkHttpClient with SSL bypass (same as FreeTimeApiService)
+
             val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
                 override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
                 override fun checkClientTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
@@ -449,23 +415,22 @@ fun ModernChatScreen(
             })
             val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
             sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-            
+
             val client = okhttp3.OkHttpClient.Builder()
                 .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
                 .hostnameVerifier { _, _ -> true }
                 .build()
-            
+
             val response = client.newCall(request).execute()
-            
+
             if (!response.isSuccessful) {
                 android.util.Log.e("FREETIME_MEDIA", "Download failed: ${response.code}")
                 return@launch
             }
-                
+
                 val encryptedBytes = response.body?.bytes() ?: return@launch
                 android.util.Log.d("FREETIME_MEDIA", "Downloaded ${encryptedBytes.size} bytes")
-                
-                // Step 2: Decrypt if needed
+
                 val decryptedBytes = if (data.encrypted && !data.encryptionKey.isNullOrEmpty() && data.encryptionKey != "client-side") {
                     try {
                         val encryptor = com.freetime.app.security.MediaEncryption(context)
@@ -477,8 +442,7 @@ fun ModernChatScreen(
                 } else {
                     encryptedBytes
                 }
-                
-                // Step 3: Determine media type
+
                 val mimeType = data.mimeType ?: when {
                     data.fileName?.endsWith(".mp4") == true || data.fileName?.endsWith(".mov") == true || data.fileName?.endsWith(".avi") == true || data.fileName?.endsWith(".mkv") == true || data.fileName?.endsWith(".webm") == true || data.fileName?.endsWith(".flv") == true || data.fileName?.endsWith(".wmv") == true -> "video/mp4"
                     data.fileName?.endsWith(".png") == true -> "image/png"
@@ -500,25 +464,22 @@ fun ModernChatScreen(
                     data.fileName?.endsWith(".apk") == true -> "application/vnd.android.package-archive"
                     else -> "application/octet-stream"
                 }
-                
+
                 val mediaType = when {
                     mimeType.startsWith("image") -> "image"
                     mimeType.startsWith("video") -> "video"
                     mimeType.startsWith("audio") -> "audio"
                     else -> "document"
                 }
-                
-                // Step 4: Save to private app storage for automatic cleanup on uninstall
+
                 var finalFileName = originalFileName ?: data.fileName ?: "media_${System.currentTimeMillis()}"
-                // Strip any non-standard extension (e.g. .media) — use MIME type as source of truth
                 val baseName = finalFileName.substringBeforeLast(".")
                 val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
                     ?: finalFileName.substringAfterLast(".", "").takeIf { it.length <= 4 && it.all { c -> c.isLetterOrDigit() } }
                 finalFileName = if (!ext.isNullOrEmpty()) "$baseName.$ext" else finalFileName
-                
-                android.util.Log.d("FREETIME_MEDIA", "✅ Saving media to public storage: $finalFileName")
+
+                android.util.Log.d("FREETIME_MEDIA", " Saving media to public storage: $finalFileName")
                 val saved = if (android.os.Build.VERSION.SDK_INT >= 29) {
-                    // Android 10+ — use MediaStore for public visibility
                     val contentValues = android.content.ContentValues().apply {
                         put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalFileName)
                         put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -550,7 +511,6 @@ fun ModernChatScreen(
                         false
                     }
                 } else {
-                    // Android 9 and below — use public external storage
                     try {
                         val targetDir = when (mediaType) {
                             "image" -> android.os.Environment.DIRECTORY_PICTURES
@@ -561,7 +521,6 @@ fun ModernChatScreen(
                         if (!mediaDir.exists()) mediaDir.mkdirs()
                         val file = java.io.File(mediaDir, finalFileName)
                         file.writeBytes(decryptedBytes)
-                        // Notify media scanner
                         val intent = android.content.Intent(android.content.Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
                         intent.data = android.net.Uri.fromFile(file)
                         context.sendBroadcast(intent)
@@ -572,7 +531,7 @@ fun ModernChatScreen(
                     }
                 }
                 if (saved) {
-                    android.util.Log.d("FREETIME_MEDIA", "✅ Media saved to public storage: $finalFileName")
+                    android.util.Log.d("FREETIME_MEDIA", " Media saved to public storage: $finalFileName")
                     val displayType = when (mediaType) {
                         "image" -> "Image"
                         "video" -> "Video"
@@ -584,7 +543,7 @@ fun ModernChatScreen(
                         Toast.makeText(context, "$displayType saved: $friendlyName ($mediaType)", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    android.util.Log.e("FREETIME_MEDIA", "❌ Failed to save media to public storage, falling back to private")
+                    android.util.Log.e("FREETIME_MEDIA", " Failed to save media to public storage, falling back to private")
                     scope.launch(Dispatchers.Main) {
                         Toast.makeText(context, "Media saved to app storage", Toast.LENGTH_SHORT).show()
                     }
@@ -592,80 +551,59 @@ fun ModernChatScreen(
             } catch (e: Exception) {
                 android.util.Log.e("FREETIME_MEDIA", "Error downloading media: ${e.message}", e)
                 scope.launch(Dispatchers.Main) {
-                    Toast.makeText(context, "Failed to download media: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Failed to download media: ${e.message ?: "Unknown error. Please try again."}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
     }
-    
-    // Media file picker state
+
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
     var mediaPickerError by remember { mutableStateOf("") }
     var isProcessingMedia by remember { mutableStateOf(false) }
+
     
-    // Coming soon popup state
-    var showComingSoonPopup by remember { mutableStateOf(false) }
-    
-    // Voice call state - integrated into chat
-    // Use CallStateManager for thread-safe state management across WebSocket/UI/timeout threads
-    val callStateManager = remember { CallStateManager() }
-    var callState by remember { mutableStateOf<CallState?>(null) }
-    var callDurationSeconds by remember { mutableStateOf(0) }
-    var callId by remember { mutableStateOf("") }
-    var callErrorMessage by remember { mutableStateOf("") }
-    var pendingIncomingSdpOffer by remember { mutableStateOf("") }
-    var incomingCallType by remember { mutableStateOf("audio") }  // ✅ NEW: Track incoming call type for video
-    var isIncomingCall by remember { mutableStateOf(false) }
-    var isMuted by remember { mutableStateOf(false) }
-    var isSpeakerOn by remember { mutableStateOf(false) }
-    
-    // Register UI listener for state changes in callStateManager
-    LaunchedEffect(Unit) {
-        callStateManager.addListener { newState ->
-            callState = newState
+    val chatBgPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val bgDir = java.io.File(context.getExternalFilesDir(null), "chat_backgrounds")
+                if (!bgDir.exists()) bgDir.mkdirs()
+                val destFile = java.io.File(bgDir, "bg_${recipientId}.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                prefs.setChatBackgroundForUser(recipientId, destFile.absolutePath)
+                currentChatBgPath = destFile.absolutePath
+                Toast.makeText(context, "Chat background set!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to set background: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
-    
-    // RECORD_AUDIO runtime permission for calls and voice messages
-    var pendingCallAfterPermission by remember { mutableStateOf(false) }
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        android.util.Log.d("FREETIME_CALL", "RECORD_AUDIO permission: ${if (isGranted) "GRANTED" else "DENIED"}")
-        if (isGranted && pendingCallAfterPermission) {
-            pendingCallAfterPermission = false
-            // Permission granted, proceed with call - will be triggered by callState check below
-            callStateManager.updateState(CallState.INITIATING)
-        } else if (!isGranted) {
-            pendingCallAfterPermission = false
-            callErrorMessage = "Microphone permission is required for calls"
-            Toast.makeText(context, "Microphone permission denied", Toast.LENGTH_SHORT).show()
-        }
-    }
-    
-    // UI State
+
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showGifPicker by remember { mutableStateOf(false) }
     var showMediaModeDialog by remember { mutableStateOf(false) }
     var pendingMediaShareMode by remember { mutableStateOf("protected") }
-    
-    // Ensure WebSocket is connected (handles notification entry path where home screen is skipped)
+
     LaunchedEffect(recipientId) {
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
         if (!wsManager.isConnected()) {
-            android.util.Log.d("FREETIME_CHAT", "🔗 WebSocket not connected, initiating connection...")
+            android.util.Log.d("FREETIME_CHAT", " WebSocket not connected, initiating connection...")
             scope.launch {
                 try {
                     apiService.connectWebSocket()
-                    android.util.Log.d("FREETIME_CHAT", "✅ WebSocket connected in chat screen")
+                    android.util.Log.d("FREETIME_CHAT", " WebSocket connected in chat screen")
                 } catch (e: Exception) {
-                    android.util.Log.w("FREETIME_CHAT", "⚠️ WebSocket connection attempted but failed: ${e.message}")
+                    android.util.Log.w("FREETIME_CHAT", " WebSocket connection attempted but failed: ${e.message}")
                 }
             }
         }
     }
-    
-    // ===== DEBOUNCED SEARCH EFFECT =====
+
     LaunchedEffect(searchQuery) {
         if (searchQuery.isBlank()) {
             showSearchResults = false
@@ -674,20 +612,18 @@ fun ModernChatScreen(
             return@LaunchedEffect
         }
 
-        // Debounce: wait 500ms after user stops typing
         delay(500)
-        
+
         if (searchQuery == lastSearchQuery) {
-            return@LaunchedEffect // Same search, don't repeat
+            return@LaunchedEffect
         }
 
         isSearching = true
         lastSearchQuery = searchQuery
-        
+
         try {
             val result = apiService.searchMessages(recipientId, searchQuery, limit = 50)
             result.onSuccess { results ->
-                // Convert API Message to UI Message
                 searchResults = results.map { apiMsg ->
                     Message(
                         id = apiMsg._id,
@@ -699,9 +635,9 @@ fun ModernChatScreen(
                         status = "sent",
                         mediaType = apiMsg.mediaType,
                         mediaName = apiMsg.mediaName,
-                        senderTags = emptyList(),  // ✅ NEW: Default empty for search results
-                        senderIsAdmin = false,  // ✅ NEW: Default false for search results
-                        senderIsModerator = false  // ✅ NEW: Default false for search results
+                        senderTags = emptyList(),
+                        senderIsAdmin = false,
+                        senderIsModerator = false
                     )
                 }
                 showSearchResults = true
@@ -724,104 +660,14 @@ fun ModernChatScreen(
 
     val token = prefs.getToken() ?: ""
 
-    // WebRTC Manager - recreate when chat ID changes
-    val webRTCManager = remember(recipientId) {
-        WebRTCManager(
-            context = context,
-            onIceCandidate = { candidate ->
-                // Send ICE candidate via WebSocket
-                if (callId.isNotEmpty() && currentUserId.isNotEmpty()) {
-                    val iceCandidatePayload = JSONObject().apply {
-                        put("callId", callId)
-                        put("to", recipientId)
-                        put("candidate", candidate.toJson())
-                    }
-                    com.freetime.app.services.WebSocketManager.getInstance().send("call:ice-candidate", iceCandidatePayload)
-                }
-            },
-            onTrack = { mediaStream ->
-                android.util.Log.d("FREETIME_WEBRTC", "Received remote media stream: ${mediaStream.id}")
-            },
-            onConnectionStateChanged = { state ->
-                android.util.Log.d("FREETIME_WEBRTC", "Connection state: $state")
-                when (state) {
-                    org.webrtc.PeerConnection.PeerConnectionState.FAILED -> {
-                        scope.launch(Dispatchers.Main) {
-                            callErrorMessage = "Connection failed — check your network"
-                            // Use CallStateManager for thread-safe state update
-                            callStateManager.updateState(CallState.FAILED)
-                        }
-                    }
-                    org.webrtc.PeerConnection.PeerConnectionState.DISCONNECTED -> {
-                        scope.launch(Dispatchers.Main) {
-                            // Use CallStateManager to safely check current state and transition
-                            if (callStateManager.getState() == CallState.ACTIVE) {
-                                callErrorMessage = "Call disconnected"
-                                callStateManager.updateState(CallState.ENDED)
-                                delay(2000)
-                                callStateManager.clearState()
-                                callId = ""
-                                callDurationSeconds = 0
-                                pendingIncomingSdpOffer = ""
-                                isIncomingCall = false
-                                isMuted = false
-                                isSpeakerOn = false
-                            }
-                        }
-                    }
-                    org.webrtc.PeerConnection.PeerConnectionState.CONNECTED -> {
-                        android.util.Log.d("FREETIME_WEBRTC", "Peer connection established!")
-                    }
-                    else -> {}
-                }
-            },
-            onIceConnectionFailed = { iceState, canRetry ->
-                android.util.Log.w("FREETIME_WEBRTC", "⚠️ ICE connection failed. State: $iceState, Can retry: $canRetry")
-                scope.launch(Dispatchers.Main) {
-                    if (!canRetry) {
-                        callErrorMessage = "Network connection lost — unable to recover"
-                        callStateManager.updateState(CallState.FAILED)
-                    } else {
-                        android.util.Log.d("FREETIME_WEBRTC", "🔄 Attempting to recover from connection failure...")
-                        // Retry mechanism will be handled by WebRTCManager
-                    }
-                }
-            }
-        )
-    }
-
-    // Cleanup WebRTCManager when screen is disposed
-    DisposableEffect(Unit) {
-        onDispose {
-            try {
-                webRTCManager.close()
-            } catch (e: Exception) {
-                android.util.Log.e("FREETIME_CHAT", "Error closing WebRTC: ${e.message}")
-            }
-            try {
-                com.freetime.app.notifications.NotificationHelper.cancelOngoingCallNotification(context)
-            } catch (e: Exception) {
-                android.util.Log.e("FREETIME_CHAT", "Error canceling notification: ${e.message}")
-            }
-        }
-    }
     
-    // ==================== CRITICAL FIX: WebSocket Listener for Real-Time Messages ====================
-    // Create WebSocket listener object for this chat screen
+
     val webSocketListener = remember {
         object : com.freetime.app.services.WebSocketManager.WebSocketListener {
             override fun onNewMessage(message: com.freetime.app.services.WebSocketManager.MessageData) {
-                // Only add message if it's from the current recipient or to the current user
-                android.util.Log.d("FREETIME_CHAT", "📨 WebSocket onNewMessage called: from=${message.senderId}, to=${message.recipientId}, content='${message.content}'")
-                // Dispatch to Main thread so Compose state updates trigger recomposition correctly
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onNewMessage called: from=${message.senderId}, to=${message.recipientId}, content='${message.content}'")
                 scope.launch(Dispatchers.Main) {
-                    // Skip own messages (already added via HTTP response) to prevent duplicates
                     if (message.senderId == recipientId && message.recipientId == currentUserId) {
-                        
-                        // DEDUPLICATION: Check if message already exists
-                        // 1) By message ID (primary)
-                        // 2) By mediaId for media messages (optimistic + echo dedup)
-                        // 3) By content + sender for network retry dedup
                         val dedupMediaId = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
                             .find(message.content)?.groupValues?.get(1)
                         val isDuplicateById = messages.any { it.id == message.messageId }
@@ -829,14 +675,13 @@ fun ModernChatScreen(
                         val isDuplicateByContent = !isDuplicateById && !isDuplicateByMedia &&
                             messages.any { it.content == message.content && it.isSender == (message.senderId == currentUserId) }
                         if (isDuplicateById || isDuplicateByMedia || isDuplicateByContent) {
-                            android.util.Log.d("FREETIME_CHAT", "⏭️ Duplicate message received via WebSocket - ignoring: ${message.messageId} (id=$isDuplicateById, media=$isDuplicateByMedia, content=$isDuplicateByContent)")
+                            android.util.Log.d("FREETIME_CHAT", " Duplicate message received via WebSocket - ignoring: ${message.messageId} (id=$isDuplicateById, media=$isDuplicateByMedia, content=$isDuplicateByContent)")
                         } else {
-                            android.util.Log.d("FREETIME_CHAT", "✅ Message matches current chat - adding to UI: ${message.content}")
-                            
-                            // ✅ NEW: Save incoming message to local encrypted storage
+                            android.util.Log.d("FREETIME_CHAT", " Message matches current chat - adding to UI: ${message.content}")
+
                             scope.launch(Dispatchers.IO) {
                                 val encryptedContent = encryptionManager.encrypt(
-                                    message.content, 
+                                    message.content,
                                     "$recipientId:${message.senderId}"
                                 )
                                 val entity = com.freetime.app.data.local.database.MessageEntity(
@@ -850,28 +695,24 @@ fun ModernChatScreen(
                                 )
                                 database.messageDao().insertMessage(entity)
                             }
-                            
-                            // Automatic encrypted media download for incoming messages
-                            // Format: [Media: mediaId|mediaKey] fileName
+
                             val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|([^\]]*))?\]""".toRegex()
                             val mediaMatch = mediaIdRegex.find(message.content)
                             val mediaId = mediaMatch?.groupValues?.get(1)
                             val mediaKey = mediaMatch?.groupValues?.get(2)
-                            
+
                             if (mediaId != null && message.senderId != currentUserId) {
                                 scope.launch(Dispatchers.IO) {
                                     try {
-                                        android.util.Log.d("FREETIME_MEDIA", "📥 Auto-downloading encrypted media: $mediaId (key present: ${!mediaKey.isNullOrEmpty()})")
+                                        android.util.Log.d("FREETIME_MEDIA", " Auto-downloading encrypted media: $mediaId (key present: ${!mediaKey.isNullOrEmpty()})")
                                         val token = SharedPreferencesHelper(context).getToken() ?: ""
-                                        
-                                        // We download the raw bytes from backend
+
                                         val mediaData = apiService.downloadMedia(mediaId, "Bearer $token")
                                         if (mediaData != null && !mediaKey.isNullOrEmpty()) {
                                             val fileName = message.content.substringAfter("] ").takeIf { it.isNotEmpty() } ?: "downloaded_media"
                                             val mimeType = context.contentResolver.getType(Uri.parse(mediaId)) ?: "application/octet-stream"
-                                            
-                                            // Media is already downloaded and saved in downloadAndSaveMediaFile
-                                            android.util.Log.d("FREETIME_MEDIA", "✅ Media $mediaId downloaded and cached")
+
+                                            android.util.Log.d("FREETIME_MEDIA", " Media $mediaId downloaded and cached")
 
                                         }
                                     } catch (e: Exception) {
@@ -887,7 +728,7 @@ fun ModernChatScreen(
                     timestamp = formatMessageTime(message.createdAt),
                     isSender = message.senderId == currentUserId,
                     isRead = false,
-                    status = "delivered", // Received via WebSocket
+                    status = "delivered",
                     replyToMessageId = message.replyToMessageId,
                     replyToUsername = message.replyToUsername,
                     replyToText = message.replyToText,
@@ -903,8 +744,7 @@ fun ModernChatScreen(
                     isAnnouncement = message.senderId == com.freetime.app.api.ANNOUNCEMENT_USER_ID,
                     senderAvatar = message.senderAvatar
                 )) + messages
-                            
-                            // ✅ FIX: Trim messages if list grows too large (prevent memory issues)
+
                             if (messages.size > 500) {
                                 messages = messages.take(500)
                             }
@@ -912,27 +752,25 @@ fun ModernChatScreen(
 }
 }
             }
-            
+
             override fun onGroupMessage(message: com.freetime.app.services.WebSocketManager.GroupMessageData) {
-                android.util.Log.d("FREETIME_CHAT", "📨 WebSocket onGroupMessage called (not used yet)")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onGroupMessage called (not used yet)")
             }
 
             override fun onChannelMessage(message: com.freetime.app.services.WebSocketManager.ChannelMessageData) {
-                android.util.Log.d("FREETIME_CHAT", "📨 WebSocket onChannelMessage called (not used yet)")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onChannelMessage called (not used yet)")
             }
 
             override fun onMediaDownloadRequested(data: com.freetime.app.services.WebSocketManager.MediaDownloadRequestData) {
-                android.util.Log.d("FREETIME_CHAT", "📥 Media download requested: ${data.mediaId} by ${data.requesterName}")
+                android.util.Log.d("FREETIME_CHAT", " Media download requested: ${data.mediaId} by ${data.requesterName}")
                 scope.launch(Dispatchers.Main) {
                     var attached = false
                     messages = messages.map { msg ->
-                        // Match by content regex OR by msg.mediaId
                         val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
                         val msgMediaId = mediaIdRegex.find(msg.content)?.groupValues?.get(1)
 
                         if (!data.mediaId.isNullOrEmpty() && (msgMediaId == data.mediaId || msg.mediaId == data.mediaId)) {
                             attached = true
-                            // Add request if not already there
                             if (msg.pendingRequests.none { it.requestId == data.requestId }) {
                                 msg.copy(pendingRequests = msg.pendingRequests + data)
                             } else msg
@@ -940,7 +778,6 @@ fun ModernChatScreen(
                     }
 
                     if (!attached) {
-                        // Fallback: resolve via REST pending-requests and attach by resolved mediaId
                         val requestIdToResolve = data.requestId
                         val apiServiceLocal = apiService
                         val dataCopy = data
@@ -971,249 +808,80 @@ fun ModernChatScreen(
             }
 
             override fun onMediaDownloadApproved(data: com.freetime.app.services.WebSocketManager.MediaDownloadResponseData) {
-                android.util.Log.d("FREETIME_CHAT", "✅ Media download approved: ${data.mediaId}, encrypted=${data.encrypted}, key=${!data.encryptionKey.isNullOrEmpty()}")
+                android.util.Log.d("FREETIME_CHAT", " Media download approved: ${data.mediaId}, encrypted=${data.encrypted}, key=${!data.encryptionKey.isNullOrEmpty()}")
                 scope.launch(Dispatchers.Main) {
-                    // Update the status map
                     mediaDownloadRequests = mediaDownloadRequests + (data.mediaId to "approved")
-                    
-                    // Remove from pending requests in messages
+
                     messages = messages.map { msg ->
                         val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
                         val msgMediaId = mediaIdRegex.find(msg.content)?.groupValues?.get(1)
-                        
+
                         if (msgMediaId == data.mediaId || msg.mediaId == data.mediaId) {
                             msg.copy(pendingRequests = msg.pendingRequests.filterNot { it.mediaId == data.mediaId })
                         } else msg
                     }
                 }
-                
-                    // AUTO-DOWNLOAD: Download file automatically when approval received
+
                     if (data.downloadUrl != null && data.downloadUrl.isNotEmpty()) {
-                        android.util.Log.d("FREETIME_CHAT", "📥 Starting auto-download for mediaId: ${data.mediaId}")
+                        android.util.Log.d("FREETIME_CHAT", " Starting auto-download for mediaId: ${data.mediaId}")
                         scope.launch(Dispatchers.IO) {
                             try {
-                                // Look up original filename from messages for correct extension
                                 val origName = messages.find { msg ->
                                     val regex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
                                     val mid = regex.find(msg.content)?.groupValues?.get(1)
                                     mid == data.mediaId || msg.mediaId == data.mediaId
                                 }?.mediaName
                                 downloadAndSaveMediaFile(data, origName)
-                                android.util.Log.d("FREETIME_CHAT", "✅ Media file downloaded and saved to gallery")
+                                android.util.Log.d("FREETIME_CHAT", " Media file downloaded and saved to gallery")
                                 scope.launch(Dispatchers.Main) {
                                     android.widget.Toast.makeText(context, "Media downloaded to gallery", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             } catch (e: Exception) {
-                                android.util.Log.e("FREETIME_CHAT", "❌ Failed to download media: ${e.message}", e)
+                                android.util.Log.e("FREETIME_CHAT", " Failed to download media: ${e.message}", e)
                                 scope.launch(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, "Failed to download: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Failed to download: ${e.message ?: "Connection error"}", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
                     }
             }
             override fun onUserTyping(typingData: com.freetime.app.services.WebSocketManager.TypingData) {
-                // Only show typing indicator if it's from the current chat recipient
                 if (typingData.userId == recipientId) {
                     scope.launch(Dispatchers.Main) {
-                        android.util.Log.d("FREETIME_CHAT", "⌨️ WebSocket: ${typingData.username} is typing")
+                        android.util.Log.d("FREETIME_CHAT", " WebSocket: ${typingData.username} is typing")
                         isRecipientTyping = true
-                        
-                        // Cancel previous timeout job
+
                         typingTimeoutJob?.cancel()
-                        
-                        // Set new timeout: hide typing indicator after 3 seconds of inactivity
+
                         typingTimeoutJob = scope.launch {
-                            delay(3000) // 3 seconds
+                            delay(3000)
                             isRecipientTyping = false
-                            android.util.Log.d("FREETIME_CHAT", "⌨️ Typing indicator timeout")
+                            android.util.Log.d("FREETIME_CHAT", " Typing indicator timeout")
                         }
                     }
                 }
             }
             override fun onMessageRead(readData: com.freetime.app.services.WebSocketManager.ReadReceiptData) {
-                android.util.Log.d("FREETIME_CHAT", "✓ WebSocket onMessageRead called (not used yet)")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onMessageRead called (not used yet)")
             }
             override fun onConversationAllRead(readData: com.freetime.app.services.WebSocketManager.ConversationReadData) {
-                android.util.Log.d("FREETIME_CHAT", "✓✓ WebSocket onConversationAllRead called (not used yet)")
-            }
-            
-            override fun onIncomingCall(callData: com.freetime.app.services.WebSocketManager.IncomingCallData) {
-                android.util.Log.d("FREETIME_CALL", "🔔 WebSocket onIncomingCall called from ${callData.callerId}")
-                
-                // ✅ FIX: Check if we are already in a call BEFORE showing incoming call UI
-                val factoryActive = WebRTCFactory.hasActiveCall()
-                if (webRTCManager.isActive() || callStateManager.isCallActive() || factoryActive) {
-                    android.util.Log.w("FREETIME_CALL", "Blocking incoming call from ${callData.callerId}: already in a call")
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val rejectPayload = JSONObject().apply {
-                                put("callId", callData.callId)
-                                put("callerId", callData.callerId)
-                                put("reason", "busy")
-                            }
-                            com.freetime.app.services.WebSocketManager.getInstance().send("call:reject", rejectPayload)
-                        } catch (e: Exception) {}
-                    }
-                    return
-                }
-
-                if (callData.callerId == recipientId) {
-                    scope.launch(Dispatchers.Main) {
-                        android.util.Log.d("FREETIME_CALL", "✅ Call from current chat recipient: ${callData.callId}")
-                        callId = callData.callId
-                        isIncomingCall = true
-                        incomingCallType = callData.callType  // ✅ NEW: Store call type for video support
-                        // Store the SDP offer for later use when user accepts
-                        pendingIncomingSdpOffer = callData.sdpOffer
-                        // Show the ringing UI with accept/decline buttons — do NOT auto-answer
-                        // Use CallStateManager for thread-safe state update from WebSocket listener
-                        callStateManager.updateState(CallState.RINGING, callData.callId)
-                        // Cancel the system notification since we're showing in-app UI
-                        com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                        android.util.Log.d("FREETIME_CALL", "Showing incoming call UI for: $callId")
-                    }
-                } else {
-                    // ✅ NEW: Show system notification for calls from other users while in a chat
-                    android.util.Log.d("FREETIME_CALL", "🔔 Call from someone else (${callData.callerUsername}) - showing notification")
-                    com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                        context,
-                        callData.callerUsername,
-                        callData.callerId,
-                        callData.callType,
-                        callId = callData.callId,
-                        callerAvatarUrl = callData.callerAvatar,
-                        offerSdp = callData.sdpOffer
-                    )
-                }
-            }
-            
-            override fun onCallAnswered(callData: com.freetime.app.services.WebSocketManager.CallAnsweredData) {
-                android.util.Log.d("FREETIME_CALL", "🔔 WebSocket onCallAnswered called: callId=${callData.callId}")
-                // Use CallStateManager for thread-safe check and state transition
-                if (callData.callId == callStateManager.getCallId() && (callStateManager.getState() == CallState.RINGING || callStateManager.getState() == CallState.INITIATING)) {
-                    scope.launch(Dispatchers.Main) {
-                        // Re-check state inside coroutine — it may have changed (e.g., timeout fired)
-                        // Use CallStateManager for safe check
-                        if (callStateManager.getState() != CallState.RINGING && callStateManager.getState() != CallState.INITIATING) {
-                            android.util.Log.w("FREETIME_CALL", "⏭️ Call state changed before answer could be processed (now ${callStateManager.getState()}) - ignoring")
-                            return@launch
-                        }
-                        android.util.Log.d("FREETIME_CALL", "✅ Call answered event matches current call - transitioning to ACTIVE")
-                        callStateManager.updateState(CallState.ACTIVE)
-                        callDurationSeconds = 0
-                        // Set remote answer
-                        val remoteAnswer = SessionDescription(SessionDescription.Type.ANSWER, callData.answer)
-                        webRTCManager.setRemoteDescription(remoteAnswer)
-                    }
-                } else {
-                    android.util.Log.d("FREETIME_CALL", "⏭️ Call answer from different call - ignoring (current=$callId, received=${callData.callId})")
-                }
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onConversationAllRead called (not used yet)")
             }
 
-            override fun onCallRejected(callData: com.freetime.app.services.WebSocketManager.CallRejectedData) {
-                android.util.Log.d("FREETIME_CALL", "🔔 WebSocket onCallRejected called: callId=${callData.callId}, reason=${callData.reason}")
-                if (callData.callId == callStateManager.getCallId()) {
-                    scope.launch(Dispatchers.Main) {
-                        android.util.Log.d("FREETIME_CALL", "✅ Call rejected for current call - ending")
-                        com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                        callStateManager.updateState(CallState.ENDED)
-                        callErrorMessage = "Call rejected: ${callData.reason}"
-                        webRTCManager.close()
-                        delay(2000)
-                        callStateManager.clearState()
-                        callId = ""
-                        pendingIncomingSdpOffer = ""
-                        isIncomingCall = false
-                    }
-                }
-            }
             
-            override fun onCallEnded(callData: com.freetime.app.services.WebSocketManager.CallEndedData) {
-                android.util.Log.d("FREETIME_CALL", "🔔 WebSocket onCallEnded called: callId=${callData.callId}")
-                if (callData.callId == callStateManager.getCallId()) {
-                    scope.launch(Dispatchers.Main) {
-                        android.util.Log.d("FREETIME_CALL", "✅ Call ended for current call")
-                        com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                        val duration = callDurationSeconds
-                        callStateManager.updateState(CallState.ENDED)
-                        webRTCManager.close()
-                        // Show "Call Ended" briefly then dismiss
-                        delay(2000)
-                        callStateManager.clearState()
-                        callDurationSeconds = 0
-                        callId = ""
-                        pendingIncomingSdpOffer = ""
-                        isIncomingCall = false
-                        isMuted = false
-                        isSpeakerOn = false
-                        // Show missed call notification if call was never active
-                        if (duration == 0) {
-                            com.freetime.app.notifications.NotificationHelper.showMissedCallNotification(
-                                context, recipientName, recipientId
-                            )
-                        }
-                    }
-                }
-            }
-
+            
+            
+            
             override fun onNotificationReceived(data: com.freetime.app.services.WebSocketManager.InternalNotificationData) {
-                android.util.Log.d("FREETIME_CHAT", "🔔 Internal notification received while in chat: ${data.title}")
-                
-                // If it's a call, handle it immediately
-                val type = data.data.optString("type", "")
-                if (type == "call" || type == "incoming_call") {
-                    val callerId = data.data.optString("callerId", "")
-                    val callerName = data.data.optString("callerName", data.title)
-                    val callType = data.data.optString("callType", "audio")
-                    val callIdFromNotif = data.data.optString("callId", "")
-                    
-                    if (callerId == recipientId && callIdFromNotif.isNotEmpty()) {
-                        scope.launch(Dispatchers.Main) {
-                            callId = callIdFromNotif
-                            isIncomingCall = true
-                            incomingCallType = callType
-                            callStateManager.updateState(CallState.RINGING, callIdFromNotif)
-                            com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                        }
-                    } else if (callerId.isNotEmpty()) {
-                        // Call from someone else: show notification
-                        com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                            context, callerName, callerId, callType, callIdFromNotif
-                        )
-                    }
-                }
+                android.util.Log.d("FREETIME_CHAT", " Internal notification received while in chat: ${data.title}")
+
             }
-            
-            override fun onIceCandidate(iceData: com.freetime.app.services.WebSocketManager.IceCandidateData) {
-                android.util.Log.d("FREETIME_WEBRTC", "🔌 WebSocket onIceCandidate received for call: ${iceData.callId}")
-                if (iceData.callId == callId) {
-                    scope.launch(Dispatchers.Main) {
-                        try {
-                            // Convert JSON candidate to WebRTC IceCandidate
-                            val jsonCandidate = JSONObject(iceData.candidate)
-                            val sdpMid = jsonCandidate.optString("sdpMid", "")
-                            val sdpMLineIndex = jsonCandidate.optInt("sdpMLineIndex", 0)
-                            val candidateStr = jsonCandidate.optString("candidate", "")
-                            if (candidateStr.isEmpty()) {
-                                android.util.Log.w("FREETIME_WEBRTC", "Empty ICE candidate string — ignoring")
-                                return@launch
-                            }
-                            val iceCandidate = IceCandidate(sdpMid, sdpMLineIndex, candidateStr)
-                            webRTCManager.addIceCandidate(iceCandidate)
-                        } catch (e: Exception) {
-                            android.util.Log.e("FREETIME_WEBRTC", "Failed to parse ICE candidate: ${e.message}")
-                        }
-                    }
-                } else {
-                    android.util.Log.d("FREETIME_WEBRTC", "ICE candidate for different call — ignoring (current=$callId, received=${iceData.callId})")
-                }
-            }
-            override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {
-                android.util.Log.d("FREETIME_CHAT", "👤 WebSocket onUserStatusChanged called (not used yet)")
+
+                        override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onUserStatusChanged called (not used yet)")
             }
             override fun onReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {
-                android.util.Log.d("FREETIME_CHAT", "👍 WebSocket onReactionReceived: ${reactionData.emoji} on ${reactionData.messageId}")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onReactionReceived: ${reactionData.emoji} on ${reactionData.messageId}")
                 scope.launch(Dispatchers.Main) {
                     messages = messages.map { msg ->
                         if (msg.id == reactionData.messageId) {
@@ -1221,7 +889,6 @@ fun ModernChatScreen(
                         } else msg
                     }
                 }
-                // Persist to Room DB so reactions survive app restart
                 scope.launch(Dispatchers.IO) {
                     val existing = database.messageDao().getMessageById(reactionData.messageId)
                     if (existing != null) {
@@ -1231,7 +898,7 @@ fun ModernChatScreen(
                 }
             }
             override fun onReactionRemoved(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {
-                android.util.Log.d("FREETIME_CHAT", "👎 WebSocket onReactionRemoved: ${reactionData.emoji} from ${reactionData.messageId}")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onReactionRemoved: ${reactionData.emoji} from ${reactionData.messageId}")
                 scope.launch(Dispatchers.Main) {
                     messages = messages.map { msg ->
                         if (msg.id == reactionData.messageId) {
@@ -1239,7 +906,6 @@ fun ModernChatScreen(
                         } else msg
                     }
                 }
-                // Persist to Room DB so removal survives app restart
                 scope.launch(Dispatchers.IO) {
                     val existing = database.messageDao().getMessageById(reactionData.messageId)
                     if (existing != null) {
@@ -1248,237 +914,68 @@ fun ModernChatScreen(
                     }
                 }
             }
+            override fun onMessageDeleted(messageId: String) {
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onMessageDeleted: $messageId")
+                scope.launch(Dispatchers.Main) {
+                    messages = messages.filterNot { it.id == messageId }
+                }
+                scope.launch(Dispatchers.IO) {
+                    database.messageDao().deleteMessageById(messageId)
+                }
+            }
             override fun onConnectionEstablished() {
-                android.util.Log.d("FREETIME_CHAT", "✅✅ WebSocket onConnectionEstablished called - REAL-TIME READY")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onConnectionEstablished called - REAL-TIME READY")
             }
             override fun onConnectionLost() {
-                android.util.Log.d("FREETIME_CHAT", "❌❌ WebSocket onConnectionLost called - REAL-TIME OFFLINE")
+                android.util.Log.d("FREETIME_CHAT", " WebSocket onConnectionLost called - REAL-TIME OFFLINE")
             }
             override fun onError(error: String) {
-                android.util.Log.e("FREETIME_CHAT", "❌ WebSocket onError: $error")
+                android.util.Log.e("FREETIME_CHAT", " WebSocket onError: $error")
             }
             override fun onChatHistoryDeleted(data: com.freetime.app.services.WebSocketManager.ChatHistoryDeletedData) {
-                // Check if this event is for the current conversation
                 val isCurrentConversation = (data.deletedBy == recipientId) ||
                     (data.recipientId == recipientId && data.deletedBy == currentUserId) ||
                     (data.recipientId == currentUserId && data.deletedBy == recipientId)
                 if (isCurrentConversation) {
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            messageRepository.deleteAllMessagesForChat(recipientId)
-                            android.util.Log.d("FREETIME_CHAT", "✅ Local DB cleared for chat with $recipientId")
-                        } catch (e: Exception) {
-                            android.util.Log.e("FREETIME_CHAT", "❌ Failed to clear local DB: ${e.message}")
-                        }
-                    }
                     scope.launch(Dispatchers.Main) {
                         messages = emptyList()
-                        android.util.Log.d("FREETIME_CHAT", "🗑 Chat history cleared by ${data.deletedBy}")
+                        kotlinx.coroutines.withContext(Dispatchers.IO) {
+                            try {
+                                messageRepository.deleteAllMessagesForChat(recipientId)
+                                android.util.Log.d("FREETIME_CHAT", " Local DB cleared for chat with $recipientId")
+                            } catch (e: Exception) {
+                                android.util.Log.e("FREETIME_CHAT", " Failed to clear local DB: ${e.message}")
+                            }
+                        }
+                        android.util.Log.d("FREETIME_CHAT", " Chat history cleared by ${data.deletedBy}")
                         onNavigateToHome()
                     }
                 }
             }
         }
     }
-    
-    // Register WebSocket listener when screen opens, unregister when closes
+
     DisposableEffect(Unit) {
-        android.util.Log.d("FREETIME_CHAT", "🔗 Registering WebSocket listener for real-time chat")
+        android.util.Log.d("FREETIME_CHAT", " Registering WebSocket listener for real-time chat")
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
         wsManager.addListener(webSocketListener)
-        // Track active chat for notification suppression (Telegram-style)
         com.freetime.app.notifications.NotificationHelper.currentActiveChatId = recipientId
-        // Dismiss any existing message notifications from this sender (Telegram-style)
         com.freetime.app.notifications.NotificationHelper.cancelMessageNotification(context, recipientId)
-        // Dismiss in-app notifications for message type from this sender
         com.freetime.app.notifications.InAppNotificationStore.removeByTypeAndSender("message", recipientId)
-        android.util.Log.d("FREETIME_CHAT", "✅ WebSocket listener registered + active chat set: $recipientId")
+        android.util.Log.d("FREETIME_CHAT", " WebSocket listener registered + active chat set: $recipientId")
         onDispose {
-            android.util.Log.d("FREETIME_CHAT", "🔌 Unregistering WebSocket listener")
+            android.util.Log.d("FREETIME_CHAT", " Unregistering WebSocket listener")
             wsManager.removeListener(webSocketListener)
             com.freetime.app.notifications.NotificationHelper.currentActiveChatId = null
-            android.util.Log.d("FREETIME_CHAT", "✅ WebSocket listener unregistered + active chat cleared")
+            android.util.Log.d("FREETIME_CHAT", " WebSocket listener unregistered + active chat cleared")
         }
     }
+
     
-    // Auto-accept incoming call when launched from IncomingCallActivity
-    LaunchedEffect(acceptCallOnOpen, pendingCallId) {
-        if (acceptCallOnOpen && pendingCallId.isNotEmpty()) {
-            android.util.Log.d("FREETIME_CALL", "Auto-accept call from notification: callId=$pendingCallId")
-            callId = pendingCallId
-            isIncomingCall = true
-
-            // Cancel the incoming call notification immediately
-            com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-
-            // 1. Wait briefly for WebSocket to deliver the SDP offer (fast path)
-            var waitMs = 0
-            while (pendingIncomingSdpOffer.isEmpty() && waitMs < 5000) {
-                delay(500)
-                waitMs += 500
-            }
-
-            // 2. If WebSocket didn't deliver the offer, fetch from REST API (slow path — app was killed/backgrounded)
-            if (pendingIncomingSdpOffer.isEmpty()) {
-                android.util.Log.d("FREETIME_CALL", "No SDP from WebSocket — fetching call details via REST API")
-                try {
-                    val callResult = withContext(Dispatchers.IO) { apiService.getCall(pendingCallId) }
-                    callResult.onSuccess { callJson ->
-                        // offer can be: JSON object {type,sdp}, JSON string '{"type":"offer","sdp":"v=0..."}', or raw SDP
-                        val offerObj = callJson.optJSONObject("offer")
-                        val sdp: String
-                        if (offerObj != null) {
-                            val rawSdp = offerObj.optString("sdp", "")
-                            // Guard against double-serialized SDP
-                            sdp = if (rawSdp.startsWith("{")) {
-                                try { JSONObject(rawSdp).optString("sdp", rawSdp) } catch (_: Exception) { rawSdp }
-                            } else rawSdp.ifEmpty { offerObj.toString() }
-                        } else {
-                            val offerStr = callJson.optString("offer", "")
-                            sdp = if (offerStr.startsWith("{")) {
-                                try {
-                                    val parsed = JSONObject(offerStr)
-                                    parsed.optString("sdp", offerStr)
-                                } catch (_: Exception) { offerStr }
-                            } else offerStr
-                        }
-                        val status = callJson.optString("status", "")
-                        if (sdp.isNotEmpty() && status == "ringing") {
-                            pendingIncomingSdpOffer = sdp
-                            android.util.Log.d("FREETIME_CALL", "Got SDP offer from REST API (${sdp.length} chars)")
-                        } else {
-                            android.util.Log.w("FREETIME_CALL", "Call status=$status, no valid SDP offer")
-                        }
-                    }
-                    callResult.onFailure { e ->
-                        android.util.Log.e("FREETIME_CALL", "REST getCall failed: ${e.message}")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("FREETIME_CALL", "REST getCall error: ${e.message}")
-                }
-            }
-
-            // 3. Perform WebRTC handshake
-            if (pendingIncomingSdpOffer.isNotEmpty()) {
-                android.util.Log.d("FREETIME_CALL", "Got SDP offer — auto-accepting call")
-                try {
-                    // ===== CRITICAL: Prevent concurrent calls (ATOMIC via CallStateManager) =====
-                    // Check both WebRTC and call state manager for active calls
-                    // Use callStateManager.isCallActive() for thread-safe check of ACTIVE|RINGING|CONNECTING states
-                    val factoryActive = WebRTCFactory.hasActiveCall()
-                    if (webRTCManager.isActive() || callStateManager.isCallActive() || factoryActive) {
-                        android.util.Log.w("FREETIME_CALL", "Blocked incoming call: existing call in progress (webRTC=${webRTCManager.isActive()}, factory=$factoryActive, callState=${callStateManager.getState()})")
-                        
-                        // ===== ATOMIC STATE UPDATE =====
-                        // Update local state BEFORE async rejection to prevent concurrent accepts
-                        callErrorMessage = "A call is already in progress. Cannot accept new call."
-                        val stateUpdated = callStateManager.updateState(CallState.FAILED, callId)
-                        android.util.Log.d("FREETIME_CALL", "Busy call state update: success=$stateUpdated")
-                        
-                        // Then send rejection (async) - might fail but state is already updated locally
-                        scope.launch(Dispatchers.IO) {
-                            try { 
-                                val result = apiService.rejectCall(callId)
-                                if (result.isFailure) {
-                                    android.util.Log.e("FREETIME_CALL", "Failed to reject busy call: ${result.exceptionOrNull()?.message}")
-                                }
-                            } catch (e: Exception) {
-                                android.util.Log.e("FREETIME_CALL", "Exception rejecting busy call", e)
-                            }
-                        }
-                        val rejectPayload = JSONObject().apply {
-                            put("callId", callId)
-                            put("callerId", recipientId)
-                            put("reason", "busy")
-                        }
-                        com.freetime.app.services.WebSocketManager.getInstance().send("call:reject", rejectPayload)
-                        pendingIncomingSdpOffer = ""
-                        return@LaunchedEffect
-                    }
-                    
-                    android.util.Log.d("FREETIME_CALL", "🔄 Creating peer connection...")
-                    try {
-                        webRTCManager.createPeerConnection()
-                        android.util.Log.d("FREETIME_CALL", "✅ Peer connection created")
-                    } catch (e: Exception) {
-                        android.util.Log.e("FREETIME_CALL", "❌ Failed to create peer connection: ${e.message}", e)
-                        throw e
-                    }
-                    
-                    android.util.Log.d("FREETIME_CALL", "🔄 Setting remote SDP offer (length=${pendingIncomingSdpOffer.length} chars)")
-                    try {
-                        val remoteOffer = SessionDescription(SessionDescription.Type.OFFER, pendingIncomingSdpOffer)
-                        webRTCManager.setRemoteDescription(remoteOffer)
-                        android.util.Log.d("FREETIME_CALL", "✅ Remote SDP offer set successfully")
-                    } catch (e: Exception) {
-                        android.util.Log.e("FREETIME_CALL", "❌ Failed to set remote SDP: ${e.message}", e)
-                        throw e
-                    }
-                    
-                    android.util.Log.d("FREETIME_CALL", "🔄 Creating SDP answer...")
-                    val answer = try {
-                        webRTCManager.createAnswer()
-                    } catch (e: Exception) {
-                        android.util.Log.e("FREETIME_CALL", "❌ Failed to create answer: ${e.message}", e)
-                        throw e
-                    }
-                    android.util.Log.d("FREETIME_CALL", "✅ SDP answer created (length=${answer.description.length} chars)")
-                    
-                    // Send answer via REST API (reliable — always works)
-                    android.util.Log.d("FREETIME_CALL", "📤 Sending answer via REST API...")
-                    withContext(Dispatchers.IO) {
-                        try {
-                            val result = apiService.answerCall(callId, answer.toJson().toString())
-                            android.util.Log.d("FREETIME_CALL", "✅ Answer sent via REST API: $result")
-                        } catch (e: Exception) {
-                            android.util.Log.e("FREETIME_CALL", "❌ API answer failed: ${e.message}", e)
-                        }
-                    }
-                    
-                    // Also send via WebSocket (fast — if connected)
-                    android.util.Log.d("FREETIME_CALL", "📤 Sending answer via WebSocket...")
-                    try {
-                        val answerPayload = JSONObject().apply {
-                            put("callId", callId)
-                            put("callerId", recipientId)
-                            put("answer", answer.toJson())
-                        }
-                        com.freetime.app.services.WebSocketManager.getInstance().send("call:answer", answerPayload)
-                        android.util.Log.d("FREETIME_CALL", "✅ Answer sent via WebSocket")
-                    } catch (e: Exception) {
-                        android.util.Log.e("FREETIME_CALL", "⚠️ WebSocket answer send failed: ${e.message}")
-                    }
-                    
-                    android.util.Log.d("FREETIME_CALL", "🔄 Updating call state to ACTIVE...")
-                    callStateManager.updateState(CallState.ACTIVE)
-                    callDurationSeconds = 0
-                    pendingIncomingSdpOffer = ""
-                    android.util.Log.d("FREETIME_CALL", "✅ Auto-accepted call: $callId")
-                } catch (e: Exception) {
-                    android.util.Log.e("FREETIME_CALL", "Auto-accept failed: ${e.message}")
-                    callErrorMessage = "Failed to accept call: ${e.message}"
-                    callStateManager.updateState(CallState.FAILED)
-                }
-            } else {
-                android.util.Log.w("FREETIME_CALL", "No SDP offer available — call may have ended")
-                callErrorMessage = "Call no longer available"
-                callStateManager.updateState(CallState.ENDED)
-                delay(2000)
-                callStateManager.clearState()
-                callId = ""
-                isIncomingCall = false
-            }
-        }
-    }
-
-    // ✅ FIX: Smart auto-scroll that only scrolls if user is already viewing the bottom
-    // This prevents the chat from jumping when new messages arrive
+    // auto-scroll only when already at the bottom
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             try {
-                // Check if user is near the bottom (item 0 in a reverseLayout LazyColumn)
-                // In reverseLayout, item 0 is the newest message at the bottom.
-                // If user is at index 0 or close to it, they are at the bottom.
                 val firstVisibleIndex = listState.firstVisibleItemIndex
                 if (firstVisibleIndex < 3) {
                     listState.animateScrollToItem(0)
@@ -1488,8 +985,7 @@ fun ModernChatScreen(
             }
         }
     }
-    
-    // Scroll to bottom when keyboard opens (user starts typing)
+
     LaunchedEffect(isInputFocused) {
         if (isInputFocused && messages.isNotEmpty()) {
             try {
@@ -1499,21 +995,13 @@ fun ModernChatScreen(
             }
         }
     }
-    
-    // Media file picker launcher - supports images and videos
+
     val mediaPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            if (ServerStatusManager.isDown()) {
-                mediaPickerError = "Media is unavailable while servers are offline"
-                Toast.makeText(context, "Media is unavailable while servers are offline", Toast.LENGTH_SHORT).show()
-                android.util.Log.w("FREETIME_MEDIA", "Media send blocked: server offline")
-                return@rememberLauncherForActivityResult
-            }
             selectedMediaUri = uri
             isProcessingMedia = true
-            // Take persistable permission to prevent ENOENT on delayed access
             try {
                 context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (_: Exception) { }
@@ -1524,14 +1012,17 @@ fun ModernChatScreen(
                     val fileData = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     } ?: byteArrayOf()
-                    
+
                     if (fileData.isEmpty()) {
                         mediaPickerError = "Failed to read file"
                         android.util.Log.e("FREETIME_MEDIA", "Empty file data for $fileName")
+                    } else if (fileData.size > 500 * 1024 * 1024) {
+                        mediaPickerError = "File exceeds 500 MB limit"
+                        isProcessingMedia = false
+                        Toast.makeText(context, "File too large (max 500 MB)", Toast.LENGTH_SHORT).show()
+                        android.util.Log.w("FREETIME_MEDIA", "File rejected: ${fileData.size} bytes > 500MB")
                     } else {
-                        // CRITICAL FIX: Real upload to server instead of just local storage
                         try {
-                            // Upload media to server and get server ID + encryption key
                             val uploadResult = apiService.uploadMediaToChat(
                                 mediaData = fileData,
                                 fileName = fileName,
@@ -1540,7 +1031,7 @@ fun ModernChatScreen(
                                 token = token,
                                 mediaShareMode = pendingMediaShareMode
                             )
-                            
+
                             if (uploadResult != null) {
                                 val (serverMediaId, mediaKey) = uploadResult
                                 val isPublic = pendingMediaShareMode == "public"
@@ -1549,8 +1040,7 @@ fun ModernChatScreen(
                                 } else {
                                     "[Media: $serverMediaId|${mediaKey ?: ""}] $fileName"
                                 }
-                                
-                                // 3. Send message with server media ID reference (and encryption key for protected)
+
                                 val sendRequest = SendMessageRequest(
                                     recipientId = recipientId,
                                     content = mediaContent
@@ -1558,8 +1048,7 @@ fun ModernChatScreen(
                                 val response = apiClient.sendMessage(sendRequest, "Bearer $token")
                                 if (response.isSuccessful) {
                                     android.util.Log.d("FREETIME_MEDIA", "Media uploaded and sent: $serverMediaId ($fileName, mode=$pendingMediaShareMode)")
-                                    
-                                    // Update UI with server media ID
+
                                     messages = listOf(Message(
                                         id = serverMediaId,
                                         senderName = currentUsername,
@@ -1570,12 +1059,11 @@ fun ModernChatScreen(
                                         mediaId = serverMediaId,
                                         mediaType = if (mimeType.startsWith("video/")) "video" else "image",
                                         mediaName = fileName,
-                                        senderTags = emptyList(),  // ✅ NEW: Current user - will use different styling
-                                        senderIsAdmin = false,  // ✅ NEW: Default
-                                        senderIsModerator = false,  // ✅ NEW: Default
+                                        senderTags = emptyList(),
+                                        senderIsAdmin = false,
+                                        senderIsModerator = false,
                                         mediaShareMode = pendingMediaShareMode
                                     )) + messages
-                                    // Persist to local DB immediately so it survives chat reopen
                                     scope.launch(Dispatchers.IO) {
                                         try {
                                             val encryptedContent = encryptionManager.encrypt(
@@ -1621,53 +1109,54 @@ fun ModernChatScreen(
             }
         }
     }
-    
+
     android.util.Log.d("FREETIME_CHAT", "ModernChatScreen: Opened chat with $recipientId, name=$chatName")
-    
-    // CRITICAL FIX: Fetch recipient user data and online status
+
     LaunchedEffect(recipientId) {
         try {
             val response = apiService.getPublicUserProfile(recipientId)
             response.onSuccess { user ->
-                // ✅ IMPROVED: Ensure we have a real name, not "User" fallback unless necessary
-                // Check all possible name sources in priority order
                 val displayName = user.displayName?.takeIf { it.isNotEmpty() && it != "null" }
                 val username = user.username?.takeIf { it.isNotEmpty() && it != "null" }
                 val loadedName = displayName ?: username ?: "User"
-                
+
                 recipientName = loadedName
-                recipientTags = user.tags ?: emptyList()  // ✅ NEW: Extract tags for color coding
-                recipientRole = user.role ?: ""  // ✅ NEW: Store role for flexible color matching
-                recipientIsAdmin = user.role == "ADMIN" || user.role == "admin"  // ✅ NEW: Extract admin status from role
-                recipientIsModerator = user.role == "MODERATOR" || user.role == "moderator"  // ✅ NEW: Extract moderator status from role
-                recipientAvatar = user.avatar  // ✅ NEW: Store recipient's profile picture URL
-                recipientIsOnline = false  // Will be polled via getUserStatus
+                recipientTags = user.tags ?: emptyList()
+                recipientRole = user.role ?: ""
+                recipientIsAdmin = user.role == "ADMIN" || user.role == "admin"
+                recipientIsModerator = user.role == "MODERATOR" || user.role == "moderator"
+                recipientAvatar = user.avatar
+                recipientIsOnline = false
+                recipientIsMuted = prefs.isUserMuted(recipientId)
+                currentChatBgPath = prefs.getChatBackgroundForUser(recipientId)
                 recipientExists = true
-                
-                // 🔍 DEBUG: Log the profile data to verify what's being loaded
-                android.util.Log.d("FREETIME_CHAT", "📋 Recipient profile loaded - displayName='${user.displayName}' username='${user.username}' -> Final Name: '$loadedName'")
-                android.util.Log.d("FREETIME_CHAT", "✅ Recipient profile loaded - Name: $loadedName, Tags: $recipientTags, Role: ${user.role}, Admin: $recipientIsAdmin, Mod: $recipientIsModerator")
+
+                android.util.Log.d("FREETIME_CHAT", " Recipient profile loaded - displayName='${user.displayName}' username='${user.username}' -> Final Name: '$loadedName'")
+                android.util.Log.d("FREETIME_CHAT", " Recipient profile loaded - Name: $loadedName, Tags: $recipientTags, Role: ${user.role}, Admin: $recipientIsAdmin, Mod: $recipientIsModerator")
             }.onFailure { error ->
                 recipientExists = false
-                android.util.Log.e("FREETIME_CHAT", "❌ Failed to load recipient: ${error.message}")
+                android.util.Log.e("FREETIME_CHAT", " Failed to load recipient: ${error.message}")
             }
         } catch (e: Exception) {
             recipientExists = false
-            android.util.Log.e("FREETIME_CHAT", "❌ Exception loading recipient: ${e.message}", e)
+            android.util.Log.e("FREETIME_CHAT", " Exception loading recipient: ${e.message}", e)
         }
     }
 
-    // Auto-refresh recipient status every 10 seconds for real-time updates
     LaunchedEffect(recipientId) {
         while (true) {
-            delay(10000)  // Poll every 10 seconds
+            delay(10000)
             try {
                 val statusResult = apiService.getUserStatus(recipientId)
                 statusResult.onSuccess { statusMap ->
                     val isOnline = (statusMap["isOnline"] as? Boolean) ?: false
+                    val lastSeen = statusMap["lastSeen"] as? String
                     if (recipientIsOnline != isOnline) {
                         recipientIsOnline = isOnline
                         android.util.Log.d("FREETIME_CHAT", "Status updated: $recipientName is now ${if (isOnline) "online" else "offline"}")
+                    }
+                    if (lastSeen != null) {
+                        recipientLastSeen = lastSeen
                     }
                 }.onFailure { error ->
                     android.util.Log.e("FREETIME_CHAT", "Failed to poll status: ${error.message}")
@@ -1678,11 +1167,8 @@ fun ModernChatScreen(
         }
     }
 
-    // ✅ FIX: Sync pending media download requests AFTER messages are loaded
-    // Uses snapshotFlow to wait until messages list is non-empty before attaching pending requests
     LaunchedEffect(recipientId) {
         try {
-            // Wait until messages are populated (Room DB loads quickly, typically < 500ms)
             var waited = 0
             while (messages.isEmpty() && waited < 5000) {
                 delay(200)
@@ -1694,7 +1180,7 @@ fun ModernChatScreen(
                 apiServiceLocal.getPendingMediaDownloadRequests()
             }.onSuccess { requests ->
                 if (requests.isNotEmpty()) {
-                    android.util.Log.d("FREETIME_CHAT", "📥 Found ${requests.size} pending media requests from API")
+                    android.util.Log.d("FREETIME_CHAT", " Found ${requests.size} pending media requests from API")
                     messages = messages.map { msg ->
                         val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
                         val msgMediaId = mediaIdRegex.find(msg.content)?.groupValues?.get(1)
@@ -1722,12 +1208,10 @@ fun ModernChatScreen(
             android.util.Log.e("FREETIME_CHAT", "Error syncing pending requests: ${e.message}")
         }
     }
-    
-    // Load from Local Database (one-shot), then Sync from API
+
     LaunchedEffect(recipientId) {
         isLoadingMessages = true
         try {
-            // 1. Load initial data from local database (one-shot, non-blocking)
             val localEntities = messageRepository.getMessagesForChat(recipientId).first()
             val existingReactions = messages.associate { it.id to it.reactions }
             messages = localEntities.map { entity ->
@@ -1752,13 +1236,11 @@ fun ModernChatScreen(
                 )
             }
 
-            // 2. Sync from API (gets messages from server, including announcements)
             val apiMessages = messageRepository.fetchMessagesFromAPI(recipientId)
             apiMessages.forEach { entity ->
                 database.messageDao().insertMessage(entity)
             }
 
-            // 3. Fetch reactions from API for messages that have none in DB (pre-migration data)
             val token = SharedPreferencesHelper(context).getToken() ?: ""
             if (token.isNotEmpty()) {
                 val pollResponse = apiClient.getMessages(recipientId, "Bearer $token")
@@ -1785,7 +1267,6 @@ fun ModernChatScreen(
         }
     }
 
-    // Reactively listen to local DB changes (new messages via sync, WebSocket, etc.)
     LaunchedEffect(recipientId) {
         messageRepository.getMessagesForChat(recipientId).collect { localEntities ->
             val existingReactions = messages.associate { it.id to it.reactions }
@@ -1813,19 +1294,17 @@ fun ModernChatScreen(
         }
     }
 
-    // FALLBACK: Periodic message check every 5 seconds as fallback for real-time delivery
-    // Uses delta sync: only fetches and appends NEW messages (not full reload)
     var lastPollTimestamp by remember { mutableStateOf(System.currentTimeMillis()) }
-    
+
+    // fallback polling while the websocket is down
     LaunchedEffect(recipientId, wsConnected) {
         while (true) {
-            delay(5000) // Check for new messages every 5 seconds
-            
+            delay(5000)
+
             if (wsConnected) {
-                // If WebSocket is connected, we don't need to poll
                 continue
             }
-            
+
             try {
                 val response = apiClient.getMessages(recipientId, "Bearer $token")
                 if (response.isSuccessful) {
@@ -1833,13 +1312,11 @@ fun ModernChatScreen(
                         val newMessages = body.mapNotNull { msgResponse ->
                             try {
                                 val msgId = msgResponse.id?.takeIf { it.isNotEmpty() } ?: msgResponse._id?.takeIf { it.isNotEmpty() } ?: java.util.UUID.randomUUID().toString()
-                                
-                                // 🔍 DEBUG: Log what we're receiving from API
+
                                 if (msgResponse.senderId != currentUserId) {
-                                    android.util.Log.d("FREETIME_CHAT", "📨 Poll: senderDisplayName='${msgResponse.senderDisplayName}' senderName='${msgResponse.senderName}'")
+                                    android.util.Log.d("FREETIME_CHAT", " Poll: senderDisplayName='${msgResponse.senderDisplayName}' senderName='${msgResponse.senderName}'")
                                 }
-                                
-                                // ✅ CRITICAL FIX: Use senderDisplayName from backend, check senderName as fallback
+
                                 val senderDisplayName = if (msgResponse.senderId == currentUserId) {
                                     currentUsername
                                 } else {
@@ -1849,7 +1326,7 @@ fun ModernChatScreen(
                                         ?: "User"
                                     displayName
                                 }
-                                
+
                                 Message(
                                     id = msgId,
                                     senderName = senderDisplayName,
@@ -1864,7 +1341,6 @@ fun ModernChatScreen(
                                     mediaType = msgResponse.mediaType,
                                     mediaName = msgResponse.mediaName,
                                     mediaShareMode = msgResponse.mediaShareMode,
-                                    // ✅ CRITICAL FIX: Use color-coding fields from backend
                                     senderTags = if (msgResponse.senderId == currentUserId) emptyList() else (msgResponse.senderTags.takeIf { it.isNotEmpty() } ?: recipientTags),
                                     senderIsAdmin = if (msgResponse.senderId == currentUserId) false else (msgResponse.senderIsAdmin || recipientIsAdmin),
                                     senderIsModerator = if (msgResponse.senderId == currentUserId) false else (msgResponse.senderIsModerator || recipientIsModerator),
@@ -1878,8 +1354,7 @@ fun ModernChatScreen(
                                 null
                             }
                         }
-                        
-                        // Add only new messages (delta sync by ID + content dedup)
+
                         val existingIds = messages.map { it.id }.toSet()
                         val existingContentPairs = messages.map { it.content to it.senderName }.toSet()
                         val onlyNew = newMessages.filter { msg ->
@@ -1887,12 +1362,11 @@ fun ModernChatScreen(
                             (msg.content to msg.senderName) !in existingContentPairs
                         }
                         if (onlyNew.isNotEmpty()) {
-                            android.util.Log.d("FREETIME_CHAT", "📨 Poll added ${onlyNew.size} new messages (dedup'd from ${newMessages.size})")
+                            android.util.Log.d("FREETIME_CHAT", " Poll added ${onlyNew.size} new messages (dedup'd from ${newMessages.size})")
                             messages = onlyNew + messages
                             lastPollTimestamp = System.currentTimeMillis()
                         }
 
-                        // Sync reactions for existing messages from API data
                         val reactionMap = newMessages.associate { it.id to it.reactions }
                         messages = messages.map { msg ->
                             val apiReactions = reactionMap[msg.id]
@@ -1907,21 +1381,18 @@ fun ModernChatScreen(
             }
         }
     }
-    
+
     var messageToReact by remember { mutableStateOf<Message?>(null) }
-    
-    // Reaction function
+
     fun addReaction(messageId: String, emoji: String) {
         scope.launch {
             try {
-                // Update local UI immediately
-                messages = messages.map { 
+                messages = messages.map {
                     if (it.id == messageId) {
                         it.copy(reactions = (it.reactions + emoji).distinct())
                     } else it
                 }
-                
-                // Send to server via REST API for persistence
+
                 withContext(Dispatchers.IO) {
                     try {
                         apiService.addReaction(messageId, emoji)
@@ -1929,33 +1400,29 @@ fun ModernChatScreen(
                         android.util.Log.e("FREETIME_CHAT", "REST reaction failed: ${e.message}")
                     }
                 }
-                
-                // Also notify via Socket.IO for real-time delivery to other user
+
                 val payload = JSONObject().apply {
                     put("messageId", messageId)
                     put("emoji", emoji)
                     put("recipientId", recipientId)
                 }
                 com.freetime.app.services.WebSocketManager.getInstance().send("message:reaction:add", payload)
-                
+
             } catch (e: Exception) {
                 android.util.Log.e("FREETIME_CHAT", "Error adding reaction: ${e.message}")
             }
         }
     }
 
-    // Remove reaction function
     fun removeReaction(messageId: String, emoji: String) {
         scope.launch {
             try {
-                // Update local UI immediately
-                messages = messages.map { 
+                messages = messages.map {
                     if (it.id == messageId) {
                         it.copy(reactions = it.reactions.filter { r -> r != emoji })
                     } else it
                 }
-                
-                // Send to server via REST API for persistence
+
                 withContext(Dispatchers.IO) {
                     try {
                         apiService.removeReaction(messageId, emoji)
@@ -1963,21 +1430,20 @@ fun ModernChatScreen(
                         android.util.Log.e("FREETIME_CHAT", "REST reaction removal failed: ${e.message}")
                     }
                 }
-                
-                // Notify via Socket.IO for real-time delivery to other user
+
                 val payload = JSONObject().apply {
                     put("messageId", messageId)
                     put("emoji", emoji)
                     put("recipientId", recipientId)
                 }
                 com.freetime.app.services.WebSocketManager.getInstance().send("message:reaction:remove", payload)
-                
+
             } catch (e: Exception) {
                 android.util.Log.e("FREETIME_CHAT", "Error removing reaction: ${e.message}")
             }
         }
     }
-    
+
     fun addOrUpdateMessage(newMsg: Message) {
         val index = messages.indexOfFirst { it.id == newMsg.id }
         if (index != -1) {
@@ -1994,45 +1460,44 @@ fun ModernChatScreen(
             messages = listOf(newMsg) + messages
         }
     }
-    
+
     fun replyToPrivateMessage(messageId: String) {
         val message = messages.find { it.id == messageId }
         if (message != null) {
             replyingToMessage = message
         }
     }
-    
-    // Send message function
+
     val sendMessage: () -> Unit = send@{
-        // ✅ DEBOUNCE: Check if enough time has passed since last send
         val now = System.currentTimeMillis()
         if (now - lastSendTimeMs < SEND_DEBOUNCE_MS) {
             android.util.Log.w("FREETIME_CHAT", "Send throttled - last send was ${now - lastSendTimeMs}ms ago")
             return@send
         }
         lastSendTimeMs = now
-        
+
+        if (!isFriend) {
+            android.util.Log.w("FREETIME_CHAT", "Cannot send message: not friends with $recipientId")
+            return@send
+        }
+
         if (messageText.trim().isNotEmpty() && recipientExists && !isSendingMessage) {
-            // CRITICAL FIX: Check if recipient exists before sending
             if (!recipientExists) {
                 android.util.Log.e("FREETIME_CHAT", "Cannot send message: Recipient does not exist in database")
             } else {
                 isSendingMessage = true
-                // CRITICAL FIX: Copy message text and reply state before clearing to prevent race conditions
                 val messageToSend = messageText.trim()
                 val replyTo = replyingToMessage
-                messageText = ""  // Clear input IMMEDIATELY to prevent duplicate sends
-                replyingToMessage = null // Clear reply context
-                
-                // ✅ FIX: Add message limit to prevent memory bloat and crashes (keep last 500 messages)
+                messageText = ""
+                replyingToMessage = null
+
                 if (messages.size > 500) {
                     messages = messages.take(500)
-                    android.util.Log.d("FREETIME_CHAT", "📊 Trimmed messages to 500 to prevent memory bloat")
+                    android.util.Log.d("FREETIME_CHAT", " Trimmed messages to 500 to prevent memory bloat")
                 }
-                
+
                 scope.launch {
                     try {
-                        // ✅ UPDATED: Save locally (encrypted) BEFORE sending to API
                         val localMessageId = messageRepository.sendMessage(
                             chatId = recipientId,
                             senderId = currentUserId,
@@ -2041,8 +1506,7 @@ fun ModernChatScreen(
                             replyToUsername = replyTo?.senderName,
                             replyToText = replyTo?.content
                         )
-                        
-                        // Add to UI immediately (skip if reactive DB listener already added it)
+
                         val msgForUi = Message(
                             id = localMessageId,
                             senderName = currentUsername,
@@ -2050,18 +1514,18 @@ fun ModernChatScreen(
                             isSender = true,
                             timestamp = formatMessageTime(System.currentTimeMillis()),
                             isRead = true,
-                            status = "pending", // Initial status
+                            status = "pending",
                             replyToMessageId = replyTo?.id,
                             replyToUsername = replyTo?.senderName,
                             replyToText = replyTo?.content,
-                            senderTags = emptyList(), 
+                            senderTags = emptyList(),
                             senderIsAdmin = false,
                             senderIsModerator = false
                         )
                         if (messages.none { it.id == localMessageId }) {
                             messages = listOf(msgForUi) + messages
                         }
-                        
+
                         try {
                             val sendRequest = SendMessageRequest(
                                 recipientId = recipientId,
@@ -2071,16 +1535,10 @@ fun ModernChatScreen(
                                 replyToText = replyTo?.content
                             )
                             val response = apiClient.sendMessage(sendRequest, "Bearer $token")
-                            
+
                             if (response.isSuccessful) {
-                                // ✅ SUCCESS: Update sync state to "synced"
-                                // CRITICAL FIX: Use NonCancellable so these DB updates complete even if
-                                // the user leaves the chat (coroutine scope is cancelled on leave).
-                                // Without this, the message stays as "pending" with the local ID,
-                                // and re-opening the chat inserts a duplicate row (local ID + server ID).
                                 withContext(kotlinx.coroutines.NonCancellable) {
                                     messageRepository.updateSyncState(localMessageId, "synced")
-                                    // Parse server ID and update local message ID to prevent poll-duplicates
                                     val serverMsgId = response.body()?.id?.takeIf { it.isNotEmpty() }
                                         ?: response.body()?._id?.takeIf { it.isNotEmpty() }
                                     if (serverMsgId != null && serverMsgId != localMessageId) {
@@ -2108,12 +1566,19 @@ fun ModernChatScreen(
                                 messageRepository.updateSyncState(localMessageId, "failed")
                             }
                             messages = messages.map { if (it.id == localMessageId) it.copy(status = "failed") else it }
-                            Toast.makeText(context, "Message will resend when connection improves", Toast.LENGTH_SHORT).show()
+                            scope.launch(Dispatchers.IO) {
+                                OfflineMessageQueue.enqueue(
+                                    chatId = recipientId,
+                                    content = messageToSend,
+                                    recipientId = recipientId
+                                )
+                            }
+                            Toast.makeText(context, "Queued — will send when online", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("FREETIME_CHAT", "Fatal error sending message: ${e.message}")
                         Toast.makeText(context, "Message failed: ${e.message}", Toast.LENGTH_LONG).show()
-                        messageText = messageToSend // Restore message
+                        messageText = messageToSend
                     } finally {
                         isSendingMessage = false
                     }
@@ -2125,8 +1590,7 @@ fun ModernChatScreen(
             android.util.Log.d("FREETIME_CHAT", "Message already sending - ignoring duplicate send")
         }
     }
-    
-    // Check media download status
+
     val checkMediaStatus = { mediaId: String ->
         scope.launch {
             try {
@@ -2143,7 +1607,6 @@ fun ModernChatScreen(
         }
     }
 
-    // Send typing indicator function with debouncing
     val sendTypingIndicator: () -> Unit = {
         val now = System.currentTimeMillis()
         if (now - lastTypingIndicatorSentMs >= TYPING_INDICATOR_DEBOUNCE_MS && recipientExists) {
@@ -2151,225 +1614,18 @@ fun ModernChatScreen(
             scope.launch(Dispatchers.IO) {
                 try {
                     apiService.sendTypingIndicator(recipientId)
-                    android.util.Log.d("FREETIME_CHAT", "✍️ Typing indicator sent to $recipientId")
+                    android.util.Log.d("FREETIME_CHAT", " Typing indicator sent to $recipientId")
                 } catch (e: Exception) {
-                    // Don't spam logs for typing indicator failures - it's non-critical
                     android.util.Log.v("FREETIME_CHAT", "Typing indicator send failed (non-critical): ${e.message}")
                 }
             }
         }
     }
-    
-    // Voice call initiation function
-    val initiateVoiceCall: () -> Unit = init@{
-        // ✅ CRITICAL FIX: Prevent multiple concurrent calls - check if already in a call
-        val currentState = callStateManager.getState()
-        val isAlreadyInCall = currentState != null && 
-            currentState != CallState.ENDED && 
-            currentState != CallState.FAILED
-        
-        if (isAlreadyInCall) {
-            android.util.Log.w("FREETIME_CALL", "⚠️ Cannot start new call: Already in call (state=$currentState)")
-            Toast.makeText(context, "A call is already in progress. End it first.", Toast.LENGTH_SHORT).show()
-            return@init // Exit early, don't start another call
-        }
-        
-        if (recipientExists) {
-            // Check RECORD_AUDIO permission first
-            val hasAudioPermission = ContextCompat.checkSelfPermission(
-                context, Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-            
-            if (!hasAudioPermission) {
-                android.util.Log.d("FREETIME_CALL", "Requesting RECORD_AUDIO permission before call")
-                pendingCallAfterPermission = true
-                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            } else {
-                callStateManager.updateState(CallState.INITIATING)
-            }
-        } else {
-            android.util.Log.e("FREETIME_CALL", "Cannot initiate call: Recipient does not exist in database")
-            callErrorMessage = "Cannot call: Recipient user not found in database"
-            callStateManager.updateState(CallState.FAILED)
-        }
-    }
-    
-    // Perform actual call initiation when callState becomes INITIATING
-    LaunchedEffect(callState) {
-        if (callState == CallState.INITIATING) {
-            callErrorMessage = ""
-            
-            // ===== CRITICAL: Prevent concurrent calls WITH IMPROVED STATE DETECTION =====
-            // ✅ FIX: Check multiple state sources and log all conditions
-            val webRTCActive = webRTCManager.isActive()
-            val factoryActiveManager = WebRTCFactory.getActiveManager()
-            val factoryHasActive = WebRTCFactory.hasActiveCall()
-            val managerActive = callStateManager.isCallActive()
-            
-            // We are only "genuinely busy" if there's another manager active OR our manager is already advanced
-            // If factoryActiveManager is US, then it's not "another" manager
-            val isAnotherManagerBusy = factoryHasActive && factoryActiveManager !== webRTCManager
-            val isCurrentManagerAdvanced = webRTCActive || managerActive
-            
-            android.util.Log.d("FREETIME_CALL", "Call initiation check: anotherManagerBusy=$isAnotherManagerBusy, currentAdvanced=$isCurrentManagerAdvanced, currentState=$callState")
-            
-            if (isAnotherManagerBusy || isCurrentManagerAdvanced) {
-                callErrorMessage = "A call is already in progress. End it before starting a new call. (Other:$isAnotherManagerBusy Adv:$isCurrentManagerAdvanced)"
-                callStateManager.updateState(CallState.FAILED)
-                return@LaunchedEffect
-            }
-            
-            if (recipientId.isEmpty()) {
-                callErrorMessage = "Cannot call: recipient not found"
-                callStateManager.updateState(CallState.FAILED)
-                return@LaunchedEffect
-            }
-            try {
-                webRTCManager.createPeerConnection()
-                val offer = webRTCManager.createOffer()
 
-                // Use REST API to register call and get callId
-                val offerJson = offer.toJson().toString()
-                val result = apiService.initiateCall(recipientId, "audio", offerJson)
-                result.fold(
-                    onSuccess = { serverCallId ->
-                        callId = serverCallId
-                        callStateManager.updateState(CallState.RINGING, callId)
-                        android.util.Log.d("FREETIME_CALL", "Voice call initiated with callId: $callId")
-
-                        // Also signal via WebSocket for real-time delivery (with graceful fallback)
-                        val offerPayload = JSONObject().apply {
-                            put("callId", callId)
-                            put("recipientId", recipientId)
-                            put("callType", "audio")
-                            put("offer", offer.toJson())
-                        }
-                        val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
-                        if (wsManager.isConnected()) {
-                            wsManager.send("call:initiate", offerPayload)
-                            android.util.Log.d("FREETIME_CALL", "✅ call:initiate emitted via WebSocket")
-                        } else {
-                            // REST API already succeeded, WebSocket is redundant for basic functionality
-                            android.util.Log.w("FREETIME_CALL", "⚠️ WebSocket disconnected - call will use REST API only")
-                        }
-                    },
-                    onFailure = { error ->
-                        callErrorMessage = "Failed to initiate call: ${error.message}"
-                        callStateManager.updateState(CallState.FAILED)
-                        webRTCManager.close()
-                        android.util.Log.e("FREETIME_CALL", callErrorMessage)
-                    }
-                )
-
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // Screen was closed, don't report as error (this is expected)
-                android.util.Log.d("FREETIME_CALL", "Call initiation cancelled: user navigated away")
-                throw e  // Re-throw to properly cancel the scope
-            } catch (e: Exception) {
-                callErrorMessage = "Error initiating call: ${e.message ?: "Unknown error"}"
-                callStateManager.updateState(CallState.FAILED)
-                android.util.Log.e("FREETIME_CALL", callErrorMessage)
-            }
-        }
-    }
     
-    // Handle call duration timer + ongoing call notification
-    LaunchedEffect(callState) {
-        if (callState == CallState.ACTIVE) {
-            // Show ongoing call notification (Telegram-style)
-            com.freetime.app.notifications.NotificationHelper.showOngoingCallNotification(
-                context, recipientName.ifEmpty { chatName }, recipientId
-            )
-            // Use proper timer with snapshotFlow to monitor state changes
-            val startTime = System.currentTimeMillis()
-            while (true) {
-                delay(1000)
-                // Check current state to ensure we stop when call ends
-                if (callState != CallState.ACTIVE) {
-                    break
-                }
-                callDurationSeconds++
-                android.util.Log.d("FREETIME_CALL", "📞 Call duration: ${formatCallDuration(callDurationSeconds)}")
-            }
-        } else {
-            // Cancel ongoing notification when call is not active
-            com.freetime.app.notifications.NotificationHelper.cancelOngoingCallNotification(context)
-        }
-    }
     
-    // CRITICAL FIX: Wait for actual WebSocket event instead of simulating
-    // Listen for call answered event from WebSocket
-    LaunchedEffect(callState, callId) {
-        if (callState == CallState.RINGING && callId.isNotEmpty()) {
-            // CRITICAL: WebSocket listener (registered above via webSocketListener object) will now
-            // receive onCallAnswered events and update callState to ACTIVE
-            // If no answer within 60 seconds, end the call
-            android.util.Log.d("FREETIME_CALL", "⏳ Waiting for call: $callId (timeout in 60s, incoming=$isIncomingCall)")
-            
-            delay(60000)
-            if (callState == CallState.RINGING) {
-                if (isIncomingCall) {
-                    // Recipient side: reject the call (missed)
-                    // CRITICAL FIX: Properly handle rejection with error logging
-                    scope.launch(Dispatchers.IO) {
-                        try { 
-                            val result = apiService.rejectCall(callId)
-                            if (result.isFailure) {
-                                android.util.Log.e("FREETIME_CALL", "Failed to reject missed call: ${result.exceptionOrNull()?.message}")
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("FREETIME_CALL", "Exception rejecting missed call", e)
-                        }
-                    }
-                    val rejectPayload = JSONObject().apply {
-                        put("callId", callId)
-                        put("callerId", recipientId)
-                        put("reason", "no_answer")
-                    }
-                    com.freetime.app.services.WebSocketManager.getInstance().send("call:reject", rejectPayload)
-                    com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                    com.freetime.app.notifications.NotificationHelper.showMissedCallNotification(context, recipientName, recipientId)
-                } else {
-                    // Caller side: end the call (no answer)
-                    // CRITICAL FIX: Properly handle end call with error logging
-                    scope.launch(Dispatchers.IO) {
-                        try { 
-                            val result = apiService.endCall(callId)
-                            if (result.isFailure) {
-                                android.util.Log.e("FREETIME_CALL", "Failed to end call (timeout): ${result.exceptionOrNull()?.message}")
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("FREETIME_CALL", "Exception ending call after timeout", e)
-                        }
-                    }
-                    val endCallPayload = JSONObject().apply {
-                        put("callId", callId)
-                        put("endingUserId", currentUserId)
-                        put("recipientId", recipientId)
-                    }
-                    com.freetime.app.services.WebSocketManager.getInstance().send("call:end", endCallPayload)
-                }
-                callStateManager.updateState(CallState.ENDED)
-                callErrorMessage = if (isIncomingCall) "Missed call" else "No answer (timeout after 60s)"
-                android.util.Log.d("FREETIME_CALL", "📴 Call timeout after 60 seconds (incoming=$isIncomingCall)")
-                webRTCManager.close()
-                delay(2000)
-                callStateManager.clearState()
-                callId = ""
-                callDurationSeconds = 0
-                pendingIncomingSdpOffer = ""
-                isIncomingCall = false
-                isMuted = false
-                isSpeakerOn = false
-            }
-        }
-    }
     
-    // When call is answered via WebSocket from backend
-    // The callState is updated to ACTIVE by the webSocketListener object
-    // See webSocketListener.onCallAnswered() above
     
-    // Auto-hide image previews after 3 seconds
     LaunchedEffect(visibleImageMediaIds) {
         if (visibleImageMediaIds.isNotEmpty()) {
             delay(3000)
@@ -2377,10 +1633,12 @@ fun ModernChatScreen(
             android.util.Log.d("FREETIME_MEDIA", "Auto-hid image previews after 3 seconds")
         }
     }
-    
+
     var showMenu by remember { mutableStateOf(false) }
     var removeDialog by remember { mutableStateOf(false) }
     var reportDialog by remember { mutableStateOf(false) }
+
+    val chatBgPath = remember(recipientId) { prefs.getChatBackgroundForUser(recipientId) }
 
     Box(
         modifier = Modifier
@@ -2394,12 +1652,23 @@ fun ModernChatScreen(
                 )
             )
     ) {
+        if (chatBgPath != null) {
+            val bgFile = java.io.File(chatBgPath)
+            if (bgFile.exists()) {
+                AsyncImage(
+                    model = bgFile,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.3f
+                )
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))
         ) {
-            // Chat Header
             if (isAnnouncementChat) {
                 AnnouncementChatHeader(
                     onNavigateBack = onNavigateBack
@@ -2408,19 +1677,32 @@ fun ModernChatScreen(
                 ChatScreenHeader(
                     chatName = recipientName,
                     isOnline = recipientIsOnline,
+                    lastSeen = recipientLastSeen,
                     onNavigateBack = onNavigateBack,
-                    onCallClick = { showComingSoonPopup = true },
-                    onVideoClick = { /* Video calls not yet available - WebRTC disabled */ },
                     onMoreClick = { showMenu = true },
                     onViewProfile = onViewProfile,
                     recipientId = recipientId,
                     isFriend = isFriend,
-                    nameColor = getUsernameColor(recipientTags, recipientIsAdmin, recipientIsModerator, recipientRole),
-                    callState = callState
+                    nameColor = getUsernameColor(recipientTags, recipientIsAdmin, recipientIsModerator, recipientRole)
                 )
             }
-            
-            // Dropdown menu for options - Enhanced UI
+
+            val isServerDown by ServerStatusManager.isServerDown.collectAsState()
+            if (isServerDown) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF3D2B00).copy(alpha = 0.8f)
+                ) {
+                    Text(
+                        text = "Offline — messages queued",
+                        color = Color(0xFFFFAA00),
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
@@ -2436,7 +1718,73 @@ fun ModernChatScreen(
                     )
             ) {
                 DropdownMenuItem(
-                    text = { 
+                    text = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                if (recipientIsMuted) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                contentDescription = null,
+                                tint = if (recipientIsMuted) Color(0xFF00FF88) else Color(0xFFFF6B6B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                if (recipientIsMuted) "Unmute User" else "Mute User",
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    },
+                    onClick = {
+                        showMenu = false
+                        recipientIsMuted = !recipientIsMuted
+                        if (recipientIsMuted) prefs.muteUser(recipientId)
+                        else prefs.unmuteUser(recipientId)
+                    }
+                )
+                HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 1.dp)
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Wallpaper, contentDescription = null, tint = CyberpunkTheme.CyberCyan, modifier = Modifier.size(20.dp))
+                            Text("Set Chat Background", color = Color.White, fontWeight = FontWeight.Medium)
+                        }
+                    },
+                    onClick = {
+                        showMenu = false
+                        chatBgPickerLauncher.launch("image/*")
+                    }
+                )
+                if (currentChatBgPath != null) {
+                    HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 1.dp)
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(20.dp))
+                                Text("Remove Chat Background", color = Color.White, fontWeight = FontWeight.Medium)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            try { java.io.File(currentChatBgPath!!).delete() } catch (_: Exception) {}
+                            prefs.clearChatBackgroundForUser(recipientId)
+                            currentChatBgPath = null
+                        }
+                    )
+                }
+                HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 1.dp)
+                DropdownMenuItem(
+                    text = {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2453,7 +1801,7 @@ fun ModernChatScreen(
                 )
                 HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 1.dp)
                 DropdownMenuItem(
-                    text = { 
+                    text = {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2470,7 +1818,7 @@ fun ModernChatScreen(
                 )
                 HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 1.dp)
                 DropdownMenuItem(
-                    text = { 
+                    text = {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2487,9 +1835,6 @@ fun ModernChatScreen(
                 )
             }
 
-
-            // Block dialog
-            // Remove dialog
             if (removeDialog) {
                 AlertDialog(
                     onDismissRequest = { removeDialog = false },
@@ -2503,7 +1848,6 @@ fun ModernChatScreen(
                                     val result = apiService.removeFriend(recipientId)
                                     result.onSuccess {
                                         android.util.Log.d("FREETIME_CHAT", "Friend removed successfully")
-                                        // Navigate to home page, not just back
                                         if (onNavigateToHome != null) {
                                             onNavigateToHome()
                                         } else {
@@ -2523,7 +1867,6 @@ fun ModernChatScreen(
                     }
                 )
             }
-            // Report dialog - using new ReportUserDialog composable
             if (reportDialog) {
                 com.freetime.app.ui.composables.ReportUserDialog(
                     userId = recipientId,
@@ -2531,22 +1874,7 @@ fun ModernChatScreen(
                     onDismiss = { reportDialog = false }
                 )
             }
-            
-            // Coming soon popup for calls
-            if (showComingSoonPopup) {
-                AlertDialog(
-                    onDismissRequest = { showComingSoonPopup = false },
-                    title = { Text("Coming Soon!") },
-                    text = { Text("Voice and video calls will be available in a future update.") },
-                    confirmButton = {
-                        TextButton(onClick = { showComingSoonPopup = false }) {
-                            Text("OK")
-                        }
-                    }
-                )
-            }
-            
-            // Delete History dialog
+
             if (showDeleteHistoryDialog) {
                 AlertDialog(
                     onDismissRequest = { showDeleteHistoryDialog = false },
@@ -2587,159 +1915,8 @@ fun ModernChatScreen(
                     }
                 )
             }
+
             
-            // Voice Call Overlay - WhatsApp style
-            if (callState != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.7f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ChatCallOverlay(
-                        recipientName = recipientName.ifEmpty { chatName },
-                        callState = callState ?: CallState.ENDED,
-                        callDuration = callDurationSeconds,
-                        isMuted = isMuted,
-                        isSpeakerOn = isSpeakerOn,
-                        errorMessage = callErrorMessage,
-                        onToggleMute = {
-                            isMuted = !isMuted
-                            webRTCManager.setMuted(isMuted)
-                            android.util.Log.d("FREETIME_CALL", "Mute toggled: $isMuted")
-                        },
-                        onToggleSpeaker = {
-                            isSpeakerOn = !isSpeakerOn
-                            val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                            audioManager.isSpeakerphoneOn = isSpeakerOn
-                            android.util.Log.d("FREETIME_CALL", "Speaker toggled: $isSpeakerOn")
-                        },
-                        onHangup = { 
-                            scope.launch {
-                                if (callId.isNotEmpty()) {
-                                    // End call via REST API (reliable)
-                                    try {
-                                        apiService.endCall(callId)
-                                    } catch (e: Exception) {
-                                        android.util.Log.e("FREETIME_CALL", "API end call failed: ${e.message}")
-                                    }
-                                    // Also signal via WebSocket (fast)
-                                    val endCallPayload = JSONObject().apply {
-                                        put("callId", callId)
-                                        put("endingUserId", currentUserId)
-                                        put("recipientId", recipientId)
-                                    }
-                                    com.freetime.app.services.WebSocketManager.getInstance().send("call:end", endCallPayload)
-                                }
-                                webRTCManager.close()
-                                callStateManager.clearState()
-                                callDurationSeconds = 0
-                                callId = ""
-                                pendingIncomingSdpOffer = ""
-                                isIncomingCall = false
-                                isMuted = false
-                                isSpeakerOn = false
-                            }
-                        },
-                        onAccept = if (callState == CallState.RINGING && pendingIncomingSdpOffer.isNotEmpty()) {
-                            {
-                                // Guard: prevent double-tap — only proceed if still RINGING
-                                if (callState == CallState.RINGING) {
-                                    // ✅ NEW: Check for audio permission before accepting
-                                    var hasPermission = true
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                                        if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                                            android.widget.Toast.makeText(context, "Microphone permission required to answer call", android.widget.Toast.LENGTH_LONG).show()
-                                            // Trigger permission request via activity
-                                            (context as? android.app.Activity)?.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 1001)
-                                            hasPermission = false
-                                        }
-                                    }
-
-                                    if (hasPermission) {
-                                        // User manually accepted the incoming call — now do WebRTC handshake
-                                        callStateManager.updateState(CallState.CONNECTING, callId)
-                                        scope.launch {
-                                            try {
-                                                android.util.Log.d("FREETIME_CALL", "User accepted incoming call: $callId")
-                                                // Cancel incoming call notification
-                                                com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                                                webRTCManager.createPeerConnection()
-                                                
-                                                // Enable video if this is a video call
-                                                if (incomingCallType == "video") {
-                                                    webRTCManager.enableVideo(true)
-                                                    android.util.Log.d("FREETIME_CALL", "📷 Video enabled for incoming video call")
-                                                }
-                                                
-                                                val remoteOffer = SessionDescription(SessionDescription.Type.OFFER, pendingIncomingSdpOffer)
-                                                webRTCManager.setRemoteDescription(remoteOffer)
-
-                                                val answer = webRTCManager.createAnswer()
-
-                                                // Send via REST API (reliable)
-                                                withContext(Dispatchers.IO) {
-                                                    try {
-                                                        apiService.answerCall(callId, answer.toJson().toString())
-                                                    } catch (e: Exception) {
-                                                        android.util.Log.e("FREETIME_CALL", "API answer failed: ${e.message}")
-                                                    }
-                                                }
-
-                                                // Also send via WebSocket (fast real-time)
-                                                val answerPayload = JSONObject().apply {
-                                                    put("callId", callId)
-                                                    put("callerId", recipientId)
-                                                    put("answer", answer.toJson())
-                                                }
-                                                com.freetime.app.services.WebSocketManager.getInstance().send("call:answer", answerPayload)
-                                                callStateManager.updateState(CallState.ACTIVE, callId)
-                                                callDurationSeconds = 0
-                                                pendingIncomingSdpOffer = ""
-                                                android.util.Log.d("FREETIME_CALL", "Answer sent for call: $callId")
-                                            } catch (e: Exception) {
-                                                android.util.Log.e("FREETIME_CALL", "Error accepting call: ${e.message}")
-                                                callErrorMessage = "Failed to accept call: ${e.message}"
-                                                callStateManager.updateState(CallState.FAILED)
-                                            }
-                                        }
-                                    }
-                                } // end guard: if (callState == RINGING)
-                            }
-                        } else null,
-                        onReject = if (callState == CallState.RINGING) {
-                            {
-                                scope.launch {
-                                    if (callId.isNotEmpty()) {
-                                        try {
-                                            apiService.rejectCall(callId)
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("FREETIME_CALL", "API reject call failed: ${e.message}")
-                                        }
-                                        // Also signal via WebSocket
-                                        val rejectPayload = JSONObject().apply {
-                                            put("callId", callId)
-                                            put("callerId", recipientId)
-                                            put("reason", "declined")
-                                        }
-                                        com.freetime.app.services.WebSocketManager.getInstance().send("call:reject", rejectPayload)
-                                    }
-                                    // Cancel incoming call notification
-                                    com.freetime.app.notifications.NotificationHelper.cancelCallNotification(context, recipientId)
-                                    webRTCManager.close()
-                                    callStateManager.clearState()
-                                    callDurationSeconds = 0
-                                    callId = ""
-                                    pendingIncomingSdpOffer = ""
-                                    isIncomingCall = false
-                                }
-                            }
-                        } else null
-                    )
-                }
-            }
-            
-            // CRITICAL FIX: Warning Banner - User not found or offline
             if (!recipientExists) {
                 Row(
                     modifier = Modifier
@@ -2786,8 +1963,7 @@ fun ModernChatScreen(
                     )
                 }
             }
-            
-            // ===== SEARCH BAR =====
+
             if (showSearchResults || searchQuery.isNotEmpty()) {
                 Surface(
                     modifier = Modifier
@@ -2810,7 +1986,7 @@ fun ModernChatScreen(
                             modifier = Modifier.size(20.dp),
                             tint = Color.Gray
                         )
-                        
+
                         TextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -2827,15 +2003,15 @@ fun ModernChatScreen(
                             ),
                             textStyle = TextStyle(fontSize = 14.sp)
                         )
-                        
+
                         if (searchQuery.isNotEmpty()) {
                             IconButton(
-                                onClick = { 
+                                onClick = {
                                     searchQuery = ""
                                     showSearchResults = false
                                     searchResults = emptyList()
                                 },
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(24.dp).scaleOnPressEffect()
                             ) {
                                 Icon(
                                     Icons.Default.Close,
@@ -2845,7 +2021,7 @@ fun ModernChatScreen(
                                 )
                             }
                         }
-                        
+
                         if (isSearching) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
@@ -2862,8 +2038,7 @@ fun ModernChatScreen(
                     }
                 }
             }
-            
-            // ===== TYPING INDICATOR =====
+
             AnimatedVisibility(
                 visible = isRecipientTyping,
                 enter = expandVertically() + fadeIn(),
@@ -2895,7 +2070,6 @@ fun ModernChatScreen(
                             color = Color.Gray,
                             fontStyle = FontStyle.Italic
                         )
-                        // Animated dots
                         repeat(3) { i ->
                             Text(
                                 "•",
@@ -2909,19 +2083,15 @@ fun ModernChatScreen(
                     }
                 }
             }
-            
-            // Messages List
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                // Show search results or all messages
-                // For announcement chats, only show the latest announcement
                 val messagesToDisplay = if (showSearchResults && searchResults.isNotEmpty()) {
                     searchResults
                 } else if (showSearchResults && searchQuery.isNotEmpty()) {
-                    // Searching but no results
                     emptyList()
                 } else if (isAnnouncementChat && messages.isNotEmpty()) {
                     val now = announcementNow.value
@@ -2934,10 +2104,9 @@ fun ModernChatScreen(
                 } else {
                     messages
                 }
-                
+
                 if (messagesToDisplay.isEmpty() && (messages.isEmpty() || (showSearchResults && searchQuery.isNotEmpty()))) {
                     if (showSearchResults && searchQuery.isNotEmpty()) {
-                        // No search results
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -2974,15 +2143,12 @@ fun ModernChatScreen(
                     ) {
                         items(
                             items = messagesToDisplay,
-                            key = { it.id }  // ✅ FIX: Add key to prevent recomposition issues
+                            key = { it.id }
                         ) { message ->
-                            // Multi-select and Long-press logic
                             val isSelected = selectedMessages.contains(message.id)
-                            
-                            // Extract media ID to check if this is a media message
-                            val msgMediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
-                            val isMsgMediaMessage = msgMediaIdRegex.find(message.content) != null
-                            
+
+                            val isMsgMediaMessage = MEDIA_ID_REGEX.find(message.content) != null
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2999,7 +2165,6 @@ fun ModernChatScreen(
                                         },
                                         onLongClick = {
                                             if (isMultiSelectMode) {
-                                                // In multi-select mode, toggle selection
                                                 selectedMessages = if (isSelected) {
                                                     selectedMessages - message.id
                                                 } else {
@@ -3007,13 +2172,11 @@ fun ModernChatScreen(
                                                 }
                                                 if (selectedMessages.isEmpty()) isMultiSelectMode = false
                                             } else if (isMsgMediaMessage && !message.isSender && message.mediaShareMode == "protected") {
-                                                // Long-press on received PROTECTED media: request download permission
-                                                val mediaId = msgMediaIdRegex.find(message.content)?.groupValues?.get(1)
+                                                val mediaId = MEDIA_ID_REGEX.find(message.content)?.groupValues?.get(1)
                                                 if (mediaId != null) {
                                                     sendMediaDownloadRequests(listOf(mediaId))
                                                 }
                                             } else {
-                                                // Long-press on regular message: show context menu
                                                 selectedMessageId = message.id
                                                 selectedMessageText = message.content
                                                 selectedMessageIsOwn = message.isSender
@@ -3032,15 +2195,13 @@ fun ModernChatScreen(
                                         mediaDownloadRequests = mediaDownloadRequests,
                                         visibleImageMediaIds = visibleImageMediaIds,
                                         onShowImagePreview = { visibleImageMediaIds = visibleImageMediaIds + it },
-                                        onRequestMediaDownload = { 
-                                            // Auto-request for single tap if enabled or via multi-select
+                                        onRequestMediaDownload = {
                                             val mediaIds = listOf(it)
                                             sendMediaDownloadRequests(mediaIds)
                                         },
                                         onApproveRequest = { requestId ->
                                             scope.launch {
                                                 apiService.approveMediaDownloadRequest(requestId).onSuccess {
-                                                    // Update UI immediately (WebSocket will also update it)
                                                     messages = messages.map { m ->
                                                         m.copy(pendingRequests = m.pendingRequests.filterNot { it.requestId == requestId })
                                                     }
@@ -3058,8 +2219,7 @@ fun ModernChatScreen(
                                         },
                                         recipientAvatar = recipientAvatar
                                     )
-                                    
-                                    // Reaction Overlay (if this message is the one being long-pressed)
+
                                     if (messageToReact?.id == message.id) {
                                         ReactionPicker(
                                             onReactionSelected = { emoji ->
@@ -3073,11 +2233,11 @@ fun ModernChatScreen(
                                             onDismiss = { messageToReact = null }
                                         )
                                     }
-                                
+
                                 if (isMultiSelectMode) {
                                     Checkbox(
                                         checked = isSelected,
-                                        onCheckedChange = { 
+                                        onCheckedChange = {
                                             selectedMessages = if (it) selectedMessages + message.id else selectedMessages - message.id
                                             if (selectedMessages.isEmpty()) isMultiSelectMode = false
                                         },
@@ -3089,63 +2249,111 @@ fun ModernChatScreen(
                         }
                     }
                 }
-                
-                // MULTI-SELECT ACTION BAR
+
                 if (isMultiSelectMode) {
+                    val selectedOwnMessages = messages.filter {
+                        it.id in selectedMessages && it.isSender
+                    }
+                    val allSelectedAreOwn = selectedOwnMessages.size == selectedMessages.size
+
                     Surface(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        shape = RoundedCornerShape(12.dp),
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
                         color = CyberpunkTheme.DarkGray,
-                        tonalElevation = 8.dp
+                        shadowElevation = 4.dp
                     ) {
                         Row(
-                            modifier = Modifier.padding(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                "${selectedMessages.size} selected",
-                                color = CyberpunkTheme.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                            
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = { 
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                IconButton(onClick = {
                                     isMultiSelectMode = false
                                     selectedMessages = emptySet()
                                 }) {
-                                    Text("Cancel", color = CyberpunkTheme.LightGray)
+                                    Icon(Icons.Default.Close, "Close", tint = CyberpunkTheme.White, modifier = Modifier.size(22.dp))
                                 }
-                                
-                                Button(
-                                    onClick = {
-                                        // Extract media IDs from selected messages
-                                        val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
-                                        val mediaIds = messages.filter { it.id in selectedMessages }
-                                            .mapNotNull { mediaIdRegex.find(it.content)?.groupValues?.get(1) }
-                                        
-                                        if (mediaIds.isNotEmpty()) {
-                                            sendMediaDownloadRequests(mediaIds)
-                                        } else {
-                                            Toast.makeText(context, "No media files selected", Toast.LENGTH_SHORT).show()
+                                Text(
+                                    "${selectedMessages.size}",
+                                    color = CyberpunkTheme.White,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 16.sp
+                                )
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(0.dp)
+                            ) {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        try {
+                                            val result = apiService.getFriends()
+                                            result.onSuccess { friends ->
+                                                friendsList = friends
+                                                showForwardDialog = true
+                                            }.onFailure {
+                                                Toast.makeText(context, "Failed to load friends", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Failed to load friends", Toast.LENGTH_SHORT).show()
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = CyberpunkTheme.PrimaryPurple)
-                                ) {
-                                    Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Request Download", fontSize = 12.sp)
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Forward, "Forward", tint = CyberpunkTheme.CyberCyan, modifier = Modifier.size(22.dp))
+                                }
+
+                                IconButton(onClick = {
+                                    val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
+                                    val mediaIds = messages.filter { it.id in selectedMessages }
+                                        .mapNotNull { mediaIdRegex.find(it.content)?.groupValues?.get(1) }
+                                    if (mediaIds.isNotEmpty()) {
+                                        sendMediaDownloadRequests(mediaIds)
+                                    } else {
+                                        Toast.makeText(context, "No media files selected", Toast.LENGTH_SHORT).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Download, "Download", tint = CyberpunkTheme.CyberCyan, modifier = Modifier.size(22.dp))
+                                }
+
+                                if (allSelectedAreOwn) {
+                                    IconButton(onClick = {
+                                        scope.launch {
+                                            var deleted = 0
+                                            for (msgId in selectedMessages) {
+                                                apiService.deleteMessage(msgId).onSuccess {
+                                                    messages = messages.filterNot { it.id == msgId }
+                                                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                                        database.messageDao().deleteMessageById(msgId)
+                                                    }
+                                                    deleted++
+                                                }
+                                            }
+                                            if (deleted > 0) {
+                                                Toast.makeText(context, "$deleted message(s) deleted", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+                                            }
+                                            isMultiSelectMode = false
+                                            selectedMessages = emptySet()
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Delete, "Delete", tint = Color(0xFFFF6B6B), modifier = Modifier.size(22.dp))
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            
-            // Mascot Tip (Optional)
+
             if (showMascotTip && messages.size > 2) {
                 AnimatedVisibility(
                     visible = true,
@@ -3157,10 +2365,11 @@ fun ModernChatScreen(
                     )
                 }
             }
-            
-            // Input Area
+
             if (isAnnouncementChat) {
                 ReadOnlyChatBanner()
+            } else if (!isFriend && !isAnnouncementChat) {
+                NotFriendsChatBanner()
             } else {
                 ChatInputArea(
                         messageText = messageText,
@@ -3174,7 +2383,7 @@ fun ModernChatScreen(
                         onTyping = {
                             sendTypingIndicator()
                         },
-                        onAttachClick = { 
+                        onAttachClick = {
                             if (isServerDown) {
                                 Toast.makeText(context, "Media is unavailable while servers are offline", Toast.LENGTH_SHORT).show()
                             } else if (!isProcessingMedia) {
@@ -3196,8 +2405,7 @@ fun ModernChatScreen(
                 )
         }
     }
-    
-    // Emoji Picker Dialog
+
     if (showEmojiPicker) {
         AlertDialog(
             onDismissRequest = { showEmojiPicker = false },
@@ -3209,12 +2417,11 @@ fun ModernChatScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     val emojiList = listOf(
-                        "😊", "😂", "❤️", "😍", "😎", "😢", "😡", "😱", "👍", "👎",
-                        "🙏", "🎉", "🔥", "💯", "✨", "⭐", "👋", "👏", "🙌", "💪",
-                        "🎈", "🎊", "🎁", "🌟", "💖", "💝", "👀", "✌️", "🤔", "🤗"
+                        "", "", "", "", "", "", "", "", "", "",
+                        "", "", "", "", "", "", "", "", "", "",
+                        "", "", "", "", "", "", "", "", "", ""
                     )
-                    
-                    // Grid of emojis (5 per row) - LARGER FONTS FOR BETTER VISIBILITY
+
                     for (i in emojiList.indices step 5) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -3233,7 +2440,7 @@ fun ModernChatScreen(
                                             .height(56.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f),
-                                            contentColor = Color.Unspecified // EMOJI FIX: Do not tint emojis
+                                            contentColor = Color.Unspecified
                                         ),
                                         contentPadding = PaddingValues(0.dp)
                                     ) {
@@ -3263,13 +2470,12 @@ fun ModernChatScreen(
             titleContentColor = CyberpunkTheme.PrimaryPurple
         )
     }
-    
-    // ✅ NEW: Media sharing mode selection dialog
+
     if (showMediaModeDialog) {
         AlertDialog(
             onDismissRequest = { showMediaModeDialog = false },
             title = { Text("Share Media As:") },
-            text = { 
+            text = {
                 Text(
                     "Choose how to share this media:\n\n" +
                     "• PUBLIC: Viewable immediately by the recipient\n\n" +
@@ -3284,8 +2490,8 @@ fun ModernChatScreen(
                         mediaPickerLauncher.launch("*/*")
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00AA00))
-                ) { 
-                    Text("Public") 
+                ) {
+                    Text("Public")
                 }
             },
             dismissButton = {
@@ -3296,8 +2502,8 @@ fun ModernChatScreen(
                         mediaPickerLauncher.launch("*/*")
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAA8800))
-                ) { 
-                    Text("Protected") 
+                ) {
+                    Text("Protected")
                 }
             },
             containerColor = Color(0xFF1A1A2E),
@@ -3306,7 +2512,117 @@ fun ModernChatScreen(
         )
     }
 
-    // ✅ NEW: GIF Picker
+    if (showForwardDialog) {
+        val selectedMessagesContent = messages
+            .filter { it.id in selectedMessages }
+            .sortedByDescending { it.timestamp }
+        AlertDialog(
+            onDismissRequest = { showForwardDialog = false },
+            title = {
+                Text(
+                    "Forward ${selectedMessagesContent.size} message(s) to:",
+                    color = CyberpunkTheme.LightGray,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (friendsList.isEmpty()) {
+                        Text(
+                            "No friends found. Add friends first.",
+                            color = CyberpunkTheme.LightGray.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    } else {
+                        friendsList.forEach { friend ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (isForwarding) return@clickable
+                                        isForwarding = true
+                                        scope.launch {
+                                            val token = prefs.getToken() ?: ""
+                                            var successCount = 0
+                                            selectedMessagesContent.forEach { msg ->
+                                                try {
+                                                    val fwdContent = " Forwarded from ${msg.senderName}:\n\n${msg.content}"
+                                                    val request = SendMessageRequest(
+                                                        recipientId = friend.userId,
+                                                        content = fwdContent
+                                                    )
+                                                    val response = apiClient.sendMessage(request, "Bearer $token")
+                                                    if (response.isSuccessful) successCount++
+                                                } catch (_: Exception) {}
+                                            }
+                                            isForwarding = false
+                                            showForwardDialog = false
+                                            isMultiSelectMode = false
+                                            selectedMessages = emptySet()
+                                            val toastMsg = if (successCount > 0)
+                                                "Forwarded $successCount message(s) to ${friend.name.ifEmpty { friend.username }}"
+                                            else
+                                                "Failed to forward messages"
+                                            Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = apiService.resolveAvatarUrl(friend.avatar),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        friend.name.ifEmpty { friend.username },
+                                        color = CyberpunkTheme.White,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 15.sp
+                                    )
+                                    if (friend.name.isNotEmpty() && friend.username.isNotEmpty()) {
+                                        Text(
+                                            "@${friend.username}",
+                                            color = CyberpunkTheme.LightGray.copy(alpha = 0.5f),
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                                if (isForwarding) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = CyberpunkTheme.CyberCyan,
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showForwardDialog = false }) {
+                    Text("Cancel", color = CyberpunkTheme.CyberCyan)
+                }
+            },
+            containerColor = Color(0xFF1A1A2E),
+            textContentColor = CyberpunkTheme.LightGray,
+            titleContentColor = CyberpunkTheme.PrimaryPurple
+        )
+    }
+
     GifPickerDialog(
         visible = showGifPicker,
         onDismiss = { showGifPicker = false },
@@ -3395,7 +2711,6 @@ fun ModernChatScreen(
         }
     )
 
-    // ✅ NEW: Message Context Menu
     val contextMessage = messages.find { it.id == selectedMessageId }
     val contextMediaId = contextMessage?.let { msg ->
         val regex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
@@ -3411,15 +2726,35 @@ fun ModernChatScreen(
             isOwnMessage = selectedMessageIsOwn,
             showMenu = showMessageContextMenu,
             onDismiss = { showMessageContextMenu = false },
-            onCopy = { 
+            onCopy = {
                 val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", selectedMessageText))
                 showMessageContextMenu = false
             },
-            onDelete = { },
+            onDelete = {
+                selectedMessageId?.let { msgId ->
+                    scope.launch {
+                        apiService.deleteMessage(msgId).onSuccess {
+                            messages = messages.filterNot { it.id == msgId }
+                            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                database.messageDao().deleteMessageById(msgId)
+                            }
+                            Toast.makeText(context, "Message deleted", Toast.LENGTH_SHORT).show()
+                        }.onFailure { e ->
+                            Toast.makeText(context, "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            },
             onReact = { emoji -> selectedMessageId?.let { addReaction(it, emoji) } },
             onReply = { selectedMessageId?.let { replyToPrivateMessage(it); showMessageContextMenu = false } },
             onEdit = { },
+            onSelect = {
+                selectedMessageId?.let { msgId ->
+                    isMultiSelectMode = true
+                    selectedMessages = setOf(msgId)
+                }
+            },
             currentReactions = emptyMap(),
             hasPublicMedia = hasPublicMedia,
             onDownload = {
@@ -3487,8 +2822,8 @@ fun ReactionPicker(
     onReplyClick: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    val reactions = listOf("👍", "❤️", "😂", "😮", "😢", "🔥")
-    
+    val reactions = listOf("", "", "", "", "", "")
+
     androidx.compose.ui.window.Popup(
         alignment = Alignment.Center,
         onDismissRequest = onDismiss
@@ -3516,12 +2851,12 @@ fun ReactionPicker(
                         )
                     }
                 }
-                
+
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 4.dp),
                     color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.2f)
                 )
-                
+
                 TextButton(
                     onClick = onReplyClick,
                     modifier = Modifier.fillMaxWidth()
@@ -3561,7 +2896,7 @@ fun AnnouncementChatHeader(
             ) {
                 IconButton(
                     onClick = onNavigateBack,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(40.dp).scaleOnPressEffect()
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
@@ -3630,20 +2965,49 @@ fun ReadOnlyChatBanner() {
 }
 
 @Composable
+fun NotFriendsChatBanner() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF1A1A2E)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Person,
+                contentDescription = null,
+                tint = Color(0xFFFF6B6B),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "You must be friends to message this user.",
+                color = Color(0xFFFF6B6B).copy(alpha = 0.8f),
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
 fun ChatScreenHeader(
     chatName: String,
     isOnline: Boolean,
+    lastSeen: String? = null,
     onNavigateBack: () -> Unit,
-    onCallClick: () -> Unit,
-    onVideoClick: () -> Unit,
     onMoreClick: () -> Unit,
     onViewProfile: (userId: String) -> Unit = {},
     recipientId: String = "",
     isFriend: Boolean = false,
-    nameColor: Color = Color.White,  // ✅ NEW: Color parameter with default white
-    callState: CallState? = null  // ✅ NEW: Add callState to control button
+    nameColor: Color = Color.White,
 ) {
-    android.util.Log.d("CHAT_HEADER", "Rendering header - Name: '$chatName', Color: ${nameColor}, Online: $isOnline, CallState: $callState")
+    val statusText = if (isOnline) "online" else formatLastSeen(lastSeen)
+    android.util.Log.d("CHAT_HEADER", "Rendering header - Name: '$chatName', Color: ${nameColor}, Online: $isOnline")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -3679,7 +3043,7 @@ fun ChatScreenHeader(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                
+
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -3688,23 +3052,21 @@ fun ChatScreenHeader(
                             onClick = { onViewProfile(recipientId) }
                         )
                 ) {
-                    // ✅ CRITICAL: Show displayName with color, use only "User" if truly empty
                     val displayNameToShow = chatName.takeIf { it.isNotEmpty() } ?: "User"
-                    
-                    // 🔍 DEBUG: Log what we're displaying in the header
+
                     androidx.compose.runtime.LaunchedEffect(displayNameToShow) {
-                        android.util.Log.d("CHAT_HEADER", "📺 Displaying header name: '$displayNameToShow' (chatName='$chatName')")
+                        android.util.Log.d("CHAT_HEADER", " Displaying header name: '$displayNameToShow' (chatName='$chatName')")
                     }
-                    
+
                     Text(
                         displayNameToShow,
-                        color = nameColor,  // ✅ UPDATED: Apply color-coded name color
+                        color = nameColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    
+
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -3717,39 +3079,24 @@ fun ChatScreenHeader(
                                     shape = CircleShape
                                 )
                         )
-                        
+
                         Text(
-                            if (isOnline) "Online" else "Offline",
+                            statusText,
                             color = CyberpunkTheme.LightGray,
                             fontSize = 12.sp
                         )
                     }
                 }
             }
-            
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
                 modifier = Modifier.padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isFriend) {
-                    IconButton(
-                        onClick = onCallClick,
-                        enabled = (callState == null || callState == CallState.ENDED || callState == CallState.FAILED),
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Phone,
-                            null,
-                            tint = if (callState == null || callState == CallState.ENDED || callState == CallState.FAILED) CyberpunkTheme.PrimaryPurple else Color.Gray,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                
                 IconButton(
                     onClick = onMoreClick,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(40.dp).scaleOnPressEffect()
                 ) {
                     Icon(
                         Icons.Default.MoreVert,
@@ -3775,9 +3122,7 @@ fun MessageBubble(
     onDenyRequest: (String) -> Unit = {},
     recipientAvatar: String? = null
 ) {
-    // Extract media ID if this is a media message
-    val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
-    val mediaMatch = mediaIdRegex.find(message.content)
+    val mediaMatch = MEDIA_ID_REGEX.find(message.content)
     val contentMediaId = mediaMatch?.groupValues?.get(1)
     val mediaId = contentMediaId ?: message.mediaId
     val contentFileName = contentMediaId?.let {
@@ -3786,7 +3131,7 @@ fun MessageBubble(
     val fileName = contentFileName ?: message.mediaName
     val isMediaMessage = mediaId != null
     val isImage = message.mediaType == "image" ||
-                  fileName?.endsWith(".jpg", ignoreCase = true) == true || 
+                  fileName?.endsWith(".jpg", ignoreCase = true) == true ||
                   fileName?.endsWith(".png", ignoreCase = true) == true ||
                   fileName?.endsWith(".jpeg", ignoreCase = true) == true ||
                   fileName?.endsWith(".gif", ignoreCase = true) == true
@@ -3796,44 +3141,39 @@ fun MessageBubble(
     val mediaApprovalStatus = if (mediaId != null) mediaDownloadRequests[mediaId] else null
     val mediaKey = mediaMatch?.groupValues?.getOrNull(2)
     val isPublicMedia = message.mediaShareMode == "public"
-    
+
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.dp
-    
-    // Calculate responsive bubble width based on screen size
-    // For small screens (< 380 dp), use 75% of screen width
-    // For normal screens, use up to 280 dp
+
     val maxBubbleWidth = when {
         screenWidthDp < 380.dp -> screenWidthDp * 0.75f
         screenWidthDp < 600.dp -> (screenWidthDp * 0.75f).coerceAtMost(280.dp)
         else -> 280.dp
     }
-    
-    // Responsive padding based on screen size
+
     val bubblePadding = when {
-        screenWidthDp < 380.dp -> 8.dp  // Smaller padding for tiny screens
-        screenWidthDp < 600.dp -> 10.dp // Medium padding for phones
-        else -> 12.dp                    // Regular padding for larger screens
+        screenWidthDp < 380.dp -> 8.dp
+        screenWidthDp < 600.dp -> 10.dp
+        else -> 12.dp
     }
-    
-    // Responsive font sizes
+
     val messageFontSize = when {
         screenWidthDp < 380.dp -> 12.sp
         screenWidthDp < 600.dp -> 13.sp
         else -> 14.sp
     }
-    
+
     val timestampFontSize = when {
         screenWidthDp < 380.dp -> 9.sp
         screenWidthDp < 600.dp -> 10.sp
         else -> 11.sp
     }
-    
+
     val scaleAnimation by animateFloatAsState(
         targetValue = 1f,
         animationSpec = spring(dampingRatio = 0.65f, stiffness = 300f)
     )
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -3865,7 +3205,6 @@ fun MessageBubble(
             verticalAlignment = Alignment.Bottom
         ) {
             if (!message.isSender) {
-                // ✅ FIXED: Fallback to initial letter if no avatar URL
                 Box(
                     modifier = Modifier
                         .size(28.dp)
@@ -3900,13 +3239,12 @@ fun MessageBubble(
                     }
                 }
             }
-            
+
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Show reply context if this message is replying to another
-                if (!message.replyToMessageId.isNullOrEmpty() && 
+                if (!message.replyToMessageId.isNullOrEmpty() &&
                     message.replyToMessageId != "null" &&
                     (!message.replyToUsername.isNullOrEmpty() || !message.replyToText.isNullOrEmpty())) {
                     Surface(
@@ -3921,18 +3259,17 @@ fun MessageBubble(
                                 .height(IntrinsicSize.Min)
                                 .fillMaxWidth()
                         ) {
-                            // Left accent bar to distinguish reply
                             Box(
                                 modifier = Modifier
                                     .width(4.dp)
                                     .fillMaxHeight()
                                     .background(
-                                        if (message.isSender) Color.Black.copy(alpha = 0.6f) 
+                                        if (message.isSender) Color.Black.copy(alpha = 0.6f)
                                         else CyberpunkTheme.CyberCyan,
                                         RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
                                     )
                             )
-                            
+
                             Column(
                                 modifier = Modifier
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -3971,7 +3308,6 @@ fun MessageBubble(
                     }
                 }
 
-                // ✅ NEW: Show sender name with color coding for recipient messages
                 if (!message.isSender) {
                     Text(
                         text = message.senderName,
@@ -3983,10 +3319,9 @@ fun MessageBubble(
 
                 when {
                     isMediaMessage && isVideo -> {
-                        // CRITICAL FIX: Enable video playback status
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "🎥 Video: $fileName",
+                                text = " Video: $fileName",
                                 color = if (message.isSender) CyberpunkTheme.Black else CyberpunkTheme.CyberCyan,
                                 fontSize = messageFontSize,
                                 fontWeight = FontWeight.Bold
@@ -4001,11 +3336,11 @@ fun MessageBubble(
                                 )
                             }
                         }
-                        
+
                         when (mediaApprovalStatus) {
                             "approved" -> {
                                 Button(
-                                    onClick = { /* Open video player */ },
+                                    onClick = { },
                                     modifier = Modifier.fillMaxWidth(0.8f).height(32.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF51CF66)),
                                     shape = RoundedCornerShape(6.dp),
@@ -4017,7 +3352,7 @@ fun MessageBubble(
                                 }
                             }
                             "pending" -> {
-                                Text("⏳ Waiting for approval...", color = Color(0xFFFFD700), fontSize = messageFontSize * 0.8f)
+                                Text(" Waiting for approval...", color = Color(0xFFFFD700), fontSize = messageFontSize * 0.8f)
                             }
                             else -> {
                                 if (!message.isSender && !isPublicMedia) {
@@ -4028,7 +3363,7 @@ fun MessageBubble(
                                         shape = RoundedCornerShape(6.dp),
                                         contentPadding = PaddingValues(8.dp)
                                     ) {
-                                        Text("🔓 Request to Watch", fontSize = 11.sp)
+                                        Text(" Request to Watch", fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -4045,27 +3380,29 @@ fun MessageBubble(
                                     .data("$baseUrl/api/media/$mediaId/download")
                                     .addHeader("Authorization", "Bearer $token")
                                     .crossfade(true)
+                                    .size(800)
                                     .build(),
                                 contentDescription = fileName,
                                 modifier = Modifier
-                                    .fillMaxWidth(0.8f)
-                                    .heightIn(max = 200.dp)
+                                    .fillMaxWidth()
+                                    .heightIn(max = 300.dp)
                                     .clip(RoundedCornerShape(8.dp)),
                                 contentScale = ContentScale.Fit,
-                                onError = { imageLoadError = "Load failed" }
+                                onError = { state ->
+                                    imageLoadError = "Load failed: ${state.result.throwable?.message ?: "Check your connection"}"
+                                }
                             )
                             if (imageLoadError != null) {
                                 Text(
-                                    "❌ ${imageLoadError}",
+                                    " ${imageLoadError}",
                                     color = Color(0xFFFF6B6B),
                                     fontSize = messageFontSize * 0.8f,
                                 )
                             }
                         } else {
-                            // Protected media: show lock icon + existing approval flow
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "🖼️ Image: $fileName",
+                                    text = " Image: $fileName",
                                     color = if (message.isSender) CyberpunkTheme.Black else CyberpunkTheme.CyberCyan,
                                     fontSize = messageFontSize,
                                     fontWeight = FontWeight.Bold
@@ -4078,16 +3415,15 @@ fun MessageBubble(
                                     tint = Color(0xFFAA8800)
                                 )
                             }
-                            
+
                             when (mediaApprovalStatus) {
                                 "approved" -> {
                                     if (mediaId in visibleImageMediaIds) {
-                                        // ✅ FIX: Load and display decrypted image preview
                                         var cachedImagePath by remember(mediaId) { mutableStateOf<String?>(null) }
                                         var isLoadingImage by remember(mediaId) { mutableStateOf(true) }
                                         var imageLoadError by remember(mediaId) { mutableStateOf<String?>(null) }
                                         val context = LocalContext.current
-                                        
+
                                         LaunchedEffect(mediaId) {
                                             withContext(Dispatchers.IO) {
                                                 try {
@@ -4099,12 +3435,12 @@ fun MessageBubble(
                                                         .addHeader("Authorization", "Bearer $token")
                                                         .get()
                                                         .build()
-                                                    
+
                                                     val response = client.newCall(request).execute()
-                                                    
+
                                                     if (response.isSuccessful) {
                                                         val encryptedData = response.body?.bytes() ?: ByteArray(0)
-                                                        
+
                                                         if (encryptedData.isNotEmpty()) {
                                                             val cacheDir = context.cacheDir
                                                             val ext = when {
@@ -4129,7 +3465,7 @@ fun MessageBubble(
                                                 }
                                             }
                                         }
-                                        
+
                                         when {
                                             isLoadingImage -> {
                                                 CircularProgressIndicator(
@@ -4141,8 +3477,8 @@ fun MessageBubble(
                                             cachedImagePath != null -> {
                                                 Box(
                                                     modifier = Modifier
-                                                        .fillMaxWidth(0.8f)
-                                                        .heightIn(max = 200.dp)
+                                                        .fillMaxWidth()
+                                                        .heightIn(max = 300.dp)
                                                         .clip(RoundedCornerShape(8.dp))
                                                         .background(Color(0xFF1a1a2e))
                                                 ) {
@@ -4151,7 +3487,7 @@ fun MessageBubble(
                                                         contentDescription = fileName,
                                                         modifier = Modifier
                                                             .fillMaxWidth()
-                                                            .heightIn(max = 200.dp)
+                                                            .heightIn(max = 300.dp)
                                                             .clip(RoundedCornerShape(8.dp)),
                                                         contentScale = ContentScale.Fit
                                                     )
@@ -4159,7 +3495,7 @@ fun MessageBubble(
                                             }
                                             imageLoadError != null -> {
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("🔒", fontSize = 28.sp)
+                                                    Text("", fontSize = 28.sp)
                                                     Spacer(Modifier.height(4.dp))
                                                     Text("Protected", color = Color(0xFFAA8800), fontSize = messageFontSize * 0.8f, fontWeight = FontWeight.Bold)
                                                     Spacer(Modifier.height(8.dp))
@@ -4170,20 +3506,20 @@ fun MessageBubble(
                                                         shape = RoundedCornerShape(6.dp),
                                                         contentPadding = PaddingValues(8.dp)
                                                     ) {
-                                                        Text("🔓 Request Download", fontSize = 11.sp)
+                                                        Text(" Request Download", fontSize = 11.sp)
                                                     }
                                                 }
                                             }
                                         }
-                                        
+
                                         Text(
-                                            "📸 Preview active (auto-hides in 3 seconds)",
+                                            " Preview active (auto-hides in 3 seconds)",
                                             color = Color(0xFF51CF66),
                                             fontSize = messageFontSize * 0.8f
                                         )
                                     } else {
                                         Text(
-                                            "👁️ Preview expired",
+                                            " Preview expired",
                                             color = CyberpunkTheme.GhostGray,
                                             fontSize = messageFontSize * 0.8f
                                         )
@@ -4191,20 +3527,19 @@ fun MessageBubble(
                                 }
                                 "pending" -> {
                                     Text(
-                                        "⏳ Waiting for approval...",
+                                        " Waiting for approval...",
                                         color = Color(0xFFFFD700),
                                         fontSize = messageFontSize * 0.8f
                                     )
                                 }
                                 "denied" -> {
                                     Text(
-                                        "❌ Download denied",
+                                        " Download denied",
                                         color = Color(0xFFFF6B6B),
                                         fontSize = messageFontSize * 0.8f
                                     )
                                 }
                                 else -> {
-                                    // No approval request yet
                                     if (!message.isSender) {
                                         Text(
                                             "Request download from owner",
@@ -4222,7 +3557,7 @@ fun MessageBubble(
                                             shape = RoundedCornerShape(6.dp),
                                             contentPadding = PaddingValues(8.dp)
                                         ) {
-                                            Text("🔓 Request Download", fontSize = 11.sp)
+                                            Text(" Request Download", fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -4230,13 +3565,12 @@ fun MessageBubble(
                         }
                     }
                     isMediaMessage -> {
-                        // Generic file (audio, document, archive, etc.)
                         val fileIcon = when {
-                            message.mediaType == "audio" || fileName?.endsWith(".mp3", ignoreCase = true) == true || fileName?.endsWith(".wav", ignoreCase = true) == true || fileName?.endsWith(".flac", ignoreCase = true) == true || fileName?.endsWith(".ogg", ignoreCase = true) == true -> "🎵"
-                            fileName?.endsWith(".pdf", ignoreCase = true) == true -> "📄"
-                            fileName?.endsWith(".zip", ignoreCase = true) == true || fileName?.endsWith(".rar", ignoreCase = true) == true || fileName?.endsWith(".7z", ignoreCase = true) == true -> "📦"
-                            fileName?.endsWith(".apk", ignoreCase = true) == true -> "📱"
-                            else -> "📁"
+                            message.mediaType == "audio" || fileName?.endsWith(".mp3", ignoreCase = true) == true || fileName?.endsWith(".wav", ignoreCase = true) == true || fileName?.endsWith(".flac", ignoreCase = true) == true || fileName?.endsWith(".ogg", ignoreCase = true) == true -> ""
+                            fileName?.endsWith(".pdf", ignoreCase = true) == true -> ""
+                            fileName?.endsWith(".zip", ignoreCase = true) == true || fileName?.endsWith(".rar", ignoreCase = true) == true || fileName?.endsWith(".7z", ignoreCase = true) == true -> ""
+                            fileName?.endsWith(".apk", ignoreCase = true) == true -> ""
+                            else -> ""
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -4270,7 +3604,7 @@ fun MessageBubble(
                                 }
                             }
                             "pending" -> {
-                                Text("⏳ Waiting for approval...", color = Color(0xFFFFD700), fontSize = messageFontSize * 0.8f)
+                                Text(" Waiting for approval...", color = Color(0xFFFFD700), fontSize = messageFontSize * 0.8f)
                             }
                             else -> {
                                 if (!message.isSender && !isPublicMedia) {
@@ -4281,21 +3615,20 @@ fun MessageBubble(
                                         shape = RoundedCornerShape(6.dp),
                                         contentPadding = PaddingValues(8.dp)
                                     ) {
-                                        Text("🔓 Request Download", fontSize = 11.sp)
+                                        Text(" Request Download", fontSize = 11.sp)
                                     }
                                 }
                             }
                         }
                     }
                     else -> {
-                        // Display text message with clickable links
                         val uriHandler = LocalUriHandler.current
                         val annotatedString = buildClickableText(message.content)
 
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (message.isAnnouncement && !message.subject.isNullOrBlank()) {
                                 Text(
-                                    text = "📢 ${message.subject}",
+                                    text = " ${message.subject}",
                                     style = MaterialTheme.typography.labelMedium.copy(
                                         fontWeight = FontWeight.Bold
                                     ),
@@ -4324,8 +3657,7 @@ fun MessageBubble(
                         }
                     }
                 }
-                
-                // ✅ NEW: Media download request approval UI (for sender)
+
                 if (message.isSender && message.pendingRequests.isNotEmpty()) {
                     Surface(
                         color = Color.Black.copy(alpha = 0.2f),
@@ -4386,8 +3718,7 @@ fun MessageBubble(
                 }
             }
         }
-        
-        // Timestamp + Status Indicators
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -4398,8 +3729,7 @@ fun MessageBubble(
                 color = CyberpunkTheme.GhostGray,
                 fontSize = timestampFontSize
             )
-            
-            // Status indicators (only for sender)
+
             if (message.isSender) {
                 when (message.status) {
                     "sending" -> {
@@ -4411,7 +3741,7 @@ fun MessageBubble(
                     }
                     "sent" -> {
                         Text(
-                            "✓",
+                            "",
                             color = Color.Gray,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -4419,8 +3749,8 @@ fun MessageBubble(
                     }
                     "delivered" -> {
                         Text(
-                            "✓✓",
-                            color = Color(0xFF51CF66), // Green for delivered
+                            "",
+                            color = Color(0xFF51CF66),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -4430,17 +3760,16 @@ fun MessageBubble(
                             Icons.Default.Error,
                             "Failed",
                             modifier = Modifier.size(10.dp),
-                            tint = Color(0xFFFF6B6B) // Red for failure
+                            tint = Color(0xFFFF6B6B)
                         )
                     }
                 }
             }
-            
-            // Read receipt (✓✓ with blue check)
+
             if (message.isSender && message.isRead) {
                 Text(
-                    "✓✓",
-                    color = Color(0xFF2196F3), // Blue for read
+                    "",
+                    color = Color(0xFF2196F3),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -4511,7 +3840,7 @@ fun MascotChatTip(
                     .size(48.dp),
                 contentScale = ContentScale.Fit
             )
-            
+
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -4519,19 +3848,19 @@ fun MascotChatTip(
                 verticalArrangement = Arrangement.SpaceEvenly
             ) {
                 Text(
-                    "Tip: Use reactions! 👍❤️😂",
+                    "Tip: Use reactions! ",
                     color = CyberpunkTheme.CyberCyan,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
-                
+
                 Text(
                     "Long-press messages to react",
                     color = CyberpunkTheme.LightGray,
                     fontSize = 11.sp
                 )
             }
-            
+
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier.size(32.dp)
@@ -4562,29 +3891,27 @@ fun ChatInputArea(
     onFocusChange: ((Boolean) -> Unit) = {},
     offlineMode: Boolean = false
 ) {
-    // Debounce typing indicator sends
     LaunchedEffect(messageText) {
         if (messageText.isNotEmpty()) {
             onTyping?.invoke()
         }
     }
-    
+
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.dp
-    
-    // Responsive input padding
+
     val inputPadding = when {
         screenWidthDp < 380.dp -> 8.dp
         screenWidthDp < 600.dp -> 10.dp
         else -> 12.dp
     }
-    
+
     val inputFontSize = when {
         screenWidthDp < 380.dp -> 12.sp
         screenWidthDp < 600.dp -> 12.sp
         else -> 13.sp
     }
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -4599,7 +3926,6 @@ fun ChatInputArea(
             )
             .padding(inputPadding)
     ) {
-        // Reply Preview
         if (replyTo != null) {
             Surface(
                 modifier = Modifier
@@ -4619,7 +3945,7 @@ fun ChatInputArea(
                             .fillMaxHeight()
                             .background(CyberpunkTheme.CyberCyan)
                     )
-                    
+
                     Column(
                         modifier = Modifier
                             .padding(8.dp)
@@ -4639,7 +3965,7 @@ fun ChatInputArea(
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
-                    
+
                     IconButton(
                         onClick = onCancelReply,
                         modifier = Modifier.size(32.dp).align(Alignment.CenterVertically)
@@ -4659,42 +3985,48 @@ fun ChatInputArea(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color(0xFF0F0F1E))
-                .padding(8.dp),
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
                 onClick = {
                     if (!offlineMode) onAttachClick()
                 },
-                enabled = !offlineMode
+                enabled = !offlineMode,
+                modifier = Modifier.size(32.dp).scaleOnPressEffect()
             ) {
                 Icon(
                     Icons.Default.AttachFile,
                     null,
-                    tint = if (offlineMode) Color.Gray.copy(alpha = 0.4f) else Color.Gray
+                    tint = if (offlineMode) Color.Gray.copy(alpha = 0.4f) else Color.Gray,
+                    modifier = Modifier.size(18.dp)
                 )
             }
-            
+
             if (onGifClick != null) {
                 IconButton(
                     onClick = {
                         if (!offlineMode) onGifClick()
                     },
-                    enabled = !offlineMode
+                    enabled = !offlineMode,
+                    modifier = Modifier.size(32.dp).scaleOnPressEffect()
                 ) {
                     Text(
                         "GIF",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         color = if (offlineMode) Color.Gray.copy(alpha = 0.4f) else Color.Gray
                     )
                 }
             }
-            
-            IconButton(onClick = onEmojiClick) {
-                Icon(Icons.Default.EmojiEmotions, null, tint = Color.Gray)
+
+            IconButton(
+                onClick = onEmojiClick,
+                modifier = Modifier.size(32.dp).scaleOnPressEffect()
+            ) {
+                Icon(Icons.Default.EmojiEmotions, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
             }
-            
+
             TextField(
                 value = messageText,
                 onValueChange = { newValue ->
@@ -4704,7 +4036,7 @@ fun ChatInputArea(
                 modifier = Modifier
                     .weight(1f)
                     .onFocusChanged { focusState -> onFocusChange(focusState.isFocused) },
-                placeholder = { Text("Type a message...", color = Color.Gray) },
+                placeholder = { Text("Message", color = Color.Gray, fontSize = 13.sp) },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF1A1A2E),
                     unfocusedContainerColor = Color(0xFF1A1A2E),
@@ -4714,20 +4046,23 @@ fun ChatInputArea(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 ),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(20.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSendClick() })
+                keyboardActions = KeyboardActions(onSend = { onSendClick() }),
+                textStyle = TextStyle(fontSize = 13.sp)
             )
-            
+
             IconButton(
                 onClick = onSendClick,
                 enabled = messageText.isNotBlank(),
+                modifier = Modifier.size(32.dp).scaleOnPressEffect()
             ) {
-                    Icon(
-                        Icons.Default.Send,
-                        null,
-                        tint = if (messageText.isNotBlank()) CyberpunkTheme.CyberCyan else Color.Gray
-                    )
+                Icon(
+                    Icons.Default.Send,
+                    null,
+                    tint = if (messageText.isNotBlank()) CyberpunkTheme.CyberCyan else Color.Gray,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
@@ -4751,16 +4086,16 @@ fun EmptyChatMessage(mascotVisible: Boolean) {
                 contentScale = ContentScale.Fit
             )
         }
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Text(
             "Start the conversation!",
             color = CyberpunkTheme.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
-        
+
         Text(
             "Say hello to get things rolling",
             color = CyberpunkTheme.LightGray,
@@ -4770,7 +4105,6 @@ fun EmptyChatMessage(mascotVisible: Boolean) {
     }
 }
 
-// Helper function to format message timestamps
 fun formatMessageTime(timestamp: Long): String {
     return try {
         val dateFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
@@ -4779,29 +4113,14 @@ fun formatMessageTime(timestamp: Long): String {
         "Now"
     }
 }
-// Format call duration
-fun formatCallDuration(seconds: Int): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val secs = seconds % 60
-    
-    return if (hours > 0) {
-        String.format("%02d:%02d:%02d", hours, minutes, secs)
-    } else {
-        String.format("%02d:%02d", minutes, secs)
-    }
-}
 
-// Helper function to extract filename from URI
 fun getFileNameFromUri(context: Context, uri: Uri): String? {
     var fileName: String? = null
-    
-    // Try to get filename from MediaStore/ContentResolver
+
     try {
         val cursor = context.contentResolver.query(uri, null, null, null, null)
         cursor?.use {
             if (it.moveToFirst()) {
-                // Try OpenableColumns.DISPLAY_NAME first
                 val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                 if (nameIndex >= 0) {
                     fileName = it.getString(nameIndex)
@@ -4812,19 +4131,16 @@ fun getFileNameFromUri(context: Context, uri: Uri): String? {
         android.util.Log.e("FREETIME_MEDIA", "Error getting filename from cursor: ${e.message}")
     }
 
-    // Fallback to URI path
     if (fileName == null) {
         fileName = uri.path?.substringAfterLast('/')
     }
 
-    // Ensure extension is present if we can determine it from MIME type
     if (fileName != null) {
         try {
             val mimeType = context.contentResolver.getType(uri)
             if (mimeType != null) {
                 val extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
                 if (extension != null && !fileName!!.endsWith(".$extension", ignoreCase = true)) {
-                    // Check if it already has SOME extension, if not, add the one from MIME type
                     if (!fileName!!.contains(".")) {
                         fileName = "$fileName.$extension"
                     }
@@ -4834,264 +4150,7 @@ fun getFileNameFromUri(context: Context, uri: Uri): String? {
             android.util.Log.e("FREETIME_MEDIA", "Error ensuring extension: ${e.message}")
         }
     }
-    
+
     return fileName
 }
 
-// In-chat call overlay - WhatsApp style voice call UI
-@Composable
-fun ChatCallOverlay(
-    recipientName: String,
-    callState: CallState,
-    callDuration: Int,
-    isMuted: Boolean = false,
-    isSpeakerOn: Boolean = false,
-    errorMessage: String = "",
-    onToggleMute: () -> Unit = {},
-    onToggleSpeaker: () -> Unit = {},
-    onHangup: () -> Unit,
-    onAccept: (() -> Unit)? = null,
-    onReject: (() -> Unit)? = null
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth(0.9f)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFF1A1A2E))
-            .border(
-                width = 1.dp,
-                color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(20.dp)
-            )
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        // Avatar / Status
-        val safeName = recipientName.trim().ifEmpty { "Friend" }
-        Box(
-            modifier = Modifier
-                .size(100.dp)
-                .clip(CircleShape)
-                .background(
-                    color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.2f)
-                )
-                .border(
-                    width = 2.dp,
-                    color = CyberpunkTheme.CyberCyan,
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                safeName.first().uppercaseChar().toString(),
-                color = CyberpunkTheme.CyberCyan,
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        // Recipient Name
-        Text(
-            safeName,
-            color = CyberpunkTheme.White,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-        
-        // Call Status / Duration
-        when (callState) {
-            CallState.INITIATING -> {
-                Text(
-                    "Calling...",
-                    color = CyberpunkTheme.LightGray,
-                    fontSize = 14.sp
-                )
-            }
-            CallState.RINGING -> {
-                Text(
-                    if (onAccept != null) "Incoming Call..." else "Ringing...",
-                    color = CyberpunkTheme.CyberCyan,
-                    fontSize = 14.sp
-                )
-            }
-            CallState.CONNECTING -> {
-                Text(
-                    "Connecting...",
-                    color = CyberpunkTheme.CyberCyan,
-                    fontSize = 14.sp
-                )
-            }
-            CallState.ACTIVE -> {
-                Text(
-                    formatCallDuration(callDuration),
-                    color = CyberpunkTheme.CyberCyan,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            CallState.FAILED -> {
-                Text(
-                    "Call Failed",
-                    color = Color(0xFFFF6B6B),
-                    fontSize = 14.sp
-                )
-            }
-            CallState.ENDED -> {
-                Text(
-                    "Call Ended",
-                    color = CyberpunkTheme.LightGray,
-                    fontSize = 14.sp
-                )
-            }
-        }
-        
-        // ✅ ADD: Error message display
-        if (errorMessage.isNotEmpty()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF2A1A1A)),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF3A2A2A)
-                ),
-                border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    errorMessage,
-                    modifier = Modifier.padding(12.dp),
-                    color = Color(0xFFFF6B6B),
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            }
-        }
-        
-        // Control Buttons
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // During RINGING state with accept available (incoming call) show Accept/Decline
-            if (callState == CallState.RINGING && onAccept != null) {
-                // Decline button
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Button(
-                        onClick = onReject ?: onHangup,
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF6B6B)
-                        ),
-                        shape = CircleShape
-                    ) {
-                        Icon(
-                            Icons.Default.CallEnd,
-                            "Decline",
-                            tint = CyberpunkTheme.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Decline", color = CyberpunkTheme.LightGray, fontSize = 11.sp)
-                }
-                // Accept button
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Button(
-                        onClick = onAccept,
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF4CAF50)
-                        ),
-                        shape = CircleShape
-                    ) {
-                        Icon(
-                            Icons.Default.Call,
-                            "Accept",
-                            tint = CyberpunkTheme.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Accept", color = CyberpunkTheme.LightGray, fontSize = 11.sp)
-                }
-            } else {
-                // Active / outgoing ringing / initiating / ended / failed states
-                if (callState == CallState.ACTIVE) {
-                    // Mute button
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Button(
-                            onClick = onToggleMute,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isMuted) CyberpunkTheme.PrimaryPurple else CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f)
-                            ),
-                            shape = CircleShape
-                        ) {
-                            Icon(
-                                if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                null,
-                                tint = CyberpunkTheme.CyberCyan,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(if (isMuted) "Unmute" else "Mute", color = CyberpunkTheme.LightGray, fontSize = 10.sp)
-                    }
-                    
-                    // Speaker button
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Button(
-                            onClick = onToggleSpeaker,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSpeakerOn) CyberpunkTheme.PrimaryPurple else CyberpunkTheme.PrimaryPurple.copy(alpha = 0.3f)
-                            ),
-                            shape = CircleShape
-                        ) {
-                            Icon(
-                                if (isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
-                                null,
-                                tint = CyberpunkTheme.CyberCyan,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Speaker", color = CyberpunkTheme.LightGray, fontSize = 10.sp)
-                    }
-                }
-
-                // Hangup button - Always visible for non-incoming states
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Button(
-                        onClick = onHangup,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF6B6B)
-                        ),
-                        shape = CircleShape
-                    ) {
-                        Icon(
-                            Icons.Default.CallEnd,
-                            null,
-                            tint = CyberpunkTheme.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("End", color = CyberpunkTheme.LightGray, fontSize = 10.sp)
-                }
-            }
-        }
-    }
-}

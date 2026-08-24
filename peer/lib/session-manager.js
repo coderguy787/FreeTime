@@ -1,43 +1,33 @@
-/**
- * Session Manager
- * Manages user sessions across distributed peers via Redis
- * Provides session persistence and distribution
- */
-
 const { v4: uuidv4 } = require('uuid');
 
+// user sessions stored in redis
 class SessionManager {
     constructor(redisClient, options = {}) {
         this.redis = redisClient;
-        this.sessionTTL = options.sessionTTL || 86400; // 24 hours
+        this.sessionTTL = options.sessionTTL || 86400;
         this.sessionPrefix = 'session:';
         this.userSessionPrefix = 'user_sessions:';
     }
 
-    /**
-     * Create a new session
-     */
     async createSession(userId, deviceId, token, metadata = {}) {
         const sessionId = uuidv4();
-        
+
         const sessionData = {
             id: sessionId,
             userId,
             deviceId,
-            token: token.substring(0, 20) + '...', // Don't store full token
+            token: token.substring(0, 20) + '...',
             createdAt: Date.now(),
             lastActivity: Date.now(),
             ...metadata
         };
 
-        // Store session
         await this.redis.setex(
             `${this.sessionPrefix}${sessionId}`,
             this.sessionTTL,
             JSON.stringify(sessionData)
         );
 
-        // Track user sessions
         await this.redis.lpush(
             `${this.userSessionPrefix}${userId}`,
             sessionId
@@ -46,23 +36,17 @@ class SessionManager {
         return sessionData;
     }
 
-    /**
-     * Get session by ID
-     */
     async getSession(sessionId) {
         const data = await this.redis.get(`${this.sessionPrefix}${sessionId}`);
         return data ? JSON.parse(data) : null;
     }
 
-    /**
-     * Update session activity
-     */
     async updateSessionActivity(sessionId) {
         const session = await this.getSession(sessionId);
         if (!session) return null;
 
         session.lastActivity = Date.now();
-        
+
         await this.redis.setex(
             `${this.sessionPrefix}${sessionId}`,
             this.sessionTTL,
@@ -72,9 +56,6 @@ class SessionManager {
         return session;
     }
 
-    /**
-     * Get all sessions for a user
-     */
     async getUserSessions(userId) {
         const sessionIds = await this.redis.lrange(
             `${this.userSessionPrefix}${userId}`,
@@ -93,16 +74,12 @@ class SessionManager {
         return sessions;
     }
 
-    /**
-     * Invalidate a session
-     */
     async invalidateSession(sessionId) {
         const session = await this.getSession(sessionId);
         if (!session) return false;
 
         await this.redis.del(`${this.sessionPrefix}${sessionId}`);
 
-        // Remove from user sessions list
         await this.redis.lrem(
             `${this.userSessionPrefix}${session.userId}`,
             0,
@@ -112,9 +89,6 @@ class SessionManager {
         return true;
     }
 
-    /**
-     * Invalidate all sessions for a user
-     */
     async invalidateUserSessions(userId) {
         const sessionIds = await this.redis.lrange(
             `${this.userSessionPrefix}${userId}`,
@@ -130,17 +104,11 @@ class SessionManager {
         return sessionIds.length;
     }
 
-    /**
-     * Check if device is registered for user
-     */
     async isDeviceRegistered(userId, deviceId) {
         const sessions = await this.getUserSessions(userId);
         return sessions.some(s => s.deviceId === deviceId);
     }
 
-    /**
-     * Get session statistics
-     */
     async getStats() {
         const keys = await this.redis.keys(`${this.sessionPrefix}*`);
         const totalSessions = keys.length;

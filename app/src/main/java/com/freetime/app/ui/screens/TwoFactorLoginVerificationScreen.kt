@@ -31,10 +31,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 
-/**
- * 2FA Login Verification Screen
- * Handles TOTP code entry during login when 2FA is required
- */
 @Composable
 fun TwoFactorLoginVerificationScreen(
     tempToken: String,
@@ -44,40 +40,36 @@ fun TwoFactorLoginVerificationScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+
     if (setupRequired) {
-        // User needs to setup 2FA first (first login after account creation)
         TwoFactorSetupDuringRegistrationScreen(
             tempToken = tempToken,
             onSetupComplete = onSuccess,
             onError = onError
         )
     } else {
-        // User already has 2FA setup, just verify the code
         val deviceSize = rememberDeviceSize(context)
-        
+
         var totpCode by remember { mutableStateOf("") }
         var isLoading by remember { mutableStateOf(false) }
         var errorMessage by remember { mutableStateOf("") }
         var attemptsRemaining by remember { mutableStateOf(5) }
-        var timeRemaining by remember { mutableStateOf(150) } // 2 minutes 30 seconds
+        var timeRemaining by remember { mutableStateOf(150) }
         var isLocked by remember { mutableStateOf(false) }
         var useBackupCode by remember { mutableStateOf(false) }
 
-        // Countdown timer - expires after 2:30 and redirects to login
+        // 2fa verification during login
         LaunchedEffect(Unit) {
             while (timeRemaining > 0 && !isLocked) {
                 delay(1000)
                 timeRemaining--
-                
+
                 if (timeRemaining == 0) {
                     isLocked = true
                     errorMessage = "Verification window expired. Please try logging in again."
-                    // Clear temp token
                     val prefs = SharedPreferencesHelper(context)
                     prefs.clearTempToken()
-                    
-                    // Auto-redirect to login after 2 seconds
+
                     delay(2000)
                     onError("Session expired")
                 }
@@ -97,7 +89,6 @@ fun TwoFactorLoginVerificationScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(responsiveSpacingLarge(deviceSize))
         ) {
-            // Show either TOTP or Backup Code screen based on selection
             if (useBackupCode) {
                 TwoFactorBackupCodeVerificationScreenContent(
                     tempToken = tempToken,
@@ -131,9 +122,6 @@ fun TwoFactorLoginVerificationScreen(
     }
 }
 
-/**
- * TOTP Code Entry Screen Content
- */
 @Composable
 fun TwoFactorTotpVerificationScreenContent(
     tempToken: String,
@@ -160,7 +148,6 @@ fun TwoFactorTotpVerificationScreenContent(
     ) {
         Spacer(modifier = Modifier.height(responsiveSpacingLarge(deviceSize)))
 
-    // Header
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(responsiveSpacingSmall(deviceSize))
@@ -171,7 +158,7 @@ fun TwoFactorTotpVerificationScreenContent(
             tint = PrimaryMagenta,
             modifier = Modifier.size(responsiveIconLarge(deviceSize))
         )
-        
+
         Text(
             "Two-Factor Authentication",
             style = MaterialTheme.typography.headlineMedium.copy(
@@ -180,7 +167,7 @@ fun TwoFactorTotpVerificationScreenContent(
             color = PrimaryMagenta,
             textAlign = TextAlign.Center
         )
-        
+
         Text(
             "Enter your 6-digit authenticator code",
             style = MaterialTheme.typography.bodyMedium,
@@ -191,7 +178,6 @@ fun TwoFactorTotpVerificationScreenContent(
 
     Spacer(modifier = Modifier.height(32.dp))
 
-    // Error Message
     AnimatedVisibility(
         visible = errorMessage.isNotEmpty(),
         enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
@@ -208,12 +194,12 @@ fun TwoFactorTotpVerificationScreenContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    "⚠️ $errorMessage",
+                    " $errorMessage",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFFFF5252),
                     fontWeight = FontWeight.Bold
                 )
-                
+
                 if (attemptsRemaining > 0 && attemptsRemaining < 5) {
                     Text(
                         "Attempts remaining: $attemptsRemaining/5",
@@ -225,7 +211,6 @@ fun TwoFactorTotpVerificationScreenContent(
         }
     }
 
-    // TOTP Code Input
     OutlinedTextField(
         value = totpCode,
         onValueChange = { if (it.length <= 6) onTotpChange(it) },
@@ -265,7 +250,6 @@ fun TwoFactorTotpVerificationScreenContent(
 
     Spacer(modifier = Modifier.height(responsiveSpacingLarge(deviceSize)))
 
-    // Timer Display
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -284,7 +268,7 @@ fun TwoFactorTotpVerificationScreenContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
-            
+
             Text(
                 "${timeRemaining / 60}:${String.format("%02d", timeRemaining % 60)}",
                 style = MaterialTheme.typography.labelLarge.copy(
@@ -298,7 +282,6 @@ fun TwoFactorTotpVerificationScreenContent(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Verify Button
         Button(
         onClick = {
             when {
@@ -311,7 +294,7 @@ fun TwoFactorTotpVerificationScreenContent(
                             tempToken = tempToken,
                             totpCode = totpCode,
                             context = context,
-                            force = false, // Initial attempt not forced
+                            force = false,
                             onSuccess = {
                                 Toast.makeText(context, "Login successful!", Toast.LENGTH_SHORT).show()
                                 onSuccess()
@@ -319,8 +302,7 @@ fun TwoFactorTotpVerificationScreenContent(
                             onError = { error ->
                                 setErrorMessage(error)
                                 onTotpChange("")
-                                
-                                // Update attempts remaining
+
                                 if (error.contains("attempt")) {
                                     setAttemptsRemaining(when {
                                         error.contains("4") -> 4
@@ -360,7 +342,6 @@ fun TwoFactorTotpVerificationScreenContent(
         }
     }
 
-    // Backup Code Option
         TextButton(
             onClick = onUseBackupCode,
             modifier = Modifier.fillMaxWidth(),
@@ -377,9 +358,6 @@ fun TwoFactorTotpVerificationScreenContent(
     }
 }
 
-/**
- * Backup Code Entry Screen Content
- */
 @Composable
 fun TwoFactorBackupCodeVerificationScreenContent(
     tempToken: String,
@@ -390,7 +368,7 @@ fun TwoFactorBackupCodeVerificationScreenContent(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+
     var backupCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -407,13 +385,13 @@ fun TwoFactorBackupCodeVerificationScreenContent(
             tint = PrimaryMagenta,
             modifier = Modifier.size(64.dp)
         )
-        
+
         Text(
             "Use Backup Code",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
             color = PrimaryMagenta
         )
-        
+
         Text(
             "Enter one of your backup codes",
             style = MaterialTheme.typography.bodyMedium,
@@ -452,13 +430,12 @@ fun TwoFactorBackupCodeVerificationScreenContent(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        "⚠️ $errorMessage",
+                        " $errorMessage",
                         color = Color(0xFFFF5252),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold
                     )
-                    
-                    // ✅ NEW: Show force login option if account is in use
+
                     if (errorMessage.contains("account already in use", ignoreCase = true)) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
@@ -503,7 +480,7 @@ fun TwoFactorBackupCodeVerificationScreenContent(
                                 tempToken = tempToken,
                                 backupCode = backupCode,
                                 context = context,
-                                force = false, // Initial attempt not forced
+                                force = false,
                                 onSuccess = {
                                     Toast.makeText(context, "Login successful!", Toast.LENGTH_SHORT).show()
                                     onSuccess()
@@ -538,14 +515,13 @@ fun TwoFactorBackupCodeVerificationScreenContent(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Back to TOTP Button
         TextButton(
             onClick = onBackToTotp,
             modifier = Modifier.fillMaxWidth(),
             enabled = !isLoading
         ) {
             Text(
-                "← Back to Authenticator Code",
+                " Back to Authenticator Code",
                 color = PrimaryMagenta,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -566,17 +542,16 @@ suspend fun performLoginTwoFactorVerification(
     setLoading(true)
     try {
         val apiService = ApiClient.getInstance()
-        
+
         val response = apiService.verifyLoginTotp(
             token = "Bearer $tempToken",
             request = VerifyLoginTotpRequest(totpCode = totpCode, force = force)
         )
-        
+
         if (response.isSuccessful && response.body() != null) {
             val verifyResponse = response.body()!!
-            
+
             if (verifyResponse.success && verifyResponse.token != null) {
-                // Save token and user info
                 val prefs = SharedPreferencesHelper(context)
                 val user = verifyResponse.user
                 if (user != null) {
@@ -587,7 +562,6 @@ suspend fun performLoginTwoFactorVerification(
                         deviceId = android.os.Build.ID
                     )
                 }
-                // Clear temp token
                 prefs.clearTempToken()
                 onSuccess()
             } else {
@@ -604,7 +578,7 @@ suspend fun performLoginTwoFactorVerification(
                 val message = if (remaining > 0) {
                     "$errorMsg (Attempt ${6 - remaining}/5)"
                 } else {
-                    if (rawErrorMsg == "CONCURRENT_LOGIN") "account already in use" 
+                    if (rawErrorMsg == "CONCURRENT_LOGIN") "account already in use"
                     else "Too many failed attempts. Please try again later."
                 }
                 onError(message)
@@ -619,16 +593,6 @@ suspend fun performLoginTwoFactorVerification(
     }
 }
 
-
-
-/**
- * 2FA Backup Code Entry Screen (for when user doesn't have authenticator)
- * This is now integrated into the main screen via TwoFactorBackupCodeVerificationScreenContent
- */
-
-/**
- * Verify backup code (uses same endpoint as TOTP but with backup code)
- */
 suspend fun performBackupCodeVerification(
     tempToken: String,
     backupCode: String,
@@ -641,16 +605,15 @@ suspend fun performBackupCodeVerification(
     setLoading(true)
     try {
         val apiService = ApiClient.getInstance()
-        
-        // Use verifyLoginTotp endpoint but with backup code instead of TOTP
+
         val response = apiService.verifyLoginTotp(
             token = "Bearer $tempToken",
             request = VerifyLoginTotpRequest(totpCode = backupCode, force = force)
         )
-        
+
         if (response.isSuccessful && response.body() != null) {
             val verifyResponse = response.body()!!
-            
+
             if (verifyResponse.success && verifyResponse.token != null) {
                 val prefs = SharedPreferencesHelper(context)
                 val user = verifyResponse.user
@@ -688,5 +651,4 @@ suspend fun performBackupCodeVerification(
         setLoading(false)
     }
 }
-
 

@@ -1,0 +1,25 @@
+# ===== DEBIAN DEPLOYMENT CONFIGURATION TEMPLATE =====
+# Copy this section to gradle.properties to build for your Debian server
+# Replace YOUR_DEBIAN_IP_OR_DOMAIN with your actual server address
+
+# Example 1: For IP Address (e.g., 192.168.1.50)
+# SERVER_HOST=192.168.1.50
+# PEER_HOST=192.168.1.50
+
+# Example 2: For Domain (e.g., freetime.example.com)
+# SERVER_HOST=freetime.example.com
+# PEER_HOST=freetime.example.com
+
+# Server Configuration (uncomment and update for Debian deployment)
+# These MUST match the PORT_* settings in master-server/config/.env
+# SERVER_HOST=YOUR_DEBIAN_IP_OR_DOMAIN
+# SERVER_PORT=443
+# WEBSOCKET_PORT=8080
+# PEER_PORT=9080
+# PEER_HOST=YOUR_DEBIAN_IP_OR_DOMAIN
+
+# ===== DEFAULT FREETIME PUBLIC SERVER SETTINGS =====
+# (Leave these commented out to use defaults)
+# Defaults point to: chat.example.com:443
+# WebSocket: chat.example.com:8080/ws
+# Peer Network: chat.example.com:9080

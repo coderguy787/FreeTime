@@ -24,12 +24,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.freetime.app.ui.theme.CyberpunkTheme
 
-/**
- * Share Group Invitation Dialog
- * Allows users to share group invitation links across social platforms
- * Supports both deep links (app) and web links (browser/social media)
- * Users can choose expiration duration: 24 hours or never expire
- */
 @Composable
 fun ShareGroupInviteDialog(
     groupId: String,
@@ -41,24 +35,24 @@ fun ShareGroupInviteDialog(
     val clipboardManager = LocalClipboardManager.current
     val apiService = remember { com.freetime.app.api.FreeTimeApiService(context) }
     val scope = rememberCoroutineScope()
-    
-    // Generate links
+
+    // share dialog for group invites
     val deepLink = "freetime://group/invite/$groupId"
     val webLink = "https://example.com/group/invite/$inviteCode"
     val shareMessage = "Join my group '$groupName' on FreeTime! $webLink"
-    
+
     var copiedLink by remember { mutableStateOf<String?>(null) }
-    var selectedExpiration by remember { mutableStateOf("24hours") } // "24hours" or "never"
+    var selectedExpiration by remember { mutableStateOf("24hours") }
     var generatedLink by remember { mutableStateOf(webLink) }
     var expiryText by remember { mutableStateOf("Expires in 24 hours") }
     var isGeneratingLink by remember { mutableStateOf(false) }
     var showExpirationPicker by remember { mutableStateOf(true) }
-    
-    // Trigger link generation when button is clicked
+
+    // invite expiry selectable before generating
     if (!showExpirationPicker && isGeneratingLink) {
         LaunchedEffect(selectedExpiration) {
             try {
-                val expiresIn = if (selectedExpiration == "24hours") 86400000L else 0L // 0 = never expire
+                val expiresIn = if (selectedExpiration == "24hours") 86400000L else 0L
                 val result = apiService.generateExpiringInviteLink(groupId, expiresIn)
                 result.onSuccess { inviteLink ->
                     generatedLink = inviteLink.shareLink
@@ -114,14 +108,12 @@ fun ShareGroupInviteDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Info text
                 Text(
                     "Share this group invitation with friends across social platforms or copy the link",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFB0B0B0)
                 )
 
-                // Group info card
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -148,19 +140,17 @@ fun ShareGroupInviteDialog(
                     }
                 }
 
-                // ✅ NEW: Expiration duration picker
                 if (showExpirationPicker) {
                     Text(
                         "Link Expiration",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFFFF00FF)
                     )
-                    
+
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 24 hours option
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -201,8 +191,7 @@ fun ShareGroupInviteDialog(
                                 )
                             }
                         }
-                        
-                        // Never expire option
+
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -245,7 +234,6 @@ fun ShareGroupInviteDialog(
                         }
                     }
 
-                    // Generate link button
                     Button(
                         onClick = { isGeneratingLink = true },
                         enabled = !isGeneratingLink,
@@ -267,7 +255,6 @@ fun ShareGroupInviteDialog(
                         Text(if (isGeneratingLink) "Generating..." else "Generate Link")
                     }
                 } else {
-                    // Show generated link info
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -294,7 +281,6 @@ fun ShareGroupInviteDialog(
                         }
                     }
 
-                    // Change expiration option
                     TextButton(
                         onClick = { showExpirationPicker = true },
                         modifier = Modifier.fillMaxWidth()
@@ -306,13 +292,12 @@ fun ShareGroupInviteDialog(
                     }
                 }
 
-                // Web Link Section (for social sharing)
                 Text(
                     "Web Link (for social media)",
                     style = MaterialTheme.typography.labelMedium,
                     color = Color(0xFFFF00FF)
                 )
-                
+
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -358,13 +343,12 @@ fun ShareGroupInviteDialog(
                     }
                 }
 
-                // Deep Link Section (for app)
                 Text(
                     "Deep Link (for FreeTime app)",
                     style = MaterialTheme.typography.labelMedium,
                     color = Color(0xFFFF00FF)
                 )
-                
+
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -410,7 +394,6 @@ fun ShareGroupInviteDialog(
                     }
                 }
 
-                // Share buttons
                 Text(
                     "Share on Social Media",
                     style = MaterialTheme.typography.labelMedium,
@@ -421,7 +404,6 @@ fun ShareGroupInviteDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Share with system share sheet (all platforms)
                     Button(
                         onClick = {
                             val shareMsg = "Join my group '$groupName' on FreeTime! $generatedLink"
@@ -450,7 +432,6 @@ fun ShareGroupInviteDialog(
                         Text("Share to All Platforms")
                     }
 
-                    // Share to WhatsApp
                     Button(
                         onClick = {
                             val shareMsg = "Join my group '$groupName' on FreeTime! $generatedLink"
@@ -476,7 +457,6 @@ fun ShareGroupInviteDialog(
                         Text("Share via WhatsApp")
                     }
 
-                    // Share to Telegram
                     Button(
                         onClick = {
                             val shareMsg = "Join my group '$groupName' on FreeTime! $generatedLink"

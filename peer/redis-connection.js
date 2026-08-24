@@ -1,16 +1,11 @@
-/**
- * Redis Connection Manager with Circuit Breaker & Connection Pool
- * Handles resilience, retries, connection pooling, and failure detection
- */
-
 const redis = require('redis');
 const logger = require('./logger');
 
 class CircuitBreaker {
     constructor(options = {}) {
         this.failureThreshold = options.failureThreshold || 5;
-        this.resetTimeout = options.resetTimeout || 30000; // 30 seconds
-        this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+        this.resetTimeout = options.resetTimeout || 30000;
+        this.state = 'CLOSED';
         this.failureCount = 0;
         this.lastFailureTime = null;
         this.successCount = 0;
@@ -32,13 +27,14 @@ class CircuitBreaker {
     recordFailure() {
         this.failureCount++;
         this.lastFailureTime = Date.now();
-        
+
         if (this.failureCount >= this.failureThreshold && this.state === 'CLOSED') {
             this.state = 'OPEN';
-            logger.warn('Circuit breaker: OPEN (failures detected)', { 
-                failureCount: this.failureCount 
+            logger.warn('Circuit breaker: OPEN (failures detected)', {
+                failureCount: this.failureCount
             });
-            
+
+            // circuit breaker states
             setTimeout(() => {
                 this.state = 'HALF_OPEN';
                 this.failureCount = 0;
@@ -81,14 +77,11 @@ class RedisConnectionManager {
             resetTimeout: config.circuitBreakerResetMs || 30000
         });
 
-        this.clients = []; // Connection pool
+        this.clients = [];
         this.primaryClient = null;
         this.isShuttingDown = false;
     }
 
-    /**
-     * Create individual Redis client with error handling
-     */
     createClient() {
         const client = redis.createClient({
             host: this.config.host,
@@ -106,7 +99,6 @@ class RedisConnectionManager {
                     return undefined;
                 }
 
-                // Exponential backoff: 100ms → 200ms → 400ms → ...
                 const delay = Math.min(
                     this.config.retryDelayMs * Math.pow(2, options.attempt - 1),
                     this.config.maxBackoffMs
@@ -118,9 +110,8 @@ class RedisConnectionManager {
             socket_keepalive: true
         });
 
-        // Event handlers
         client.on('error', (err) => {
-            logger.error('Redis client error', { 
+            logger.error('Redis client error', {
                 error: err.message,
                 code: err.code,
                 address: `${this.config.host}:${this.config.port}`
@@ -144,16 +135,12 @@ class RedisConnectionManager {
         return client;
     }
 
-    /**
-     * Initialize connection pool
-     */
     async initialize(poolSize = 1) {
         try {
             for (let i = 0; i < poolSize; i++) {
                 const client = this.createClient();
                 this.clients.push(client);
-                
-                // Verify connection
+
                 await new Promise((resolve, reject) => {
                     client.ping((err, reply) => {
                         if (err) {
@@ -168,31 +155,27 @@ class RedisConnectionManager {
             }
 
             this.primaryClient = this.clients[0];
-            logger.info('Redis connection pool initialized', { 
+            logger.info('Redis connection pool initialized', {
                 poolSize: this.clients.length,
-                primaryClient: true 
+                primaryClient: true
             });
 
             return true;
         } catch (err) {
-            logger.error('Failed to initialize Redis connection pool', { 
+            logger.error('Failed to initialize Redis connection pool', {
                 error: err.message,
                 config: `${this.config.host}:${this.config.port}`
             });
-            
-            // Clean up partial pool
+
             this.clients.forEach(client => {
                 try { client.quit(); } catch (e) {}
             });
             this.clients = [];
-            
+
             throw err;
         }
     }
 
-    /**
-     * Execute command with circuit breaker and retry logic
-     */
     async executeCommand(command, args = [], options = {}) {
         const maxRetries = options.maxRetries || this.config.maxRetries;
         const timeoutMs = options.timeoutMs || this.config.commandTimeoutMs;
@@ -206,8 +189,8 @@ class RedisConnectionManager {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 const client = this.getClient();
-                
-                // Execute with timeout
+
+                // timeout wrapper
                 const result = await Promise.race([
                     new Promise((resolve, reject) => {
                         client[command](...args, (err, reply) => {
@@ -235,7 +218,6 @@ class RedisConnectionManager {
                     throw err;
                 }
 
-                // Exponential backoff before retry
                 const backoffMs = Math.min(
                     100 * Math.pow(2, attempt - 1),
                     this.config.maxBackoffMs
@@ -246,9 +228,6 @@ class RedisConnectionManager {
         }
     }
 
-    /**
-     * Get client from pool (round-robin)
-     */
     getClient() {
         if (this.clients.length === 0) {
             throw new Error('No Redis clients available in pool');
@@ -256,14 +235,10 @@ class RedisConnectionManager {
         if (this.clients.length === 1) {
             return this.clients[0];
         }
-        // Round-robin selection
         const client = this.clients[Math.floor(Math.random() * this.clients.length)];
         return client;
     }
 
-    /**
-     * Convenience methods for common operations
-     */
     async get(key) {
         return this.executeCommand('get', [key]);
     }
@@ -320,9 +295,6 @@ class RedisConnectionManager {
         return this.executeCommand('expire', [key, seconds]);
     }
 
-    /**
-     * Health check
-     */
     async healthCheck() {
         try {
             const result = await this.executeCommand('ping', []);
@@ -342,15 +314,12 @@ class RedisConnectionManager {
         }
     }
 
-    /**
-     * Graceful shutdown
-     */
     async shutdown() {
         if (this.isShuttingDown) return;
         this.isShuttingDown = true;
 
         logger.info('Shutting down Redis connection pool...');
-        
+
         for (const client of this.clients) {
             try {
                 await new Promise((resolve) => {
@@ -367,9 +336,6 @@ class RedisConnectionManager {
         logger.info('Redis connection pool shutdown complete');
     }
 
-    /**
-     * Get statistics
-     */
     getStats() {
         return {
             poolSize: this.clients.length,

@@ -1,51 +1,34 @@
 package com.freetime.app.utils
 
-/**
- * Localization Helper - Manages language settings and translations
- * Supported languages: English, Spanish, French, German
- */
 object LocalizationHelper {
-    
-    // Supported languages
     const val LANGUAGE_ENGLISH = "en"
     const val LANGUAGE_SPANISH = "es"
     const val LANGUAGE_FRENCH = "fr"
     const val LANGUAGE_GERMAN = "de"
-    
-    /**
-     * Get language name from language code
-     */
+
     fun getLanguageName(languageCode: String): String = when (languageCode) {
         LANGUAGE_SPANISH -> "Español"
         LANGUAGE_FRENCH -> "Français"
         LANGUAGE_GERMAN -> "Deutsch"
         else -> "English"
     }
-    
-    /**
-     * Get language code from index
-     */
+
+    // language index matches the picker order in settings
     fun getLanguageCodeFromIndex(index: Int): String = when (index) {
         1 -> LANGUAGE_SPANISH
         2 -> LANGUAGE_FRENCH
         3 -> LANGUAGE_GERMAN
         else -> LANGUAGE_ENGLISH
     }
-    
-    /**
-     * Get index from language code
-     */
+
     fun getIndexFromLanguageCode(code: String): Int = when (code) {
         LANGUAGE_SPANISH -> 1
         LANGUAGE_FRENCH -> 2
         LANGUAGE_GERMAN -> 3
         else -> 0
     }
-    
-    /**
-     * Translate common UI strings
-     * Future: This can be expanded with a resource file system or remote translations
-     */
+
+    // translations live here so switching needs no restart
     fun translate(key: String, languageCode: String): String {
         return when (languageCode) {
             LANGUAGE_SPANISH -> translateSpanish(key)
@@ -54,7 +37,7 @@ object LocalizationHelper {
             else -> translateEnglish(key)
         }
     }
-    
+
     private fun translateEnglish(key: String): String = when (key) {
         "messages" -> "Messages"
         "conversations" -> "conversations"
@@ -74,7 +57,7 @@ object LocalizationHelper {
         "dark_mode" -> "Dark Mode"
         else -> key
     }
-    
+
     private fun translateSpanish(key: String): String = when (key) {
         "messages" -> "Mensajes"
         "conversations" -> "conversaciones"
@@ -94,7 +77,7 @@ object LocalizationHelper {
         "dark_mode" -> "Modo Oscuro"
         else -> key
     }
-    
+
     private fun translateFrench(key: String): String = when (key) {
         "messages" -> "Messages"
         "conversations" -> "conversations"
@@ -114,7 +97,7 @@ object LocalizationHelper {
         "dark_mode" -> "Mode Sombre"
         else -> key
     }
-    
+
     private fun translateGerman(key: String): String = when (key) {
         "messages" -> "Nachrichten"
         "conversations" -> "Unterhaltungen"

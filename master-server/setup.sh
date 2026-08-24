@@ -1,11 +1,6 @@
 #!/bin/bash
 
-# Disable bash job control output
 set +m
-
-# FreeTime Master-Server Setup Script
-# One-time initialization: Install dependencies, create directories, validate configuration
-# Architecture: Node.js directly on port 80 (no reverse proxy)
 
 set -e
 
@@ -15,7 +10,6 @@ echo ""
 echo "Note: Implements deviceId-based session pinning to enforce one-device-per-token"
 echo ""
 
-# Function to print status messages (WITHOUT ANSI color codes)
 print_status() {
     echo "[OK] $1"
 }
@@ -28,41 +22,33 @@ print_error() {
     echo "[ERROR] $1"
 }
 
-# Never run setup as root
 if [[ $EUID -eq 0 ]]; then
    print_error "This script should NOT be run as root!"
    print_error "Run as: ./setup.sh (without sudo)"
    exit 1
 fi
 
-# Get the directory of this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
 print_status "Working directory: $SCRIPT_DIR"
 echo ""
 
-# ============================================
-# CHECK PREREQUISITES
-# ============================================
 echo "Checking prerequisites..."
 echo ""
 
-# Check Node.js installation
 if ! command -v node &> /dev/null; then
     print_error "Node.js is not installed. Please install Node.js 18+ first."
     exit 1
 fi
 print_status "Node.js: $(node --version)"
 
-# Check npm installation
 if ! command -v npm &> /dev/null; then
     print_error "npm is not installed"
     exit 1
 fi
 print_status "npm: $(npm --version)"
 
-# Validate package.json exists
 if [ ! -f "package.json" ]; then
     print_error "package.json not found"
     exit 1
@@ -80,7 +66,7 @@ if [ $? -eq 0 ]; then
 else
     print_warning "Initial npm install had issues, trying with no-optional..."
     npm install --legacy-peer-deps --no-optional 2>&1
-    
+
     if [ $? -eq 0 ]; then
         print_status "Dependencies installed with --no-optional flag"
     else
@@ -90,31 +76,26 @@ else
     fi
 fi
 
-# Create necessary directories
 print_status "Creating necessary directories..."
 mkdir -p logs
 mkdir -p database/backups
 mkdir -p logs-monitor
 
-# Set permissions
 chmod 755 logs
 chmod 755 database
 chmod 755 logs-monitor
 
-# Create logs directory structure
 mkdir -p logs/archive
 mkdir -p logs/reports
 
 print_status "Directory structure created"
 
-# MongoDB - API handles database initialization automatically
 if pgrep -x "mongod" > /dev/null; then
     print_status "MongoDB: Running (API will auto-initialize on first start)"
 else
     print_warning "MongoDB not running - start with: sudo systemctl start mongod"
 fi
 
-# Validate configuration exists
 if [ ! -f "config/.env" ]; then
     print_error "config/.env not found!"
     exit 1
@@ -122,9 +103,6 @@ fi
 
 print_status "Configuration: config/.env found"
 
-# ============================================
-# FINAL SUMMARY
-# ============================================
 echo ""
 echo "Setup completed successfully!"
 echo ""

@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.components.CyberpunkTheme
 
-
+// static demo screens with placeholder data
 @Composable
 fun EditGroupScreenEnhanced(groupName: String = "DEVELOPERS", onBackClick: () -> Unit = {}, onSave: (String) -> Unit = {}) {
     var name by remember { mutableStateOf(groupName) }
@@ -305,7 +305,7 @@ fun BackupCodeItem(code: BackupCode) {
                 Text("USED", style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
                     color = CyberpunkTheme.GhostGray)
             } else {
-                IconButton(onClick = { /* Copy code */ }, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = {  }, modifier = Modifier.size(24.dp)) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = "Copy",
                         tint = CyberpunkTheme.PrimaryPurple, modifier = Modifier.size(14.dp))
                 }
@@ -313,5 +313,4 @@ fun BackupCodeItem(code: BackupCode) {
         }
     }
 }
-
 

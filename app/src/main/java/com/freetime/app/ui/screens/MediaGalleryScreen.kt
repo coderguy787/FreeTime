@@ -29,14 +29,14 @@ import kotlinx.coroutines.launch
 data class MediaItem(
     val id: String,
     val name: String,
-    val type: String, // image, video, document
+    val type: String,
     val size: Long,
     val date: String,
     val isSelected: Boolean = false,
-    val thumbnail: String = "", // placeholder in a real app, this would be image path
-    val duration: String? = null,  // for videos
-    val isApproved: Boolean = true,  // NEW: Track if media has been approved for preview
-    val isRequestingApproval: Boolean = false  // NEW: Track if approval is pending
+    val thumbnail: String = "",
+    val duration: String? = null,
+    val isApproved: Boolean = true,
+    val isRequestingApproval: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,8 +46,8 @@ fun MediaGalleryScreen(
     onSelectMedia: (List<MediaItem>) -> Unit = {}
 ) {
     var selectedMediaList by remember { mutableStateOf(listOf<MediaItem>()) }
-    var viewMode by remember { mutableStateOf("grid") } // grid, list
-    var filterType by remember { mutableStateOf("all") } // all, image, video, document
+    var viewMode by remember { mutableStateOf("grid") }
+    var filterType by remember { mutableStateOf("all") }
     var showOptionsMenu by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf<MediaItem?>(null) }
     var showApprovalDialog by remember { mutableStateOf<String?>(null) }
@@ -59,8 +59,8 @@ fun MediaGalleryScreen(
     val context = LocalContext.current
     val apiService = remember { FreeTimeApiService(context) }
     val coroutineScope = rememberCoroutineScope()
-    
-    // Load pending requests on screen open
+
+    // gallery of received media
     LaunchedEffect(Unit) {
         isLoadingRequests = true
         coroutineScope.launch {
@@ -132,7 +132,7 @@ fun MediaGalleryScreen(
     val filteredMedia = remember(filterType) {
         if (filterType == "all") allMedia else allMedia.filter { it.type == filterType }
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -146,7 +146,6 @@ fun MediaGalleryScreen(
             )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             MediaGalleryHeader(
                 selectedCount = selectedMediaList.size,
                 pendingRequestCount = pendingRequests.size,
@@ -164,8 +163,7 @@ fun MediaGalleryScreen(
                     onNavigateBack()
                 }
             )
-            
-            // Pending Download Requests Bar (for senders)
+
             if (pendingRequests.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -195,7 +193,6 @@ fun MediaGalleryScreen(
                 }
             }
 
-            // Advanced Options Bar (when selection)
             if (selectedMediaList.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -217,13 +214,11 @@ fun MediaGalleryScreen(
                 }
             }
 
-            // Filter Tabs
             MediaFilterTabs(
                 currentFilter = filterType,
                 onFilterChange = { filterType = it }
             )
 
-            // View Mode Toggle
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -256,7 +251,6 @@ fun MediaGalleryScreen(
                 }
             }
 
-            // Media List/Grid
             if (viewMode == "grid") {
                 MediaGridView(
                     media = filteredMedia,
@@ -284,7 +278,6 @@ fun MediaGalleryScreen(
             }
         }
 
-        // Options Dropdown (Delete, Share, Download)
         DropdownMenu(
             expanded = showOptionsMenu,
             onDismissRequest = { showOptionsMenu = false },
@@ -313,7 +306,6 @@ fun MediaGalleryScreen(
             )
         }
 
-        // Download Request Dialog
         if (showDownloadDialog != null) {
             val media = showDownloadDialog
             AlertDialog(
@@ -361,14 +353,13 @@ fun MediaGalleryScreen(
             )
         }
 
-        // Download Dialog: Download and decrypt media to device gallery
         if (showPreview != null) {
             var isDownloading by remember { mutableStateOf(false) }
             var downloadError by remember { mutableStateOf<String?>(null) }
             var downloadSuccess by remember { mutableStateOf(false) }
 
             AlertDialog(
-                onDismissRequest = { 
+                onDismissRequest = {
                     if (!isDownloading) {
                         showPreview = null
                         downloadError = null
@@ -378,14 +369,12 @@ fun MediaGalleryScreen(
                 title = { Text("${showPreview?.name}") },
                 text = {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // Media Info
                         Text("Type: ${showPreview?.type}", fontSize = 12.sp, color = CyberpunkTheme.LightGray)
                         Text("Size: ${showPreview?.size?.let { formatMediaFileSize(it) }}", fontSize = 12.sp, color = CyberpunkTheme.LightGray)
                         Text("Date: ${showPreview?.date}", fontSize = 12.sp, color = CyberpunkTheme.LightGray)
-                        
+
                         Spacer(Modifier.height(16.dp))
-                        
-                        // Status Messages
+
                         if (downloadSuccess) {
                             Row(
                                 modifier = Modifier
@@ -471,7 +460,7 @@ fun MediaGalleryScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         TextButton(
-                            onClick = { 
+                            onClick = {
                                 if (!isDownloading) {
                                     showPreview = null
                                     downloadError = null
@@ -479,10 +468,10 @@ fun MediaGalleryScreen(
                                 }
                             },
                             modifier = Modifier.weight(1f)
-                        ) { 
-                            Text("Close") 
+                        ) {
+                            Text("Close")
                         }
-                        
+
                         if (showPreview!!.isApproved && !downloadSuccess) {
                             Button(
                                 onClick = {
@@ -490,7 +479,6 @@ fun MediaGalleryScreen(
                                     downloadError = null
                                     coroutineScope.launch {
                                         try {
-                                            // Decrypt and download to gallery
                                             val result = apiService.downloadMediaFile(
                                                 mediaId = showPreview!!.id,
                                                 fileName = showPreview!!.name,
@@ -514,11 +502,11 @@ fun MediaGalleryScreen(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CyberpunkTheme.CyberCyan
                                 )
-                            ) { 
+                            ) {
                                 Text(
                                     if (isDownloading) "Downloading..." else "Download to Gallery",
                                     color = CyberpunkTheme.Black
-                                ) 
+                                )
                             }
                         } else if (!showPreview!!.isApproved && !showPreview!!.isRequestingApproval) {
                             Button(
@@ -527,8 +515,8 @@ fun MediaGalleryScreen(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CyberpunkTheme.PrimaryPurple
                                 )
-                            ) { 
-                                Text("Request Permission") 
+                            ) {
+                                Text("Request Permission")
                             }
                         }
                     }
@@ -536,11 +524,10 @@ fun MediaGalleryScreen(
             )
         }
 
-        // Pending Download Requests Dialog (for senders to approve/deny)
         if (showPendingRequests) {
             AlertDialog(
                 onDismissRequest = { showPendingRequests = false },
-                title = { 
+                title = {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -548,7 +535,7 @@ fun MediaGalleryScreen(
                     ) {
                         Text("Download Requests (${pendingRequests.size})", fontWeight = FontWeight.Bold)
                         IconButton(
-                            onClick = { 
+                            onClick = {
                                 isLoadingRequests = true
                                 coroutineScope.launch {
                                     val result = apiService.getPendingMediaDownloadRequests()
@@ -620,7 +607,7 @@ fun MediaGalleryScreen(
                                             )
                                         }
                                         IconButton(
-                                            onClick = { 
+                                            onClick = {
                                                 coroutineScope.launch {
                                                     apiService.denyMediaDownloadRequest(request.requestId)
                                                     pendingRequests = pendingRequests.filter { it.requestId != request.requestId }
@@ -648,7 +635,6 @@ fun MediaGalleryScreen(
             )
         }
 
-        // Approval Confirmation Dialog
         if (showApprovalDialog != null) {
             AlertDialog(
                 onDismissRequest = { showApprovalDialog = null },
@@ -673,7 +659,6 @@ fun MediaGalleryScreen(
             )
         }
 
-        // Info Dialog
         if (showInfoDialog != null) {
             AlertDialog(
                 onDismissRequest = { showInfoDialog = null },
@@ -731,14 +716,14 @@ fun MediaGalleryHeader(
                 modifier = Modifier.size(24.dp)
             )
         }
-        
+
         Text(
             if (selectedCount > 0) "Select Media ($selectedCount)" else "Gallery",
             style = MaterialTheme.typography.titleLarge,
             color = CyberpunkTheme.White,
             fontWeight = FontWeight.Bold
         )
-        
+
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (selectedCount > 0) {
                 IconButton(onClick = onSelectAll, modifier = Modifier.size(40.dp)) {
@@ -750,7 +735,7 @@ fun MediaGalleryHeader(
                     )
                 }
             }
-            
+
             if (selectedCount > 0) {
                 Button(
                     onClick = onConfirm,
@@ -851,7 +836,6 @@ fun MediaGridItem(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        // Media type icon/thumbnail
         when (item.type) {
             "image" -> {
                 Icon(
@@ -897,8 +881,7 @@ fun MediaGridItem(
                 )
             }
         }
-        
-        // Selection checkbox
+
         if (isSelected) {
             Box(
                 modifier = Modifier
@@ -970,7 +953,6 @@ fun MediaListItem(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Thumbnail box
         Box(
             modifier = Modifier
                 .size(56.dp)
@@ -991,8 +973,7 @@ fun MediaListItem(
                 "document" -> Icon(Icons.Default.Description, null, tint = CyberpunkTheme.LightGray, modifier = Modifier.size(28.dp))
             }
         }
-        
-        // Item info
+
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 item.name,
@@ -1021,8 +1002,7 @@ fun MediaListItem(
                 )
             }
         }
-        
-        // Selection checkbox
+
         Checkbox(
             checked = isSelected,
             onCheckedChange = { },

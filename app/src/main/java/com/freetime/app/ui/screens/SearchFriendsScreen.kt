@@ -33,7 +33,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 
-// ✅ NEW: Helper function to get search result user color based on tags and role
 fun getSearchResultUserColor(
     tags: List<String>,
     isAdmin: Boolean = false,
@@ -41,11 +40,11 @@ fun getSearchResultUserColor(
     role: String? = null
 ): Color {
     return when {
-        tags.contains("OWNER") -> Color(0xFFFF00FF)  // Magenta
-        tags.contains("VIP") -> Color(0xFFFFFF00)  // Yellow
-        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)  // Cyan
-        isAdmin || role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)  // Red
-        isModerator || role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)  // Orange
+        tags.contains("OWNER") -> Color(0xFFFF00FF)
+        tags.contains("VIP") -> Color(0xFFFFFF00)
+        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+        isAdmin || role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)
+        isModerator || role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)
         else -> CyberpunkTheme.White
     }
 }
@@ -60,12 +59,13 @@ fun SearchFriendsScreen(
     val scope = rememberCoroutineScope()
     val apiService = FreeTimeApiService(context)
     val prefs = SharedPreferencesHelper(context)
-    
+
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(listOf<UserData>()) }
     var isSearching by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    // search users and send friend requests
     var sentRequests by remember { mutableStateOf(setOf<String>()) }
     var sentRequestIds by remember { mutableStateOf(mapOf<String, String>()) }
     var undoTimers by remember { mutableStateOf(mapOf<String, Int>()) }
@@ -73,8 +73,7 @@ fun SearchFriendsScreen(
     var pendingRequests by remember { mutableStateOf(listOf<FriendRequest>()) }
     var isLoadingRequests by remember { mutableStateOf(true) }
     var isRefreshingRequests by remember { mutableStateOf(false) }
-    
-    // Function to refresh pending requests
+
     val refreshPendingRequests = {
         scope.launch {
             try {
@@ -94,8 +93,7 @@ fun SearchFriendsScreen(
             }
         }
     }
-    
-    // ✅ REAL-TIME FRIEND LIST SYNC: WebSocket listener for friend list updates
+
     val friendListListener = object : com.freetime.app.services.WebSocketManager.WebSocketListener {
         override fun onNewMessage(message: com.freetime.app.services.WebSocketManager.MessageData) {}
         override fun onGroupMessage(message: com.freetime.app.services.WebSocketManager.GroupMessageData) {}
@@ -103,21 +101,6 @@ fun SearchFriendsScreen(
         override fun onUserTyping(typingData: com.freetime.app.services.WebSocketManager.TypingData) {}
         override fun onMessageRead(readData: com.freetime.app.services.WebSocketManager.ReadReceiptData) {}
         override fun onConversationAllRead(readData: com.freetime.app.services.WebSocketManager.ConversationReadData) {}
-        override fun onIncomingCall(callData: com.freetime.app.services.WebSocketManager.IncomingCallData) {
-            com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                context, 
-                callData.callerUsername, 
-                callData.callerId, 
-                callData.callType,
-                callId = callData.callId,
-                callerAvatarUrl = callData.callerAvatar,
-                offerSdp = callData.sdpOffer
-            )
-        }
-        override fun onCallAnswered(callData: com.freetime.app.services.WebSocketManager.CallAnsweredData) {}
-        override fun onCallRejected(callData: com.freetime.app.services.WebSocketManager.CallRejectedData) {}
-        override fun onCallEnded(callData: com.freetime.app.services.WebSocketManager.CallEndedData) {}
-        override fun onIceCandidate(iceData: com.freetime.app.services.WebSocketManager.IceCandidateData) {}
         override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {}
         override fun onReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {}
         override fun onFriendRequestRejected(data: com.freetime.app.services.WebSocketManager.FriendRequestEventData) {
@@ -125,21 +108,17 @@ fun SearchFriendsScreen(
             sentRequests = sentRequests - data.senderId
             sentRequestIds = sentRequestIds - data.senderId
             undoTimers = undoTimers - data.senderId
-            errorMessage = "✋ Friend request rejected"
+            errorMessage = " Friend request rejected"
         }
         override fun onFriendRequestAutoAccepted(data: com.freetime.app.services.WebSocketManager.FriendRequestAutoAcceptedData) {}
         override fun onFriendAdded(data: com.freetime.app.services.WebSocketManager.FriendAddedData) {
-            // Real-time friend list sync: friend was added
-            android.util.Log.d("FREETIME_SEARCH", "👥 Friend added event: ${data.username} (${data.userId})")
-            // Optionally refresh pending requests if visible
+            android.util.Log.d("FREETIME_SEARCH", " Friend added event: ${data.username} (${data.userId})")
             if (selectedTab == 2) {
                 refreshPendingRequests()
             }
         }
         override fun onFriendRemoved(data: com.freetime.app.services.WebSocketManager.FriendRemovedData) {
-            // Real-time friend list sync: friend was removed
-            android.util.Log.d("FREETIME_SEARCH", "👥 Friend removed event: ${data.removedFriendId}")
-            // Optionally refresh pending requests if visible
+            android.util.Log.d("FREETIME_SEARCH", " Friend removed event: ${data.removedFriendId}")
             if (selectedTab == 2) {
                 refreshPendingRequests()
             }
@@ -149,7 +128,7 @@ fun SearchFriendsScreen(
         override fun onError(error: String) {}
         override fun onChatHistoryDeleted(data: com.freetime.app.services.WebSocketManager.ChatHistoryDeletedData) {}
     }
-    
+
     DisposableEffect(Unit) {
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
         wsManager.addListener(friendListListener)
@@ -157,25 +136,21 @@ fun SearchFriendsScreen(
             wsManager.removeListener(friendListListener)
         }
     }
-    
-    // Rate limiting: 3 requests max, then 3 minute cooldown
+
     var lastRequestTimestamps by remember { mutableStateOf(listOf<Long>()) }
     val MAX_REQUESTS_PER_WINDOW = 3
-    val COOLDOWN_DURATION_MS = 3 * 60 * 1000L // 3 minutes in milliseconds
+    val COOLDOWN_DURATION_MS = 3 * 60 * 1000L
     var cooldownTimeRemaining by remember { mutableStateOf(0L) }
-    
-    // Countdown timer for rate limiting
+
     LaunchedEffect(lastRequestTimestamps.size) {
         while (true) {
             val now = System.currentTimeMillis()
-            // Remove requests older than 3 minutes
             val validRequests = lastRequestTimestamps.filter { timestamp ->
                 (now - timestamp) < COOLDOWN_DURATION_MS
             }
             lastRequestTimestamps = validRequests
-            
+
             if (validRequests.size >= MAX_REQUESTS_PER_WINDOW) {
-                // Still in cooldown, calculate remaining time
                 val oldestRequest = validRequests.first()
                 val timeRemaining = (oldestRequest + COOLDOWN_DURATION_MS - now) / 1000
                 if (timeRemaining > 0) {
@@ -184,14 +159,13 @@ fun SearchFriendsScreen(
             } else {
                 cooldownTimeRemaining = 0
             }
-            
+
             kotlinx.coroutines.delay(1000)
         }
     }
-    
+
     android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Opened search friends")
-    
-    // Load pending requests on screen open
+
     LaunchedEffect(Unit) {
         scope.launch {
             try {
@@ -207,43 +181,39 @@ fun SearchFriendsScreen(
             }
         }
     }
-    
-    // Auto-refresh pending requests every 10 seconds
+
     var autoRefreshEnabled by remember { mutableStateOf(true) }
     LaunchedEffect(selectedTab, autoRefreshEnabled) {
         while (autoRefreshEnabled) {
-            delay(10000) // Refresh every 10 seconds
-            if (selectedTab == 1) { // Only refresh when on Receive tab
+            delay(10000)
+            if (selectedTab == 1) {
                 refreshPendingRequests()
             }
         }
     }
-    
-    // ✅ CACHE CLEARING: Auto-clear search results when switching away from Search tab
+
     LaunchedEffect(selectedTab) {
-        if (selectedTab != 0) {  // 0 = Search tab, 1 = Receive tab
+        if (selectedTab != 0) {
             searchResults = emptyList()
             searchQuery = ""
             errorMessage = ""
             android.util.Log.d("FREETIME_SEARCH", "Cleared search results when switching tabs")
         }
     }
-    
-    // ✅ CACHE EXPIRATION: Track when search results were loaded
+
     var lastSearchTime by remember { mutableStateOf(0L) }
     var searchResultsExpired by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(searchResults) {
         if (searchResults.isNotEmpty()) {
             lastSearchTime = System.currentTimeMillis()
-            delay(24 * 60 * 60 * 1000)  // 24 hours
+            delay(24 * 60 * 60 * 1000)
             searchResults = emptyList()
             searchResultsExpired = true
             android.util.Log.d("FREETIME_SEARCH", "Search results cache expired after 24 hours")
         }
     }
-    
-    // Search users function
+
     val performSearch = {
         val trimmed = searchQuery.trim()
         if (trimmed.length >= 2) {
@@ -273,61 +243,52 @@ fun SearchFriendsScreen(
                 }
             }
         } else {
-            // ✅ CACHE CLEAR: When query is empty, clear results immediately
             searchResults = emptyList()
             errorMessage = ""
-            sentRequests = emptySet()  // Also clear sent request tracking
+            sentRequests = emptySet()
         }
         Unit
     }
-    
-    // Send friend request function with rate limiting
+
     val sendFriendRequest = { userId: String ->
         val now = System.currentTimeMillis()
-        
-        // Remove timestamps older than 3 minutes
+
         val validRequests = lastRequestTimestamps.filter { timestamp ->
             (now - timestamp) < COOLDOWN_DURATION_MS
         }
         lastRequestTimestamps = validRequests
-        
+
         android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Rate check - Current requests in window: ${validRequests.size}/$MAX_REQUESTS_PER_WINDOW")
-        
-        // Check if we've hit the limit (3 requests in last 3 minutes)
+
         if (validRequests.size >= MAX_REQUESTS_PER_WINDOW) {
             val oldestRequest = validRequests.first()
             val remainingTime = (oldestRequest + COOLDOWN_DURATION_MS - now) / 1000
-            errorMessage = "⏸️ Rate limit active! You've sent 3 requests. Please wait ${remainingTime}s before sending more."
-            android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: ⏸️ RATE LIMIT BLOCKED - 3 requests in window, ${remainingTime}s remaining")
+            errorMessage = " Rate limit active! You've sent 3 requests. Please wait ${remainingTime}s before sending more."
+            android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: RATE LIMIT BLOCKED - 3 requests in window, ${remainingTime}s remaining")
         } else {
-            // Add timestamp NOW (counts this attempt) before attempting the request
             lastRequestTimestamps = validRequests + now
             val currentCount = lastRequestTimestamps.filter { ts -> (now - ts) < COOLDOWN_DURATION_MS }.size
-            
-            android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: 📤 Sending request - Count will be: ${currentCount}/$MAX_REQUESTS_PER_WINDOW")
-            
-            // Rate limit check passed, send the request
+
+            android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Sending request - Count will be: ${currentCount}/$MAX_REQUESTS_PER_WINDOW")
+
             loadingStates = loadingStates + (userId to true)
             scope.launch {
                 try {
                     val result = apiService.sendFriendRequest(searchResults.find { it.userId == userId }?.username ?: "")
                     result.onSuccess { response ->
-                        android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: ✅ Friend request sent successfully to $userId")
-                        
-                        // ✅ MUTUAL FRIEND FIX: Check autoAccepted field directly instead of string parsing
+                        android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Friend request sent successfully to $userId")
+
                         if (response.autoAccepted) {
-                            android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: 🎉 Mutual friend request - instant friendship! (${response.message})")
-                            errorMessage = "🎉 ${response.message}"
-                            
-                            // ✅ REFRESH: Refresh pending requests to sync state
-                            // This removes any pending requests from this user
+                            android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Mutual friend request - instant friendship! (${response.message})")
+                            errorMessage = " ${response.message}"
+
                             try {
                                 refreshPendingRequests()
                                 android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Refreshed pending requests after mutual accept")
                             } catch (e: Exception) {
                                 android.util.Log.w("FREETIME_SEARCH", "Failed to refresh pending requests: ${e.message}")
                             }
-                            
+
                             onFriendAdded(userId)
                         } else {
                             sentRequests = sentRequests + userId
@@ -335,7 +296,6 @@ fun SearchFriendsScreen(
                                 sentRequestIds = sentRequestIds + (userId to response.requestId)
                             }
 
-                            // Start 5s undo countdown
                             scope.launch {
                                 for (i in 5 downTo 1) {
                                     undoTimers = undoTimers + (userId to i)
@@ -348,39 +308,37 @@ fun SearchFriendsScreen(
                             if (recentCount >= MAX_REQUESTS_PER_WINDOW) {
                                 val oldestTs = lastRequestTimestamps.minOrNull() ?: now
                                 val waitTime = (oldestTs + COOLDOWN_DURATION_MS - System.currentTimeMillis()) / 1000
-                                errorMessage = "✅ Request sent! You've reached 3 requests. Wait ${waitTime}s before sending more."
-                                android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: ⚠️ LIMIT REACHED - ${recentCount}/3 requests, ${waitTime}s cooldown")
+                                errorMessage = " Request sent! You've reached 3 requests. Wait ${waitTime}s before sending more."
+                                android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: LIMIT REACHED - ${recentCount}/3 requests, ${waitTime}s cooldown")
                             } else {
-                                errorMessage = "✅ Request sent! You can send ${MAX_REQUESTS_PER_WINDOW - recentCount} more requests."
-                                android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: ✅ Request ${recentCount}/$MAX_REQUESTS_PER_WINDOW - Can send ${MAX_REQUESTS_PER_WINDOW - recentCount} more")
+                                errorMessage = " Request sent! You can send ${MAX_REQUESTS_PER_WINDOW - recentCount} more requests."
+                                android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Request ${recentCount}/$MAX_REQUESTS_PER_WINDOW - Can send ${MAX_REQUESTS_PER_WINDOW - recentCount} more")
                             }
                             onFriendAdded(userId)
                         }
                     }
                     result.onFailure { error ->
-                        android.util.Log.e("FREETIME_SEARCH", "SearchFriendsScreen: ❌ Request failed: ${error.message}")
-                        // Keep the attempt in the count (rate limiting applies to attempts)
+                        android.util.Log.e("FREETIME_SEARCH", "SearchFriendsScreen: Request failed: ${error.message}")
                         val recentCount = lastRequestTimestamps.filter { ts -> (System.currentTimeMillis() - ts) < COOLDOWN_DURATION_MS }.size
-                        
-                        // Provide better error messages
+
                         val userMessage = when {
-                            error.message?.contains("already exists", ignoreCase = true) == true -> 
-                                "❌ Request already pending with this user - check your pending requests"
-                            error.message?.contains("Already friends", ignoreCase = true) == true -> 
-                                "👥 You're already friends with this user!"
-                            error.message?.contains("not found", ignoreCase = true) == true -> 
-                                "❌ User not found - they may have deleted their account"
-                            else -> 
-                                "❌ ${error.message ?: "Failed to send request"}"
+                            error.message?.contains("already exists", ignoreCase = true) == true ->
+                                " Request already pending with this user - check your pending requests"
+                            error.message?.contains("Already friends", ignoreCase = true) == true ->
+                                " You're already friends with this user!"
+                            error.message?.contains("not found", ignoreCase = true) == true ->
+                                " User not found - they may have deleted their account"
+                            else ->
+                                " ${error.message ?: "Failed to send request"}"
                         }
-                        
+
                         errorMessage = "$userMessage (Attempt ${recentCount}/$MAX_REQUESTS_PER_WINDOW)"
                         android.util.Log.d("FREETIME_SEARCH", "SearchFriendsScreen: Failed attempt counted - ${recentCount}/$MAX_REQUESTS_PER_WINDOW in window")
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("FREETIME_SEARCH", "SearchFriendsScreen: Exception: ${e.message}", e)
                     val recentCount = lastRequestTimestamps.filter { ts -> (System.currentTimeMillis() - ts) < COOLDOWN_DURATION_MS }.size
-                    errorMessage = "❌ Error: ${e.message ?: "Unknown error"} (Attempt ${recentCount}/$MAX_REQUESTS_PER_WINDOW)"
+                    errorMessage = " Error: ${e.message ?: "Unknown error"} (Attempt ${recentCount}/$MAX_REQUESTS_PER_WINDOW)"
                 } finally {
                     loadingStates = loadingStates + (userId to false)
                 }
@@ -400,7 +358,7 @@ fun SearchFriendsScreen(
                     }
                     result.onFailure { error ->
                         android.util.Log.e("FREETIME_SEARCH", "Server cancel failed for request $requestId: ${error.message}")
-                        errorMessage = "⚠️ Could not cancel on server"
+                        errorMessage = " Could not cancel on server"
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("FREETIME_SEARCH", "Exception cancelling request: ${e.message}")
@@ -412,16 +370,15 @@ fun SearchFriendsScreen(
         undoTimers = undoTimers - userId
         sentRequests = sentRequests - userId
         sentRequestIds = sentRequestIds - userId
-        errorMessage = "↩️ Request cancelled"
+        errorMessage = " Request cancelled"
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0A0E27))
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -445,7 +402,7 @@ fun SearchFriendsScreen(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                
+
                 Row(
                     modifier = Modifier
                         .weight(1f)
@@ -468,8 +425,7 @@ fun SearchFriendsScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                
-                // Refresh button (only visible on Receive tab)
+
                 if (selectedTab == 1) {
                     IconButton(
                         onClick = { refreshPendingRequests() },
@@ -485,8 +441,7 @@ fun SearchFriendsScreen(
                     }
                 }
             }
-            
-            // Tab Row
+
             TabRow(
                 selectedTabIndex = selectedTab,
                 modifier = Modifier
@@ -535,8 +490,7 @@ fun SearchFriendsScreen(
                     }
                 )
             }
-            
-            // Tab Content
+
             when (selectedTab) {
                 0 -> SearchContent(
                     searchQuery = searchQuery,
@@ -550,7 +504,7 @@ fun SearchFriendsScreen(
                     onPerformSearch = performSearch,
                     onSendFriendRequest = sendFriendRequest,
                     onCancelRequest = cancelRequest,
-                    onClearSearch = { 
+                    onClearSearch = {
                         searchQuery = ""
                         val empty = listOf<UserData>()
                         searchResults = empty
@@ -587,7 +541,6 @@ fun SearchContent(
     onClearSearch: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Search Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -608,7 +561,7 @@ fun SearchContent(
                 tint = CyberpunkTheme.PrimaryPurple,
                 modifier = Modifier.size(20.dp)
             )
-            
+
             TextField(
                 value = searchQuery,
                 onValueChange = { newValue ->
@@ -635,7 +588,7 @@ fun SearchContent(
                 ),
                 textStyle = androidx.compose.material3.MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
             )
-            
+
             if (searchQuery.isNotEmpty()) {
                 IconButton(
                     onClick = onClearSearch,
@@ -649,7 +602,7 @@ fun SearchContent(
                     )
                 }
             }
-            
+
             IconButton(
                 onClick = onPerformSearch,
                 modifier = Modifier
@@ -675,8 +628,7 @@ fun SearchContent(
                 }
             }
         }
-        
-        // Error Message
+
         if (errorMessage.isNotEmpty()) {
             Card(
                 modifier = Modifier
@@ -708,8 +660,7 @@ fun SearchContent(
                 }
             }
         }
-        
-        // Results List
+
         if (searchResults.isEmpty() && searchQuery.isNotEmpty() && !isSearching) {
             Column(
                 modifier = Modifier
@@ -801,7 +752,7 @@ fun ReceiveContent(
 ) {
     var selectedRequests by remember { mutableStateOf<Set<String>>(setOf()) }
     var isAcceptingAll by remember { mutableStateOf(false) }
-    
+
     val toggleRequestSelection = { requestId: String ->
         selectedRequests = if (requestId in selectedRequests) {
             selectedRequests - requestId
@@ -809,22 +760,22 @@ fun ReceiveContent(
             selectedRequests + requestId
         }
     }
-    
+
     val selectAll = {
         selectedRequests = pendingRequests.map { it.senderId }.toSet()
     }
-    
+
     val deselectAll = {
         selectedRequests = setOf()
     }
-    
+
     val acceptSelectedRequests: () -> Unit = {
         scope.launch {
             try {
                 isAcceptingAll = true
                 val requestsToAccept = pendingRequests.filter { it.senderId in selectedRequests }
                 var successCount = 0
-                
+
                 requestsToAccept.forEach { request ->
                     try {
                         val result = apiService.acceptFriendRequest(request.senderId)
@@ -840,8 +791,7 @@ fun ReceiveContent(
                         android.util.Log.e("FREETIME_SEARCH", "Exception accepting request from ${request.senderUsername}: ${e.message}")
                     }
                 }
-                
-                // Refresh list and show result
+
                 onRefresh()
                 selectedRequests = setOf()
                 android.util.Log.d("FREETIME_SEARCH", "Bulk accept complete: $successCount/${requestsToAccept.size} accepted")
@@ -852,7 +802,7 @@ fun ReceiveContent(
             }
         }
     }
-    
+
     if (isLoadingRequests && pendingRequests.isEmpty()) {
         Column(
             modifier = Modifier
@@ -903,7 +853,6 @@ fun ReceiveContent(
         }
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Bulk action toolbar
             if (pendingRequests.isNotEmpty()) {
                 Surface(
                     modifier = Modifier
@@ -1269,19 +1218,16 @@ fun SearchResultCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header Row: Avatar + User Info + Action button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // User info
                 Row(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Avatar
                     Box(
                         modifier = Modifier
                             .size(48.dp)
@@ -1309,29 +1255,27 @@ fun SearchResultCard(
                             )
                         }
                     }
-                    
-                    // User details: name and username
+
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             user.name.ifEmpty { user.username },
-                            color = getSearchResultUserColor(user.tags, user.isAdmin, user.isModerator, user.role),  // ✅ NEW: Apply color based on tags and role
+                            color = getSearchResultUserColor(user.tags, user.isAdmin, user.isModerator, user.role),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
                         Text(
                             "@${user.username}",
-                            color = getSearchResultUserColor(user.tags, user.isAdmin, user.isModerator, user.role),  // ✅ NEW: Apply color to username
+                            color = getSearchResultUserColor(user.tags, user.isAdmin, user.isModerator, user.role),
                             fontSize = 11.sp,
                             maxLines = 1
                         )
                     }
                 }
-                
-                // Action button
+
                 Button(
                     onClick = if (undoSeconds != null) onCancelRequest else onSendRequest,
                     enabled = (!isRequested && !isLoading) || undoSeconds != null,
@@ -1378,8 +1322,7 @@ fun SearchResultCard(
                     }
                 }
             }
-            
-            // Bio (if exists)
+
             if (user.bio.isNotEmpty()) {
                 Text(
                     user.bio,
@@ -1390,8 +1333,7 @@ fun SearchResultCard(
                     modifier = Modifier.padding(horizontal = 60.dp)
                 )
             }
-            
-            // Tags display
+
             if (user.tags.isNotEmpty()) {
                 Row(
                     modifier = Modifier

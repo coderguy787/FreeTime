@@ -1,9 +1,3 @@
-/**
- * FreeTime Master-Server Admin API
- * Comprehensive API for user management, peer management, and system monitoring
- * Ports: 443 (API - Public HTTPS), 3001 (Admin - LAN), 8080 (WebSocket WSS), 9080 (Peer WSS)
- */
-
 const express = require('express');
 const https = require('https');
 const jwt = require('jsonwebtoken');
@@ -26,9 +20,7 @@ const { initializeSocketIO } = require('../websocket/socket-io-server.js');
 const GridFSHandler = require('../utils/gridfs-handler');
 
 let gridFSHandler;
-/**
- * Initialize GridFS handler when needed
- */
+let pushNotificationManager;
 function initializeGridFSHandler() {
     if (!gridFSHandler && typeof dbConnection !== 'undefined' && dbConnection.getDatabase) {
         gridFSHandler = new GridFSHandler(dbConnection.getDatabase());
@@ -36,14 +28,13 @@ function initializeGridFSHandler() {
     return gridFSHandler;
 }
 
-// 🔥 Firebase Cloud Messaging for background notifications
 let admin;
 let firebaseInitialized = false;
 
 try {
     admin = require('firebase-admin');
     const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT || path.join(__dirname, '../config/firebase-service-account.json');
-    
+
     if (fs.existsSync(serviceAccountPath)) {
         const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
         admin.initializeApp({
@@ -51,43 +42,30 @@ try {
             projectId: serviceAccount.project_id
         });
         firebaseInitialized = true;
-        console.log('[🔥 FCM] Firebase Admin SDK initialized successfully');
+        console.log('[ FCM] Firebase Admin SDK initialized successfully');
     } else {
-        console.warn('[🔥 FCM] Firebase service account not found at:', serviceAccountPath);
-        console.warn('[🔥 FCM] Notifications will fall back to WebSocket only');
+        console.warn('[ FCM] Firebase service account not found at:', serviceAccountPath);
+        console.warn('[ FCM] Notifications will fall back to WebSocket only');
     }
 } catch (err) {
-    console.warn('[🔥 FCM] Firebase initialization failed:', err.message);
-    console.warn('[🔥 FCM] Notifications will fall back to WebSocket only');
+    console.warn('[ FCM] Firebase initialization failed:', err.message);
+    console.warn('[ FCM] Notifications will fall back to WebSocket only');
 }
 
-/**
- * Send notification to user via FCM (background) + WebSocket (foreground)
- * FCM for closed/backgrounded app, WebSocket for connected users
- */
 async function sendPushNotification(userId, payload) {
     let fcmSent = false;
     let webSocketSent = false;
-    
+
     try {
-        // Try Firebase first for background notifications
         if (firebaseInitialized && admin) {
             try {
-                // Get FCM tokens from MongoDB
                 const fcmTokens = await dbConnection.collection('FCMTokens').find({ userId }).toArray();
-                
+
                 if (fcmTokens && fcmTokens.length > 0) {
-                    // Send to all registered FCM tokens
                     for (const tokenDoc of fcmTokens) {
                         try {
-                            // ✅ REFACTORED FCM STRATEGY:
-                            // 1. For CALLS: Use DATA-ONLY to trigger our custom IncomingCallActivity (FullScreenIntent).
-                            // 2. For MESSAGES: Use MIXED (Notification + Data) for guaranteed display by the OS, 
-                            //    while still allowing our background handler to process the data if possible.
-                            
                             const dataPayload = payload.data || {};
-                            const isCall = dataPayload.type === 'incomingCall' || payload.type === 'incomingCall';
-                            
+
                             if (!dataPayload.title) dataPayload.title = payload.notification?.title || 'FreeTime';
                             if (!dataPayload.body) dataPayload.body = payload.notification?.body || 'New message';
 
@@ -96,58 +74,38 @@ async function sendPushNotification(userId, payload) {
                                 data: dataPayload,
                                 android: {
                                     priority: 'high',
-                                    ttl: isCall ? 60000 : 86400, // 1 min for calls, 24h for messages
+                                    ttl: 86400,
                                 }
                             };
 
-                            // Only add notification block for non-call messages
-                            if (!isCall) {
-                                messagePayload.notification = {
-                                    title: dataPayload.title,
-                                    body: dataPayload.body
-                                };
-                                // Ensure it goes to the right channel
-                                messagePayload.android.notification = {
-                                    channelId: 'messages',
-                                    priority: 'high'
-                                };
-                            } else {
-                                // For calls, we still want a notification block so the OS shows a heads-up,
-                                // but we use category: 'call' and set the clickAction to open IncomingCallActivity.
-                                messagePayload.notification = {
-                                    title: dataPayload.title,
-                                    body: dataPayload.body
-                                };
-                                messagePayload.android.notification = {
-                                    channelId: 'calls',
-                                    priority: 'high',
-                                    category: 'call',
-                                    visibility: 'public',
-                                    clickAction: 'com.freetime.app.INCOMING_CALL'
-                                };
-                            }
+                            messagePayload.notification = {
+                                title: dataPayload.title,
+                                body: dataPayload.body
+                            };
+                            messagePayload.android.notification = {
+                                channelId: 'messages',
+                                priority: 'high'
+                            };
 
                             await admin.messaging().send(messagePayload);
                             fcmSent = true;
-                            console.log(`[🔥 FCM] ✅ ${isCall ? 'Data-only' : 'Mixed'} message sent to ${userId} via token ${tokenDoc.fcmToken.substring(0, 20)}...`);
+                            console.log(`[ FCM] Message sent to ${userId} via token ${tokenDoc.fcmToken.substring(0, 20)}...`);
                         } catch (tokenErr) {
-                            if (tokenErr.code === 'messaging/invalid-registration-token' || 
+                            if (tokenErr.code === 'messaging/invalid-registration-token' ||
                                 tokenErr.code === 'messaging/registration-token-not-registered') {
-                                // Remove invalid token
                                 await dbConnection.collection('FCMTokens').deleteOne({ _id: tokenDoc._id });
-                                console.log(`[🔥 FCM] Removed invalid token for ${userId}`);
+                                console.log(`[ FCM] Removed invalid token for ${userId}`);
                             } else {
-                                console.warn(`[🔥 FCM] Failed to send to token: ${tokenErr.message}`);
+                                console.warn(`[ FCM] Failed to send to token: ${tokenErr.message}`);
                             }
                         }
                     }
                 }
             } catch (firebaseErr) {
-                console.warn(`[🔥 FCM] Firebase error: ${firebaseErr.message}`);
+                console.warn(`[ FCM] Firebase error: ${firebaseErr.message}`);
             }
         }
-        
-        // Also send WebSocket notification for connected users
+
         try {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             broadcastToUser(global.wsClients, userId, 'notification:received', {
@@ -158,37 +116,29 @@ async function sendPushNotification(userId, payload) {
             });
             webSocketSent = true;
         } catch (wsErr) {
-            console.warn(`[⚠️ NOTIFICATION] WebSocket failed: ${wsErr.message}`);
+            console.warn(`[ NOTIFICATION] WebSocket failed: ${wsErr.message}`);
         }
-        
+
         if (fcmSent || webSocketSent) {
-            console.log(`[✅ NOTIFICATION] Sent to user ${userId} (FCM: ${fcmSent}, WebSocket: ${webSocketSent})`);
+            console.log(`[ NOTIFICATION] Sent to user ${userId} (FCM: ${fcmSent}, WebSocket: ${webSocketSent})`);
             return true;
         } else {
-            console.warn(`[⚠️ NOTIFICATION] Failed to send to user ${userId} via any method`);
+            console.warn(`[ NOTIFICATION] Failed to send to user ${userId} via any method`);
             return false;
         }
     } catch (err) {
-        console.warn(`[⚠️ NOTIFICATION] Error sending to ${userId}: ${err.message}`);
+        console.warn(`[ NOTIFICATION] Error sending to ${userId}: ${err.message}`);
         return false;
     }
 }
 
-/**
- * ✅ Format reactions for API response
- * Converts array format [{emoji, userId, timestamp}] to map format for easy Android parsing
- * Input: Array of reaction objects OR existing map format
- * Output: Map with emoji as key and array of userIds as value
- */
 function formatReactions(reactionsArray) {
     if (!reactionsArray) return {};
     if (typeof reactionsArray === 'object' && !Array.isArray(reactionsArray)) {
-        // Already in map format
         return reactionsArray;
     }
     if (!Array.isArray(reactionsArray)) return {};
-    
-    // Convert array to map format
+
     const reactionsMap = {};
     reactionsArray.forEach(reaction => {
         if (reaction.emoji) {
@@ -205,44 +155,37 @@ function formatReactions(reactionsArray) {
 
 const app = express();
 
-// Environment configuration
 const envPath = path.join(__dirname, '../config/.env');
 console.log(`[INFO] Loading .env from: ${envPath}`);
 require('dotenv').config({ path: envPath });
 
-// ✅ FIXED: Connect to local MongoDB on the same Debian 13 machine
-// Use explicit IPv4 127.0.0.1 (not 'localhost' - resolves to IPv6 ::1 on this system)
-const DEFAULT_MONGODB_HOST = process.env.MONGODB_HOST || '127.0.0.1'; 
+const DEFAULT_MONGODB_HOST = process.env.MONGODB_HOST || '127.0.0.1';
 const DEFAULT_MONGODB_PORT = process.env.PORT_MONGODB || '27017';
 const DEFAULT_MONGODB_USER = process.env.MONGODB_USER || 'admin';
 const DEFAULT_MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || 'changeme';
 const DEFAULT_MONGODB_DB = 'freetime';
 
-// CRITICAL: Build MongoDB URI with explicit IPv4 address
 const MONGODB_URI = process.env.MONGODB_URI || `mongodb://${DEFAULT_MONGODB_USER}:${DEFAULT_MONGODB_PASSWORD}@${DEFAULT_MONGODB_HOST}:${DEFAULT_MONGODB_PORT}/${DEFAULT_MONGODB_DB}?authSource=admin&retryWrites=true&w=majority`;
 console.log(`[INFO] MongoDB URI configured: mongodb://${DEFAULT_MONGODB_USER}:****@${DEFAULT_MONGODB_HOST}:${DEFAULT_MONGODB_PORT}/${DEFAULT_MONGODB_DB}`);
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production-a1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef';
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret-change-me';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'SecurePass123!';
 const API_PORT = Number(process.env.PORT_API) || 443;
 
-// SSL/HTTPS Configuration
-// Support both Let's Encrypt paths (production) and local certs (development)
 const SSL_CERT_PATH = process.env.SSL_CERT || path.join(__dirname, '../certs/fullchain.pem');
 const SSL_KEY_PATH = process.env.SSL_KEY || path.join(__dirname, '../certs/privkey.pem');
 const LOCAL_SSL_CERT_PATH = path.join(__dirname, '../certs/fullchain.pem');
 const LOCAL_SSL_KEY_PATH = path.join(__dirname, '../certs/privkey.pem');
 
 console.log('[INFO] Environment values:');
-console.log(`  PORT_API=${process.env.PORT_API || '(unset)'}`);
-console.log(`  Resolved API_PORT=${API_PORT}`);
-console.log(`  SSL_CERT_PATH=${SSL_CERT_PATH}`);
-console.log(`  SSL_KEY_PATH=${SSL_KEY_PATH}`);
+console.log(` PORT_API=${process.env.PORT_API || '(unset)'}`);
+console.log(` Resolved API_PORT=${API_PORT}`);
+console.log(` SSL_CERT_PATH=${SSL_CERT_PATH}`);
+console.log(` SSL_KEY_PATH=${SSL_KEY_PATH}`);
 
-// ✅ Log JWT configuration status
 if (!process.env.JWT_SECRET) {
     console.warn('[WARN] JWT_SECRET not set in environment - using default development secret');
-    console.warn('[WARN] ⚠️  CHANGE THIS IN PRODUCTION via environment variable JWT_SECRET');
+    console.warn('[WARN] CHANGE THIS IN PRODUCTION via environment variable JWT_SECRET');
 } else {
     console.log('[OK] JWT_SECRET loaded from environment');
 }
@@ -254,7 +197,7 @@ try {
             cert: fs.readFileSync(SSL_CERT_PATH, 'utf8'),
             key: fs.readFileSync(SSL_KEY_PATH, 'utf8')
         };
-        console.log('[🔐 HTTPS] SSL Certificates loaded from configured path:', {
+        console.log('[ HTTPS] SSL Certificates loaded from configured path:', {
             cert: SSL_CERT_PATH,
             key: SSL_KEY_PATH,
             status: 'READY'
@@ -264,54 +207,48 @@ try {
             cert: fs.readFileSync(LOCAL_SSL_CERT_PATH, 'utf8'),
             key: fs.readFileSync(LOCAL_SSL_KEY_PATH, 'utf8')
         };
-        console.warn('[⚠️  HTTPS] Configured SSL certificate path not found. Falling back to local certs:', {
+        console.warn('[ HTTPS] Configured SSL certificate path not found. Falling back to local certs:', {
             cert: LOCAL_SSL_CERT_PATH,
             key: LOCAL_SSL_KEY_PATH
         });
     } else {
-        console.warn('[⚠️  HTTPS] SSL certificates not found at:', {
+        console.warn('[ HTTPS] SSL certificates not found at:', {
             cert: SSL_CERT_PATH,
             key: SSL_KEY_PATH
         });
-        console.warn('[⚠️  HTTPS] To set up Let\'s Encrypt certificates, run on Debian server:');
-        console.warn('[⚠️  HTTPS]   1. sudo apt install certbot -y');
-        console.warn('[⚠️  HTTPS]   2. sudo certbot certonly --standalone -d your-domain.com');
-        console.warn('[⚠️  HTTPS]   3. sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem');
-        console.warn('[⚠️  HTTPS] Server will run in HTTP mode (not suitable for production)');
+        console.warn('[ HTTPS] To set up Let\'s Encrypt certificates, run on Debian server:');
+        console.warn('[ HTTPS] 1. sudo apt install certbot -y');
+        console.warn('[ HTTPS] 2. sudo certbot certonly --standalone -d your-domain.com');
+        console.warn('[ HTTPS] 3. sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem');
+        console.warn('[ HTTPS] Server will run in HTTP mode (not suitable for production)');
     }
 } catch (err) {
-    console.error('[❌ HTTPS] Failed to load SSL certificates:', err.message);
-    console.warn('[⚠️  HTTPS] Server will run in HTTP mode');
+    console.error('[ HTTPS] Failed to load SSL certificates:', err.message);
+    console.warn('[ HTTPS] Server will run in HTTP mode');
 }
 
-// Validate JWT_SECRET is set
 if (!JWT_SECRET) {
     console.error('[ERROR] CRITICAL: JWT_SECRET not set in .env file!');
     console.error('[ERROR] Set JWT_SECRET before running in production');
     process.exit(1);
 }
 
-// Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// ✅ CRITICAL: Add HTTP Keep-Alive headers to prevent connection drops
-// This prevents Socket.IO and long-polling connections from being prematurely closed
 app.use((req, res, next) => {
     res.set('Connection', 'keep-alive');
-    res.set('Keep-Alive', 'timeout=65, max=100');  // 65s timeout, allow 100 requests
+    res.set('Keep-Alive', 'timeout=65, max=100');
     next();
 });
 
-// File upload configuration
 const upload = multer({
     dest: path.join(os.tmpdir(), 'freetime-uploads'),
     limits: {
-        fileSize: 200 * 1024 * 1024, // 200MB global max (highest allowed for any type)
+        fileSize: 200 * 1024 * 1024,
         files: 10
     },
     fileFilter: (req, file, cb) => {
-        // Broaden allowed types to support more files (up to 50MB for general files)
         const allowedTypes = [
             'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
             'video/mp4', 'video/webm', 'video/3gpp', 'video/quicktime',
@@ -324,36 +261,24 @@ const upload = multer({
         if (allowedTypes.includes(file.mimetype) || file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/') || file.mimetype.startsWith('audio/')) {
             cb(null, true);
         } else {
-            // For general files, we'll be more lenient but still check common safe ones
-            cb(null, true); 
+            cb(null, true);
         }
     }
 });
-/**
- * ✅ UPDATED: Validate file size based on type
- * Videos & Images: 200MB limit
- * ALL OTHER FILES: 100MB limit
- */
 function getFileSizeLimit(mimeType) {
-    const MEDIA_LIMIT = 200 * 1024 * 1024; // 200MB for media
-    const OTHER_LIMIT = 100 * 1024 * 1024; // 100MB for everything else
-    
+    const MEDIA_LIMIT = 200 * 1024 * 1024;
+    const OTHER_LIMIT = 100 * 1024 * 1024;
+
     const imageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     const videoTypes = ['video/mp4', 'video/webm', 'video/3gpp', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/m4a'];
-    
-    // 200MB limit for images and videos
+
     if (imageTypes.includes(mimeType) || videoTypes.includes(mimeType)) {
         return MEDIA_LIMIT;
     }
-    
-    // 100MB limit for all other files (PDF, TXT, XML, etc.)
+
     return OTHER_LIMIT;
 }
 
-/**
- * ✅ NEW: Media encryption helper
- * Encrypts file data and stores encryption key with metadata
- */
 async function encryptMediaFile(fileData, mimeType, mediaId) {
     try {
         if (!fileData || fileData.length === 0) {
@@ -361,28 +286,22 @@ async function encryptMediaFile(fileData, mimeType, mediaId) {
         }
 
         const crypto = require('crypto');
-        
-        // Generate random IV (16 bytes for AES-CBC)
+
         const iv = crypto.randomBytes(16);
-        
-        // Generate random key (32 bytes for AES-256)
+
         const key = crypto.randomBytes(32);
-        
+
         console.log(`[ENCRYPTION DETAIL] Encrypting ${mediaId}: input=${fileData.length} bytes, IV=${iv.length} bytes, key=${key.length} bytes`);
-        
-        // Create cipher
+
         const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-        
-        // Encrypt data
+
         let encryptedData = cipher.update(fileData);
         encryptedData = Buffer.concat([encryptedData, cipher.final()]);
-        
+
         console.log(`[ENCRYPTION DETAIL] Encrypted ${mediaId}: output=${encryptedData.length} bytes`);
-        
-        // Store IV with encrypted data (IV + encryptedData)
+
         const encryptedWithIv = Buffer.concat([iv, encryptedData]);
-        
-        // Return both encrypted data and key (key will be stored separately)
+
         return {
             encryptedData: encryptedWithIv,
             encryptionKey: key.toString('base64'),
@@ -394,28 +313,20 @@ async function encryptMediaFile(fileData, mimeType, mediaId) {
     }
 }
 
-/**
- * ✅ NEW: Media decryption helper  
- * Decrypts file data using provided encryption key
- */
 async function decryptMediaFile(encryptedData, encryptionKeyBase64) {
     try {
         const crypto = require('crypto');
-        
-        // Decode key from base64
+
         const key = Buffer.from(encryptionKeyBase64, 'base64');
-        
-        // Extract IV from first 16 bytes
+
         const iv = encryptedData.slice(0, 16);
         const ciphertext = encryptedData.slice(16);
-        
-        // Create decipher
+
         const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-        
-        // Decrypt data
+
         let decrypted = decipher.update(ciphertext);
         decrypted = Buffer.concat([decrypted, decipher.final()]);
-        
+
         return decrypted;
     } catch (err) {
         console.error('[ENCRYPTION] Error decrypting media:', err);
@@ -423,7 +334,6 @@ async function decryptMediaFile(encryptedData, encryptionKeyBase64) {
     }
 }
 
-// CORS configuration - Restrict to whitelisted origins only
 function parseAllowedOrigins(allowedOriginsValue) {
     return allowedOriginsValue
         .split(',')
@@ -461,12 +371,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS ? parseAllowedOrigins(process
     'http://10.0.2.2:80'
 ];
 
-// Email transporter configuration for 2FA
-// Email service is disabled - using TOTP authenticator only
 let transporter = null;
 if (process.env.EMAIL_SERVICE && process.env.EMAIL_SERVICE !== 'disabled') {
     if (process.env.EMAIL_SERVICE === 'ethereal') {
-        // Use Ethereal Email for testing
         transporter = nodemailer.createTransport({
             host: 'smtp.ethereal.email',
             port: 587,
@@ -477,7 +384,6 @@ if (process.env.EMAIL_SERVICE && process.env.EMAIL_SERVICE !== 'disabled') {
             }
         });
     } else {
-        // Use custom email services (SendGrid, Mailgun, etc.)
         transporter = nodemailer.createTransport({
             service: process.env.EMAIL_SERVICE,
             auth: {
@@ -490,7 +396,6 @@ if (process.env.EMAIL_SERVICE && process.env.EMAIL_SERVICE !== 'disabled') {
     console.log('[WARN] Email service disabled - users will rely on authenticator app with backup codes');
 }
 
-// Test email connection - only if enabled
 if (transporter) {
     transporter.verify((error, success) => {
         if (error) {
@@ -504,25 +409,21 @@ if (transporter) {
     console.log('[OK] Using authenticator app + backup codes for 2FA');
 }
 
-// Custom CORS middleware to ensure headers are always set and support Android app
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    
-    // For Android app and development, allow requests
+
     if (!origin || isAllowedOrigin(origin)) {
         res.header('Access-Control-Allow-Origin', origin || '*');
     } else {
-        // Still allow but log for debugging
         console.log(`[WARN] Requesting origin not in whitelist: ${origin}`);
         res.header('Access-Control-Allow-Origin', origin);
     }
-    
+
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-Token');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Max-Age', '3600');
-    
-    // Android app compatibility - handle preflight requests
+
     if (req.method === 'OPTIONS') {
         res.sendStatus(200);
         return;
@@ -532,7 +433,6 @@ app.use((req, res, next) => {
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Reject if origin is not in whitelist
         if (!origin || isAllowedOrigin(origin)) {
             callback(null, true);
         } else {
@@ -547,78 +447,66 @@ app.use(cors({
     maxAge: 3600
 }));
 
-// Serve APK files from /update directory for in-app updates
 app.use('/update', express.static(path.join(__dirname, '..', 'update')));
 
-// ==================== DEBUG LOGGING MIDDLEWARE ====================
-// Log all incoming requests to trace Socket.IO and other endpoint traffic
 app.use((req, res, next) => {
-    // Log Socket.IO related requests with details
     if (req.path.includes('socket.io') || req.path.includes('/api/socket.io')) {
         console.log(`[SOCKET.IO REQUEST] ${req.method} ${req.path}`);
-        console.log('  • Headers:', {
+        console.log(' • Headers:', {
             contentType: req.get('content-type'),
             host: req.get('host'),
             userAgent: req.get('user-agent')?.substring(0, 50),
             origin: req.get('origin')
         });
-        if (req.query) console.log('  • Query:', req.query);
+        if (req.query) console.log(' • Query:', req.query);
     }
-    
-    // Track response for Socket.IO requests
+
     const originalSend = res.send;
     const originalJson = res.json;
-    
+
     res.send = function(data) {
         if (req.path.includes('socket.io')) {
             console.log(`[SOCKET.IO RESPONSE] ${req.method} ${req.path} => Status: ${res.statusCode}`);
         }
         return originalSend.call(this, data);
     };
-    
+
     res.json = function(data) {
         if (req.path.includes('socket.io')) {
             console.log(`[SOCKET.IO JSON] ${req.method} ${req.path} => Status: ${res.statusCode}`);
         }
         return originalJson.call(this, data);
     };
-    
+
     next();
 });
 
-// ==================== RATE LIMITING MIDDLEWARE ====================
-
-// Rate limiter for login attempts: max 5 attempts per 15 minutes per IP
 const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // limit each IP to 5 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 5,
     message: { error: 'Too many login attempts. Please try again later.' },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    standardHeaders: true,
+    legacyHeaders: false,
+    // admin logins excluded from rate limiting
     skip: (req, res) => {
-        // Skip rate limiting for admin login with specific token
         return req.path === '/api/admin/login';
     }
 });
 
-// Bot Detection Function
 function detectSuspiciousActivity(userAgent, deviceFingerprint) {
     const reasons = [];
-    
-    // Check for common bot user agents
+
     const botPatterns = [
         /bot/i, /crawler/i, /spider/i, /scraper/i,
         /curl/i, /wget/i, /python/i, /java/i,
         /postman/i, /insomnia/i, /httpie/i
     ];
-    
+
     if (botPatterns.some(pattern => pattern.test(userAgent))) {
         reasons.push('Bot-like user agent detected');
     }
-    
-    // Check device fingerprint for emulator/suspicious patterns
+
     if (deviceFingerprint) {
-        // Check for emulator indicators
         if (deviceFingerprint.deviceModel && (
             deviceFingerprint.deviceModel.toLowerCase().includes('emulator') ||
             deviceFingerprint.deviceModel.toLowerCase().includes('sdk') ||
@@ -626,31 +514,26 @@ function detectSuspiciousActivity(userAgent, deviceFingerprint) {
         )) {
             reasons.push('Emulator device detected');
         }
-        
-        // Check for suspicious build fingerprints
+
         if (deviceFingerprint.buildFingerprint && (
             deviceFingerprint.buildFingerprint.toLowerCase().includes('test-keys') ||
             deviceFingerprint.buildFingerprint.toLowerCase().includes('generic')
         )) {
             reasons.push('Test/development build detected');
         }
-        
-        // Check for impossible device combinations
+
         if (deviceFingerprint.deviceBrand === 'unknown' && deviceFingerprint.deviceModel === 'unknown') {
             reasons.push('Unknown device configuration');
         }
     }
-    
-    // Check timing patterns (too fast signup)
-    // Increased from 1000ms to 100ms to avoid false positives on fast connections.
-    // A real user filling a form takes >100ms; automated scripts submit in <10ms.
+
     if (deviceFingerprint && deviceFingerprint.timestamp) {
         const timeDiff = Date.now() - deviceFingerprint.timestamp;
-        if (timeDiff < 100) { // Less than 100ms — likely an automated script
+        if (timeDiff < 100) {
             reasons.push('Suspicious timing - too fast');
         }
     }
-    
+
     return {
         isBot: reasons.length > 0,
         reasons: reasons,
@@ -658,39 +541,33 @@ function detectSuspiciousActivity(userAgent, deviceFingerprint) {
     };
 }
 
-// Rate limiter for signup: max 3 attempts per hour per IP
 const signupLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // limit each IP to 3 requests per windowMs
+    windowMs: 60 * 60 * 1000,
+    max: 3,
     message: { error: 'Too many signup attempts. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false
 });
 
-// Rate limiter for 2FA verification: max 10 attempts per 10 minutes
 const totpLimiter = rateLimit({
-    windowMs: 10 * 60 * 1000, // 10 minutes
-    max: 10, // limit each IP to 10 requests per windowMs
+    windowMs: 10 * 60 * 1000,
+    max: 10,
     message: { error: 'Too many verification attempts. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false
 });
 
-// Rate limiter for password reset: max 3 attempts per hour per IP
 const passwordResetLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // limit each IP to 3 requests per windowMs
+    windowMs: 60 * 60 * 1000,
+    max: 3,
     message: { error: 'Too many password reset attempts. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false
 });
 
-// ==================== REQUEST TIMEOUT MIDDLEWARE ====================
-// Set default request timeout to 30 seconds
-const REQUEST_TIMEOUT_MS = process.env.REQUEST_TIMEOUT_MS || 30000; // 30 seconds
+const REQUEST_TIMEOUT_MS = process.env.REQUEST_TIMEOUT_MS || 30000;
 
 app.use((req, res, next) => {
-    // Set timeout for this response
     req.setTimeout(REQUEST_TIMEOUT_MS, () => {
         console.warn(`Request timeout: ${req.method} ${req.path}`);
         res.status(408).json({ error: 'Request timeout' });
@@ -698,20 +575,15 @@ app.use((req, res, next) => {
     next();
 });
 
-// ==================== DATABASE READINESS MIDDLEWARE ====================
-
-// Health check routes that don't need database
 const HEALTH_CHECK_ROUTES = ['/health', '/api/health', '/health/live', '/api/gifs/trending', '/api/gifs/search'];
 
 app.use((req, res, next) => {
-    // Allow health checks to pass through without database
     if (HEALTH_CHECK_ROUTES.includes(req.path)) {
         return next();
     }
-    
-    // For all other routes that need database, check if connected
+
     if (!dbConnection) {
-        return res.status(503).json({ 
+        return res.status(503).json({
             error: 'Service unavailable',
             message: 'Database is initializing. Please try again in a moment.',
             retry: true
@@ -720,15 +592,11 @@ app.use((req, res, next) => {
     next();
 });
 
-// ==================== MONGODB CONNECTION WITH RESILIENCE ====================
-
 let dbManager = null;
-let dbConnection = null; // Backward compatibility wrapper
+let dbConnection = null;
 
-// Initialize database connection manager with production-grade resilience
 async function initializeDatabase() {
     try {
-        // Create manager with optimized settings for production
         dbManager = new DatabaseConnectionManager(MONGODB_URI, {
             maxPoolSize: 50,
             minPoolSize: 10,
@@ -736,11 +604,9 @@ async function initializeDatabase() {
             healthCheckIntervalMs: 30000,
             enableHealthCheck: true
         });
-        
-        // Initialize with automatic retries and exponential backoff
+
         await dbManager.initialize();
-        
-        // Set up backward compatibility wrapper that properly checks status
+
         dbConnection = {
             collection: (name) => {
                 if (!dbManager.isConnected) throw new Error('Database not connected');
@@ -749,28 +615,31 @@ async function initializeDatabase() {
             getDatabase: () => dbManager.getDatabase(),
             get isConnected() { return dbManager.isConnected; }
         };
-        
+
         console.log('[OK] Database connected with resilience layer (connection pooling, health checks, auto-retry)');
-        
-        // ✅ Push notifications handled by sendPushNotification() function with FCM + WebSocket
-        // No separate manager needed - Firebase Admin SDK already initialized at startup
-        
-        // ✅ NEW: Initialize SessionManager for concurrent login prevention
+
+        try {
+            const PushNotificationManager = require('../services/PushNotificationManager');
+            pushNotificationManager = new PushNotificationManager(dbConnection, admin);
+            console.log('[OK] PushNotificationManager initialized');
+        } catch (pnErr) {
+            console.warn('[WARN] PushNotificationManager init failed, using sendPushNotification fallback:', pnErr.message);
+            pushNotificationManager = null;
+        }
+
         if (!global.sessionManager) {
             global.sessionManager = new SessionManager(dbConnection, global.socketIoServer, JWT_SECRET);
         }
-        
-        // Initialize indexes
+
         await initializeIndexes();
 
-        // Run migration for existing public media share mode
         try {
             console.log('[MIGRATION] Checking for any public group media records that need updating...');
             const publicGroupMessages = await dbConnection.collection('groupMessages').find({
                 mediaShareMode: 'public',
                 mediaId: { $ne: null }
             }).toArray();
-            
+
             if (publicGroupMessages.length > 0) {
                 const publicMediaIds = publicGroupMessages.map(m => m.mediaId).filter(id => id);
                 if (publicMediaIds.length > 0) {
@@ -779,7 +648,7 @@ async function initializeDatabase() {
                         { $set: { mediaShareMode: 'public' } }
                     );
                     if (updateResult.modifiedCount > 0) {
-                        console.log(`[MIGRATION] ✅ Updated ${updateResult.modifiedCount} chatMedia records to public mode`);
+                        console.log(`[MIGRATION] Updated ${updateResult.modifiedCount} chatMedia records to public mode`);
                     } else {
                         console.log('[MIGRATION] No chatMedia records needed updating');
                     }
@@ -796,14 +665,12 @@ async function initializeDatabase() {
         console.error('[ERROR] Database initialization failed:', err.message);
         console.error('[ERROR] Ensure MongoDB is running on Debian server:', `${DEFAULT_MONGODB_HOST}:${DEFAULT_MONGODB_PORT}`);
         console.error('[ERROR] MongoDB URI:', MONGODB_URI.replace(DEFAULT_MONGODB_PASSWORD, '****'));
-        // Do not exit: keep API online. DB routes will return 503
         dbConnection = null;
         dbManager = null;
-        throw err; // Rethrow to inform the caller
+        throw err;
     }
 }
 
-// Legacy connectDB function for backward compatibility
 async function connectDB() {
     return initializeDatabase();
 }
@@ -817,9 +684,7 @@ async function initializeIndexes() {
         const friendsCol = dbConnection.collection('friends');
         const blockedUsersCol = dbConnection.collection('blockedUsers');
         const messagesCol = dbConnection.collection('messages');
-        const callsCol = dbConnection.collection('calls');
 
-        // User indexes - CRITICAL FIX #1: Proper error handling for index creation
         await usersCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Users index failed:', err.message);
         });
@@ -836,7 +701,6 @@ async function initializeIndexes() {
             if (err.code !== 48) console.warn('[WARN] Rate limiting index failed:', err.message);
         });
 
-        // Peer indexes
         await peersCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Peers index failed:', err.message);
         });
@@ -844,7 +708,6 @@ async function initializeIndexes() {
             if (err.code !== 48) console.warn('[WARN] Peer name index failed:', err.message);
         });
 
-        // Friend system indexes
         await friendRequestsCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Friend requests index failed:', err.message);
         });
@@ -881,7 +744,6 @@ async function initializeIndexes() {
             if (err.code !== 48) console.warn('[WARN] BlockedUserId index failed:', err.message);
         });
 
-        // Message indexes
         await messagesCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Messages index failed:', err.message);
         });
@@ -898,50 +760,10 @@ async function initializeIndexes() {
             if (err.code !== 48) console.warn('[WARN] Messages compound index failed:', err.message);
         });
 
-        // Call indexes
-        // CRITICAL: Clean up any bad calls data before recreating indexes
-        // E11000 error can occur if there are documents with null 'id' field
-        try {
-            const badCallsCount = await callsCol.deleteMany({ id: null });
-            if (badCallsCount.deletedCount > 0) {
-                console.warn(`[CLEANUP] Deleted ${badCallsCount.deletedCount} calls records with null id field`);
-            }
-            
-            // Also delete records where id field is completely missing
-            const missingIdCount = await callsCol.deleteMany({ id: { $exists: false } });
-            if (missingIdCount.deletedCount > 0) {
-                console.warn(`[CLEANUP] Deleted ${missingIdCount.deletedCount} calls records with missing id field`);
-            }
-        } catch (cleanupErr) {
-            console.warn('[CLEANUP] Failed to clean up bad calls data:', cleanupErr.message);
-        }
-
-        // CRITICAL: sparse: true prevents null values from being included in unique index
-        // This prevents E11000 "duplicate null" errors
-        await callsCol.createIndex({ id: 1 }, { unique: true, sparse: true }).catch(err => {
-            if (err.code !== 48) console.warn('[WARN] Calls index failed:', err.message);
-        });
-        await callsCol.createIndex({ callerId: 1 }).catch(err => {
-            if (err.code !== 48) console.warn('[WARN] CallerId index failed:', err.message);
-        });
-        await callsCol.createIndex({ recipientId: 1 }).catch(err => {
-            if (err.code !== 48) console.warn('[WARN] Calls recipientId index failed:', err.message);
-        });
-        await callsCol.createIndex({ status: 1 }).catch(err => {
-            if (err.code !== 48) console.warn('[WARN] Calls status index failed:', err.message);
-        });
-        await callsCol.createIndex({ createdAt: -1 }).catch(err => {
-            if (err.code !== 48) console.warn('[WARN] Calls createdAt index failed:', err.message);
-        });
-
-        // Logs index
         await logsCol.createIndex({ timestamp: -1 }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Logs index failed:', err.message);
         });
 
-        // NEW FEATURE INDEXES
-
-        // Media Download Requests
         const mediaDownloadReqCol = dbConnection.collection('mediaDownloadRequests');
         await mediaDownloadReqCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] MediaDownloadRequests index failed:', err.message);
@@ -960,9 +782,8 @@ async function initializeIndexes() {
         });
         await mediaDownloadReqCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Download TTL index failed:', err.message);
-        }); // TTL: 24 hours
+        });
 
-        // Chat Media Storage
         const chatMediaCol = dbConnection.collection('chatMedia');
         await chatMediaCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] ChatMedia id index failed:', err.message);
@@ -978,9 +799,8 @@ async function initializeIndexes() {
         });
         await chatMediaCol.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] ChatMedia TTL index failed:', err.message);
-        }); // TTL: expires based on expiresAt field
+        });
 
-        // Group Deletion Votes
         const groupVotesCol = dbConnection.collection('groupDeletionVotes');
         await groupVotesCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] GroupVotes index failed:', err.message);
@@ -998,7 +818,6 @@ async function initializeIndexes() {
             if (err.code !== 48) console.warn('[WARN] Votes compound index failed:', err.message);
         });
 
-        // ✅ NEW: Clear History Votes
         const clearHistoryVotesCol = dbConnection.collection('clearHistoryVotes');
         await clearHistoryVotesCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] ClearHistoryVotes index failed:', err.message);
@@ -1014,9 +833,8 @@ async function initializeIndexes() {
         });
         await clearHistoryVotesCol.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] ClearHistoryVotes TTL index failed:', err.message);
-        }); // Auto-expire votes after expireAt
+        });
 
-        // Channel Messages
         const channelMsgCol = dbConnection.collection('channelMessages');
         await channelMsgCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] ChannelMessages index failed:', err.message);
@@ -1031,7 +849,6 @@ async function initializeIndexes() {
             if (err.code !== 48) console.warn('[WARN] ChannelMessages senderId index failed:', err.message);
         });
 
-        // Channels
         const channelsCol = dbConnection.collection('channels');
         await channelsCol.createIndex({ id: 1 }, { unique: true }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] Channels index failed:', err.message);
@@ -1041,13 +858,11 @@ async function initializeIndexes() {
         });
         await channelsCol.createIndex({ adminMembers: 1 }).catch(() => {});
 
-        // User text search for friend system
         await usersCol.createIndex({ username: 'text', displayName: 'text' }).catch(() => {});
 
-        // Friend requests with TTL
         await friendRequestsCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 2592000 }).catch(err => {
             if (err.code !== 48) console.warn('[WARN] FriendRequests TTL index failed:', err.message);
-        }); // TTL: 30 days
+        });
 
         console.log('[OK] Database indexes initialized');
     } catch (err) {
@@ -1055,7 +870,6 @@ async function initializeIndexes() {
     }
 }
 
-// Logging system
 const logsDir = path.join(__dirname, '../logs');
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
@@ -1070,7 +884,6 @@ async function logEvent(type, message, userId = null, metadata = {}) {
     };
 
     try {
-        // If DB isn't ready, still log to file and return (avoid crashing the process)
         if (!dbConnection) {
             const logFile = path.join(logsDir, 'admin-events.log');
             const logText = `[${new Date().toISOString()}] ${type.toUpperCase()}: ${message}\n`;
@@ -1080,12 +893,10 @@ async function logEvent(type, message, userId = null, metadata = {}) {
 
         await dbConnection.collection('logs').insertOne(logEntry);
 
-        // Also write to file
         const logFile = path.join(logsDir, 'admin-events.log');
         const logText = `[${new Date().toISOString()}] ${type.toUpperCase()}: ${message}\n`;
         fs.appendFileSync(logFile, logText);
     } catch (err) {
-        // Still log to file even if DB insertion fails
         const logFile = path.join(logsDir, 'admin-events.log');
         const logText = `[${new Date().toISOString()}] ${type.toUpperCase()}: ${message}\n`;
         fs.appendFileSync(logFile, logText);
@@ -1093,11 +904,6 @@ async function logEvent(type, message, userId = null, metadata = {}) {
     }
 }
 
-// ==================== 2FA UTILITY FUNCTIONS ====================
-
-/**
- * Generate a random verification code for email
- */
 function generateVerificationCode(length = 6) {
     const digits = '0123456789';
     let code = '';
@@ -1107,9 +913,6 @@ function generateVerificationCode(length = 6) {
     return code;
 }
 
-/**
- * Generate backup codes for authenticator
- */
 function generateBackupCodes(count = 10) {
     const codes = [];
     for (let i = 0; i < count; i++) {
@@ -1119,9 +922,6 @@ function generateBackupCodes(count = 10) {
     return codes;
 }
 
-/**
- * INPUT VALIDATION: Sanitize and validate user inputs to prevent injection attacks
- */
 function validateAndSanitize(input, type = 'string', options = {}) {
     if (!input) return null;
 
@@ -1134,17 +934,14 @@ function validateAndSanitize(input, type = 'string', options = {}) {
 
     const trimmed = String(input).trim();
 
-    // Check required
     if (required && !trimmed) {
         throw new Error(`${type} is required`);
     }
 
-    // Check length
     if (trimmed.length < minLength || trimmed.length > maxLength) {
         throw new Error(`${type} must be between ${minLength} and ${maxLength} characters`);
     }
 
-    // Check allowed characters if specified
     if (allowedChars && !new RegExp(`^[${allowedChars}]+$`).test(trimmed)) {
         throw new Error(`${type} contains invalid characters`);
     }
@@ -1152,18 +949,11 @@ function validateAndSanitize(input, type = 'string', options = {}) {
     return trimmed;
 }
 
-/**
- * TRANSACTION HELPER: Safely execute database operations with rollback support
- * Note: Transactions require MongoDB replica set or sharded cluster
- */
 async function executeWithTransaction(callback) {
     try {
-        // Check if MongoDB supports transactions (requires replica set)
-        // If not available, execute without transaction for development
-        if (dbConnection && dbConnection.client && dbConnection.client.topology && 
-            (dbConnection.client.topology.description.type === 'ReplicaSetWithPrimary' || 
+        if (dbConnection && dbConnection.client && dbConnection.client.topology &&
+            (dbConnection.client.topology.description.type === 'ReplicaSetWithPrimary' ||
              dbConnection.client.topology.description.type === 'Sharded')) {
-            
             const session = dbConnection.client.startSession();
             try {
                 await session.withTransaction(async () => {
@@ -1173,7 +963,6 @@ async function executeWithTransaction(callback) {
                 await session.endSession();
             }
         } else {
-            // Fallback: Execute without transaction for development/single-instance MongoDB
             console.warn('[WARN] MongoDB transactions not available (requires replica set). Executing without transaction.');
             return await callback(null);
         }
@@ -1183,16 +972,12 @@ async function executeWithTransaction(callback) {
     }
 }
 
-/**
- * Send verification email (disabled - using TOTP only)
- */
 async function sendVerificationEmail(email, verificationCode, username) {
-    // Email verification disabled - using TOTP authenticator only
     if (!transporter) {
         console.log('[WARN] Email service disabled - skipping verification email');
-        return true; // Return success since email is disabled
+        return true;
     }
-    
+
     try {
         const mailOptions = {
             from: `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_FROM_ADDRESS}>`,
@@ -1229,17 +1014,13 @@ async function sendVerificationEmail(email, verificationCode, username) {
     }
 }
 
-/**
- * Send authenticator setup email with QR code (disabled - using TOTP only)
- */
 async function sendAuthenticatorSetupEmail(email, username, qrCodeDataUrl) {
-    // Email service disabled - using TOTP authenticator only
     if (!transporter) {
         console.log('[WARN] Email service disabled - skipping authenticator setup email');
         console.log(`[INFO] User can scan QR code directly from app`);
-        return true; // Return success since email is disabled
+        return true;
     }
-    
+
     try {
         const mailOptions = {
             from: `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_FROM_ADDRESS}>`,
@@ -1272,16 +1053,12 @@ async function sendAuthenticatorSetupEmail(email, username, qrCodeDataUrl) {
     }
 }
 
-/**
- * Send backup codes email (disabled - using TOTP only)
- */
 async function sendBackupCodesEmail(email, username, backupCodes) {
-    // Email service disabled - using TOTP authenticator only
     if (!transporter) {
         console.log('[WARN] Email service disabled - not sending backup codes via email');
-        return true; // Return success since email is disabled
+        return true;
     }
-    
+
     try {
         const codesHtml = backupCodes
             .map((code, index) => `<div style="padding: 5px 0;">${index + 1}. <code style="font-family: monospace; background: white; padding: 3px 8px; border-radius: 3px;">${code}</code></div>`)
@@ -1317,17 +1094,15 @@ async function sendBackupCodesEmail(email, username, backupCodes) {
     }
 }
 
-// Authentication Middleware
 async function verifyToken(req, res, next) {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
         console.warn('[AUTH] No token provided in Authorization header');
         return res.status(401).json({ error: 'No token provided' });
     }
 
     try {
-        // Verify the token signature and expiry
         let decoded;
         try {
             decoded = jwt.verify(token, JWT_SECRET);
@@ -1336,40 +1111,32 @@ async function verifyToken(req, res, next) {
             return res.status(401).json({ error: 'Invalid token', details: jwtErr.message });
         }
 
-        // Validate decoded token has required fields
-        // Allow both user tokens (with userId) and admin tokens (with role: ADMIN)
         const userId = decoded.userId || decoded.id;
         if (!userId && decoded.role !== 'ADMIN') {
             console.warn('[AUTH] Token missing userId/id and not an admin token');
             return res.status(401).json({ error: 'Invalid token: missing userId' });
         }
 
-        // Optional device ID enforcement (only if both are present and token has userId)
+        // single active device per account
         if (userId && decoded.deviceId && dbConnection) {
             try {
                 const user = await dbConnection.collection('users').findOne({ id: userId });
                 if (user && user.currentDeviceId && user.currentDeviceId !== decoded.deviceId) {
-                    // ✅ NEW: "Zero-Touch" Takeover logic
-                    // If the "current" device is NOT connected, allow this device to take over automatically.
-                    // IMPORTANT: We must exclude the CURRENT device from the "is connected" check,
-                    // because the device making this REST request might already have an active Socket.IO connection.
                     const isOtherDeviceActive = await global.sessionManager.isUserConnected(userId, decoded.deviceId);
-                    
+
                     if (isOtherDeviceActive) {
                         console.warn(`[AUTH] Device mismatch for user ${userId} (ACTIVE session on other device): token=${decoded.deviceId} stored=${user.currentDeviceId}`);
-                        return res.status(401).json({ 
-                            error: 'Token invalid for this device', 
+                        return res.status(401).json({
+                            error: 'Token invalid for this device',
                             code: 'CONCURRENT_SESSION_ACTIVE',
                             message: 'Account is actively being used on another device.'
                         });
                     } else {
-                        // Other device is inactive - allow auto-takeover
                         console.log(`[AUTH] Auto-takeover for user ${userId} from device ${decoded.deviceId} (Previous device ${user.currentDeviceId} was inactive)`);
                         await dbConnection.collection('users').updateOne(
                             { id: userId },
                             { $set: { currentDeviceId: decoded.deviceId } }
                         );
-                        // Also update active session if it exists
                         await dbConnection.collection('activeSessions').updateOne(
                             { userId: userId, deviceId: decoded.deviceId },
                             { $set: { lastActivityTime: new Date() } }
@@ -1381,26 +1148,23 @@ async function verifyToken(req, res, next) {
             }
         }
 
-        // Set req.user for downstream handlers
         req.user = decoded;
-        // Ensure userId is consistently available as req.user.userId
         if (!req.user.userId && req.user.id) {
             req.user.userId = req.user.id;
         }
-        
-        // Track user activity for online status (fire and forget, don't block the request)
+
         if (userId && dbConnection) {
             dbConnection.collection('users').updateOne(
                 { id: userId },
-                { 
-                    $set: { 
+                {
+                    $set: {
                         lastActivityAt: new Date(),
                         isOnline: true
-                    } 
+                    }
                 }
             ).catch(err => console.error('[AUTH] Failed to update user activity:', err.message));
         }
-        
+
         next();
     } catch (err) {
         console.error('[AUTH] Unexpected error in verifyToken:', err.message);
@@ -1408,14 +1172,6 @@ async function verifyToken(req, res, next) {
     }
 }
 
-// ==================== HEALTH CHECK ENDPOINTS ====================
-
-/**
- * Health Check Endpoint
- * GET /health
- * Returns system health status without authentication
- * Used for monitoring and load balancers
- */
 app.get('/health', (req, res) => {
     try {
         const uptime = process.uptime();
@@ -1430,11 +1186,6 @@ app.get('/health', (req, res) => {
     }
 });
 
-/**
- * API Health Check (via API path)
- * GET /api/health
- * Same as /health but accessible under /api/ prefix
- */
 app.get('/api/health', (req, res) => {
     try {
         const uptime = process.uptime();
@@ -1449,32 +1200,18 @@ app.get('/api/health', (req, res) => {
     }
 });
 
-/**
- * Liveness Probe (For Kubernetes/container orchestration)
- * GET /health/live
- */
 app.get('/health/live', (req, res) => {
     res.status(200).json({ status: 'alive', timestamp: new Date() });
 });
 
-/**
- * Readiness Probe (For Kubernetes/container orchestration)
- * GET /health/ready
- */
 app.get('/health/ready', (req, res) => {
     const isReady = dbConnection !== null;
-    res.status(isReady ? 200 : 503).json({ 
+    res.status(isReady ? 200 : 503).json({
         status: isReady ? 'ready' : 'not_ready',
         timestamp: new Date()
     });
 });
 
-/**
- * Token Verification Debug Endpoint
- * GET /api/token/verify
- * For debugging: sends back what we know about your token
- * Authorization: Bearer <token>
- */
 app.get('/api/token/verify', verifyToken, (req, res) => {
     try {
         res.json({
@@ -1496,11 +1233,6 @@ app.get('/api/token/verify', verifyToken, (req, res) => {
     }
 });
 
-/**
- * Socket.IO Diagnostic Endpoint
- * GET /api/socket.io/test
- * Check if Socket.IO server is initialized and working
- */
 app.get('/api/socket.io/test', (req, res) => {
     console.log('[DIAG] Socket.IO test endpoint called by client');
     try {
@@ -1525,26 +1257,21 @@ app.get('/api/socket.io/test', (req, res) => {
             uptime: process.uptime(),
             message: 'Socket.IO diagnostic check'
         };
-        
+
         const status = socketIoStatus.socketIoInitialized ? 200 : 503;
         console.log('[DIAG] Socket.IO test response:', socketIoStatus);
         res.status(status).json(socketIoStatus);
     } catch (err) {
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Socket.IO diagnostic error',
-            message: err.message 
+            message: err.message
         });
     }
 });
 
-/**
- * Socket.IO Engine Check
- * GET /api/socket.io/engine-check
- * Tests if Socket.IO engine is responding to HTTP requests
- */
 app.get('/api/socket.io/engine-check', (req, res) => {
     console.log('[DIAG] Socket.IO engine check called');
-    
+
     if (!global.socketIoServer) {
         console.error('[ERROR] Socket.IO server not initialized');
         return res.status(503).json({
@@ -1552,7 +1279,7 @@ app.get('/api/socket.io/engine-check', (req, res) => {
             timestamp: new Date().toISOString()
         });
     }
-    
+
     try {
         const engineInfo = {
             haEngine: !!global.socketIoServer.engine,
@@ -1565,7 +1292,7 @@ app.get('/api/socket.io/engine-check', (req, res) => {
             pingTimeout: global.socketIoServer.opts?.pingTimeout || 60000,
             timestamp: new Date().toISOString()
         };
-        
+
         console.log('[DIAG] Engine check response:', engineInfo);
         res.json(engineInfo);
     } catch (err) {
@@ -1578,11 +1305,6 @@ app.get('/api/socket.io/engine-check', (req, res) => {
     }
 });
 
-/**
- * HTTP Polling Test Endpoint
- * GET /api/polling/test
- * Tests if HTTP polling transport is working (for Socket.IO fallback)
- */
 app.get('/api/polling/test', (req, res) => {
     res.json({
         status: 'ok',
@@ -1596,10 +1318,6 @@ app.get('/api/polling/test', (req, res) => {
     });
 });
 
-/**
- * Diagnostic endpoint for signup troubleshooting
- * GET /api/diagnostic/signup
- */
 app.get('/api/diagnostic/signup', async (req, res) => {
     try {
         const diagnostic = {
@@ -1623,7 +1341,7 @@ app.get('/api/diagnostic/signup', async (req, res) => {
                 'Use tempToken with POST /api/setup-authenticator'
             ]
         };
-        
+
         res.status(200).json(diagnostic);
     } catch (err) {
         res.status(500).json({
@@ -1634,17 +1352,10 @@ app.get('/api/diagnostic/signup', async (req, res) => {
     }
 });
 
-// ==================== PRIVACY SETTINGS HELPERS ====================
-
-/**
- * Check if two users are friends
- * Returns: 'friends' | 'not-friends' | 'requested' | 'pending'
- */
 async function checkFriendStatus(userId1, userId2) {
     if (!dbConnection || !dbConnection.collection) return 'not-friends';
-    
+
     try {
-        // Check if they are friends
         const friend = await dbConnection.collection('friends').findOne({
             $or: [
                 { userId1, userId2 },
@@ -1652,23 +1363,21 @@ async function checkFriendStatus(userId1, userId2) {
             ]
         });
         if (friend) return 'friends';
-        
-        // Check for pending friend requests
+
         const request = await dbConnection.collection('friendRequests').findOne({
             senderId: userId1,
             recipientId: userId2,
             status: 'pending'
         });
         if (request) return 'pending';
-        
-        // Check for incoming friend request
+
         const incomingRequest = await dbConnection.collection('friendRequests').findOne({
             senderId: userId2,
             recipientId: userId1,
             status: 'pending'
         });
         if (incomingRequest) return 'requested';
-        
+
         return 'not-friends';
     } catch (err) {
         console.error('Error checking friend status:', err);
@@ -1676,59 +1385,37 @@ async function checkFriendStatus(userId1, userId2) {
     }
 }
 
-/**
- * Check if a user can view a specific privacy field based on privacy settings
- * @param {string} fieldPrivacySetting - Value: 'nobody' | 'friends' | 'everyone'
- * @param {string} viewerId - User trying to view the data
- * @param {string} targetUserId - User whose data is being viewed
- * @param {string} friendStatus - 'friends' | 'not-friends' | 'pending' | 'requested'
- * @returns {boolean} - true if can view, false if cannot
- */
 function canViewPrivateField(fieldPrivacySetting, viewerId, targetUserId, friendStatus) {
-    // If viewing own profile, always allow
     if (viewerId === targetUserId) return true;
-    
+
     if (fieldPrivacySetting === 'nobody') return false;
     if (fieldPrivacySetting === 'everyone') return true;
     if (fieldPrivacySetting === 'friends') return friendStatus === 'friends';
-    
-    // Default to most restrictive
+
     return false;
 }
 
-/**
- * Get user profile data respecting privacy settings
- * @param {object} user - User document from database
- * @param {string} requestUserId - User making the request
- * @returns {object} - Filtered user profile data
- */
 async function getUserProfileRespectingPrivacy(user, requestUserId) {
     if (!user) return null;
-    
+
     const targetUserId = user.id;
     const isOwnProfile = requestUserId === targetUserId;
-    
-    // Get friend status for privacy checks
+
     const friendStatus = isOwnProfile ? 'friends' : await checkFriendStatus(requestUserId, targetUserId);
-    
-    // Get privacy settings (defaults to 'friends' for most fields)
+
     const privacySettings = user.profile?.privacySettings || {};
     const settings = {
         lastSeen: privacySettings.lastSeen || 'friends',
         onlineStatus: privacySettings.onlineStatus || 'friends',
         bio: privacySettings.bio || 'friends',
-        calls: privacySettings.calls || 'friends',
         groups: privacySettings.groups || 'friends',
         aboutBio: privacySettings.aboutBio || 'friends'
     };
-    
-    // Calculate online status
+
     const now = Date.now();
     const lastActivity = user.lastActivityAt ? new Date(user.lastActivityAt).getTime() : null;
-    const isOnline = (lastActivity && (now - lastActivity) < 5 * 60 * 1000) || 
-                    (user.isOnline === true && lastActivity && (now - lastActivity) < 10 * 60 * 1000);
-    
-    // Helper to get last seen string
+    const isOnline = lastActivity && (now - lastActivity) < 5 * 60 * 1000;
+
     function getLastSeen() {
         if (isOnline) return 'Online now';
         if (lastActivity) {
@@ -1740,8 +1427,7 @@ async function getUserProfileRespectingPrivacy(user, requestUserId) {
         }
         return 'Offline';
     }
-    
-    // Build response with privacy filtering
+
     const response = {
         userId: user.id,
         username: user.username || 'Unknown',
@@ -1751,27 +1437,23 @@ async function getUserProfileRespectingPrivacy(user, requestUserId) {
         tags: Array.isArray(user.profile?.tags) ? user.profile.tags : [],
         createdAt: user.createdAt ? user.createdAt.getTime() : Date.now()
     };
-    
-    // Add email only to own profile
+
     if (isOwnProfile) {
         response.email = user.email || '';
     }
-    
-    // Bio - respect privacy setting
+
     if (canViewPrivateField(settings.bio, requestUserId, targetUserId, friendStatus)) {
         response.bio = user.profile?.bio || '';
     } else {
         response.bio = isOwnProfile ? (user.profile?.bio || '') : '';
     }
-    
-    // About/Bio (for settings screen) - respect privacy
+
     if (canViewPrivateField(settings.aboutBio, requestUserId, targetUserId, friendStatus)) {
         response.aboutBio = user.profile?.aboutBio || user.profile?.bio || '';
     } else if (isOwnProfile) {
         response.aboutBio = user.profile?.aboutBio || user.profile?.bio || '';
     }
-    
-    // Online Status - respect privacy setting
+
     if (canViewPrivateField(settings.onlineStatus, requestUserId, targetUserId, friendStatus)) {
         response.isOnline = isOnline;
         response.actualOnlineStatus = isOnline ? 'online' : 'offline';
@@ -1782,8 +1464,7 @@ async function getUserProfileRespectingPrivacy(user, requestUserId) {
         response.isOnline = false;
         response.actualOnlineStatus = 'offline';
     }
-    
-    // Last Seen - respect privacy setting
+
     if (canViewPrivateField(settings.lastSeen, requestUserId, targetUserId, friendStatus)) {
         response.lastSeen = getLastSeen();
     } else if (isOwnProfile) {
@@ -1791,24 +1472,18 @@ async function getUserProfileRespectingPrivacy(user, requestUserId) {
     } else {
         response.lastSeen = 'Hidden';
     }
-    
-    // Status message - similar to bio
+
     response.status = user.profile?.status || 'Available';
-    
-    // Include privacy settings for own profile
+
     if (isOwnProfile) {
         response.privacySettings = settings;
     }
-    
-    // Friend status
+
     response.friendStatus = friendStatus;
-    
+
     return response;
 }
 
-// ==================== ADMIN ENDPOINTS ====================
-
-// Login Endpoint
 app.post('/api/admin/login', async (req, res) => {
     const { username, password } = req.body;
 
@@ -1818,17 +1493,15 @@ app.post('/api/admin/login', async (req, res) => {
 
     try {
         console.log(`[DEBUG] Login attempt: username=${username}`);
-        
-        // ✅ Validate JWT_SECRET is configured
+
         if (!JWT_SECRET) {
             console.error('[ERROR] JWT_SECRET not configured - cannot generate tokens');
-            return res.status(503).json({ 
-                error: 'Service unavailable', 
-                message: 'Authentication service not properly configured. Please contact administrator.' 
+            return res.status(503).json({
+                error: 'Service unavailable',
+                message: 'Authentication service not properly configured. Please contact administrator.'
             });
         }
-        
-        // Check against predefined admin credentials
+
         if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
             console.log(`[DEBUG] Admin credentials matched, generating token...`);
 
@@ -1842,8 +1515,8 @@ app.post('/api/admin/login', async (req, res) => {
                 console.log(`[DEBUG] Token generated successfully (length: ${token.length})`);
             } catch (jwtErr) {
                 console.error('[ERROR] JWT signing failed:', jwtErr.message);
-                return res.status(500).json({ 
-                    error: 'Authentication error', 
+                return res.status(500).json({
+                    error: 'Authentication error',
                     details: 'Failed to generate authentication token',
                     debug: process.env.NODE_ENV === 'development' ? jwtErr.message : undefined
                 });
@@ -1852,7 +1525,6 @@ app.post('/api/admin/login', async (req, res) => {
             try {
                 if (dbConnection && dbConnection.isConnected) {
                     await logEvent('auth', `Admin login successful: ${username}`);
-                    // Ensure admin document exists in the admins collection for downstream auth checks
                     await dbConnection.collection('admins').updateOne(
                         { username },
                         { $set: { username, role: 'ADMIN', lastLogin: new Date() } },
@@ -1861,7 +1533,6 @@ app.post('/api/admin/login', async (req, res) => {
                 }
             } catch (logErr) {
                 console.warn(`[WARN] Failed to log event / upsert admin: ${logErr.message}`);
-                // Don't fail the login just because logging/upsert failed
             }
 
             return res.json({
@@ -1874,12 +1545,11 @@ app.post('/api/admin/login', async (req, res) => {
             });
         }
 
-        // Also check in database for additional admins
         if (!dbConnection || !dbConnection.isConnected) {
             console.error('[ERROR] Login failed: Database not connected');
-            return res.status(503).json({ 
-                error: 'Service unavailable', 
-                message: 'Database connection is not ready. Please check MongoDB status.' 
+            return res.status(503).json({
+                error: 'Service unavailable',
+                message: 'Database connection is not ready. Please check MongoDB status.'
             });
         }
 
@@ -1889,7 +1559,7 @@ app.post('/api/admin/login', async (req, res) => {
         });
         if (adminUser && await bcrypt.compare(password, adminUser.password)) {
             console.log(`[DEBUG] Database admin credentials matched, generating token...`);
-            
+
             let token;
             try {
                 token = jwt.sign(
@@ -1900,8 +1570,8 @@ app.post('/api/admin/login', async (req, res) => {
                 console.log(`[DEBUG] Token generated successfully (length: ${token.length})`);
             } catch (jwtErr) {
                 console.error('[ERROR] JWT signing failed:', jwtErr.message);
-                return res.status(500).json({ 
-                    error: 'Authentication error', 
+                return res.status(500).json({
+                    error: 'Authentication error',
                     details: 'Failed to generate authentication token',
                     debug: process.env.NODE_ENV === 'development' ? jwtErr.message : undefined
                 });
@@ -1938,9 +1608,7 @@ app.post('/api/admin/login', async (req, res) => {
     }
 });
 
-// **NEW: Comprehensive Admin Monitoring Endpoint
 app.get('/api/admin/monitor', verifyToken, async (req, res) => {
-    // Only admins can access monitoring
     if (req.user.role !== 'ADMIN') {
         return res.status(403).json({ error: 'Admin access required' });
     }
@@ -1951,8 +1619,7 @@ app.get('/api/admin/monitor', verifyToken, async (req, res) => {
         const totalMem = os.totalmem();
         const freeMem = os.freemem();
         const usedMem = totalMem - freeMem;
-        
-        // Service status (we are the API, so we are online)
+
         const services = {
             api: {
                 online: true,
@@ -2000,12 +1667,11 @@ app.get('/api/admin/monitor', verifyToken, async (req, res) => {
     }
 });
 
-// **NEW: System Stats Endpoint
 app.get('/api/admin/system', verifyToken, (req, res) => {
     if (req.user.role !== 'ADMIN') {
         return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     res.json({
         uptime: process.uptime(),
         nodeVersion: process.version,
@@ -2021,12 +1687,11 @@ app.get('/api/admin/system', verifyToken, (req, res) => {
     });
 });
 
-// **NEW: Server Configuration Endpoint
 app.get('/api/admin/config', verifyToken, (req, res) => {
     if (req.user.role !== 'ADMIN') {
         return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     res.json({
         node_env: process.env.NODE_ENV || 'development',
         port: process.env.PORT || 443,
@@ -2041,65 +1706,54 @@ app.get('/api/admin/config', verifyToken, (req, res) => {
     });
 });
 
-
-// User Login Endpoint
 app.post('/api/login', loginLimiter, async (req, res) => {
-    // Default force to true for "Zero-Touch" recovery - removes need for manual logout buttons
     const { username, password, force = true } = req.body;
 
-    // INPUT VALIDATION: Validate required fields
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password required' });
     }
 
-    // INPUT VALIDATION: Trim and validate username format
     const trimmedUsername = String(username).trim();
     if (trimmedUsername.length < 3 || trimmedUsername.length > 100) {
         return res.status(400).json({ error: 'Username must be between 3 and 100 characters' });
     }
 
-    // INPUT VALIDATION: Validate password has minimum length
     if (String(password).length < 6 || String(password).length > 1000) {
         return res.status(400).json({ error: 'Invalid password format' });
     }
 
-    // INPUT VALIDATION: Check for SQL/NoSQL injection patterns
     if (!/^[a-zA-Z0-9._@-]+$/.test(trimmedUsername)) {
         return res.status(400).json({ error: 'Username contains invalid characters' });
     }
 
     try {
-        // Check against database users
         const user = await dbConnection.collection('users').findOne({
             $or: [
                 { username: trimmedUsername.toLowerCase() },
                 { email: trimmedUsername.toLowerCase() }
             ]
         });
-        
+
         if (!user) {
             await logEvent('auth', `Failed login attempt: ${trimmedUsername} (user not found)`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        // Verify password using bcrypt
         const passwordMatch = await bcrypt.compare(password, user.password);
-        
+
         if (!passwordMatch) {
             await logEvent('auth', `Failed login attempt: ${trimmedUsername} (wrong password)`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        // Check 2FA requirements
         const twoFaEnabled = user.twoFactorAuth && user.twoFactorAuth.enabled && user.twoFactorAuth.accountVerified;
         const twoFaSetupRequired = user.twoFactorAuth && user.twoFactorAuth.mandatorySetup && !twoFaEnabled;
         const twoFaMandatory = user.twoFactorAuth && user.twoFactorAuth.mandatorySetup;
         const incomingDevice = req.body.deviceId || '';
-        
-        // If 2FA is already enabled, require verification
+
         if (twoFaEnabled) {
             const tempToken = jwt.sign(
-                { 
+                {
                     userId: user.id,
                     username: user.username,
                     twoFaRequired: true,
@@ -2122,11 +1776,10 @@ app.post('/api/login', loginLimiter, async (req, res) => {
                 message: 'Please enter your authenticator app code'
             });
         }
-        
-        // If 2FA setup is mandatory and not yet set up, require setup
+
         if (twoFaSetupRequired) {
             const tempToken = jwt.sign(
-                { 
+                {
                     userId: user.id,
                     username: user.username,
                     twoFaRequired: true,
@@ -2150,9 +1803,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
             });
         }
 
-        // If 2FA is not mandatory (admin-created users), allow login without 2FA
         if (!twoFaMandatory) {
-            // ✅ NEW: Create session for concurrent login prevention
             const deviceId = incomingDevice || crypto.randomBytes(16).toString('hex');
             const deviceInfo = {
                 platform: req.body.deviceInfo?.platform || 'Unknown',
@@ -2170,7 +1821,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
             );
 
             const authToken = jwt.sign(
-                { 
+                {
                     userId: user.id,
                     username: user.username,
                     twoFaRequired: false,
@@ -2182,7 +1833,6 @@ app.post('/api/login', loginLimiter, async (req, res) => {
                 { expiresIn: '30d' }
             );
 
-            // Return user data without sensitive fields
             const userData = {
                 id: user.id,
                 userId: user.id,
@@ -2213,7 +1863,6 @@ app.post('/api/login', loginLimiter, async (req, res) => {
             });
         }
 
-        // Should not reach here, but fallback if twoFactorAuth is undefined
         const incomingDeviceFallback = req.body.deviceId || '';
         if (incomingDeviceFallback) {
             const deviceUpdateResult = await dbConnection.collection('users').updateOne(
@@ -2225,7 +1874,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
             }
         }
         const authToken = jwt.sign(
-            { 
+            {
                 userId: user.id,
                 username: user.username,
                 twoFaRequired: false,
@@ -2235,7 +1884,6 @@ app.post('/api/login', loginLimiter, async (req, res) => {
             { expiresIn: '30d' }
         );
 
-        // Return user data for fallback case
         const fallbackUserData = {
             id: user.id,
             userId: user.id,
@@ -2266,91 +1914,82 @@ app.post('/api/login', loginLimiter, async (req, res) => {
         });
     } catch (err) {
         await logEvent('auth', `Login error: ${err.message}`);
-        
-        // Handle concurrent login error
+
         if (err.code === 'CONCURRENT_LOGIN') {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 success: false,
                 error: 'Account already in use by another device',
                 code: 'CONCURRENT_LOGIN',
                 message: `This account is already logged in on ${err.existingDevice}. Multi-device login is disabled for security.`
             });
         }
-        
+
         res.status(500).json({ error: 'Login failed', details: err.message });
     }
 });
 
-// User Registration/Sign-Up Endpoint (PUBLIC) -Step 1: Create Account
 app.post('/api/signup', signupLimiter, async (req, res) => {
     const { username, email, displayName, password, confirmPassword, twoFaMethod } = req.body;
 
     try {
-        // Comprehensive validation
         if (!username || !email || !password || !confirmPassword) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Username, email, password, and confirm password are required' 
+                error: 'Username, email, password, and confirm password are required'
             });
         }
 
-        // Username validation
         if (username.length < 3) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Username must be at least 3 characters' 
+                error: 'Username must be at least 3 characters'
             });
         }
         if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Username can only contain letters, numbers, and underscores' 
+                error: 'Username can only contain letters, numbers, and underscores'
             });
         }
 
-        // Email validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Invalid email format' 
+                error: 'Invalid email format'
             });
         }
 
-        // Password validation
         if (password.length < 8) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Password must be at least 8 characters' 
+                error: 'Password must be at least 8 characters'
             });
         }
 
         if (!/(?=.*[a-zA-Z])(?=.*\d)(?=.*[@$%^&*!])/.test(password)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Password must contain letters, numbers, and special characters (@$%^&*!)' 
+                error: 'Password must contain letters, numbers, and special characters (@$%^&*!)'
             });
         }
 
         if (password !== confirmPassword) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Passwords do not match' 
+                error: 'Passwords do not match'
             });
         }
 
-        // MANDATORY: All users must use authenticator app 2FA
-        const selectedTwoFaMethod = 'authenticator'; // Force authenticator for all users
-        
-        // Validate 2FA method (only authenticator allowed)
+        const selectedTwoFaMethod = 'authenticator';
+
         if (twoFaMethod && twoFaMethod !== 'authenticator') {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                error: 'Only authenticator app 2FA is supported. Please use Google Authenticator, Microsoft Authenticator, or any TOTP-compatible app.' 
+                error: 'Only authenticator app 2FA is supported. Please use Google Authenticator, Microsoft Authenticator, or any TOTP-compatible app.'
             });
         }
 
-        // Check if user already exists
         const existingUser = await dbConnection.collection('users').findOne({
             $or: [
                 { email: email.toLowerCase() },
@@ -2360,19 +1999,15 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
 
         if (existingUser) {
             const field = existingUser.email === email.toLowerCase() ? 'Email' : 'Username';
-            return res.status(409).json({ 
+            return res.status(409).json({
                 success: false,
-                error: `${field} already registered` 
+                error: `${field} already registered`
             });
         }
 
-        // ==== NATIVE DEVICE-BASED RATE LIMITING ====
-        // Rate limiting is based on native Android device identifiers instead of IP address
-        // This prevents VPN bypass and ensures one account per physical device
-        
         const now = new Date();
         const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-        
+
         if (!req.body.deviceFingerprint) {
             return res.status(400).json({
                 success: false,
@@ -2380,28 +2015,24 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 details: 'Please ensure app includes device fingerprint data'
             });
         }
-        
+
         const deviceFingerprint = req.body.deviceFingerprint;
         const deviceId = deviceFingerprint.deviceId || 'unknown';
         const androidId = deviceFingerprint.androidId || 'unknown';
         const hardwareSerial = deviceFingerprint.hardwareSerial || 'unknown';
         const deviceModel = deviceFingerprint.deviceModel || 'unknown';
-        
-        // Primary rate limiting key: Use ANDROID_ID (hardest to spoof)
+
         let primaryDeviceKey = androidId;
-        
-        // Secondary fallback: Use combination of device identifiers
+
         let secondaryDeviceKey = deviceId;
-        
-        // Tertiary fallback: Use hardware serial if available
+
         let tertiaryDeviceKey = hardwareSerial;
-        
-        // Check for emulator or suspicious devices
+
         const isEmulator = deviceFingerprint.buildFingerprint?.includes('generic') ||
                            deviceFingerprint.buildFingerprint?.includes('test-keys') ||
                            deviceModel?.includes('Emulator') ||
                            deviceModel?.includes('SDK');
-        
+
         if (isEmulator) {
             await logEvent('emulator_signup_attempt', `Emulator signup blocked: ${deviceModel}`, null, {
                 email: email,
@@ -2414,15 +2045,13 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 message: 'Please use a physical Android device to create an account'
             });
         }
-        
-        // PRIMARY CHECK: ANDROID_ID-based rate limiting
-        // ANDROID_ID cannot be changed without factory reset
+
         if (primaryDeviceKey && primaryDeviceKey !== 'unknown' && primaryDeviceKey !== '9774d56d682e549c') {
             const recentSignupsByAndroidId = await dbConnection.collection('users').countDocuments({
                 'deviceFingerprint.androidId': primaryDeviceKey,
                 createdAt: { $gte: threeMonthsAgo }
             });
-            
+
             if (recentSignupsByAndroidId >= 1) {
                 await logEvent('rate_limit_exceeded', `Device rate limit exceeded (ANDROID_ID): ${primaryDeviceKey}`, null, {
                     email: email,
@@ -2439,15 +2068,13 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 });
             }
         }
-        
-        // SECONDARY CHECK: Hardware Serial-based rate limiting
-        // Hardware serial cannot be spoofed without bootloader access
+
         if (tertiaryDeviceKey && tertiaryDeviceKey !== 'unknown' && tertiaryDeviceKey !== primaryDeviceKey) {
             const recentSignupsBySerial = await dbConnection.collection('users').countDocuments({
                 'deviceFingerprint.hardwareSerial': tertiaryDeviceKey,
                 createdAt: { $gte: threeMonthsAgo }
             });
-            
+
             if (recentSignupsBySerial >= 1) {
                 await logEvent('rate_limit_exceeded', `Device rate limit exceeded (Serial): ${tertiaryDeviceKey}`, null, {
                     email: email,
@@ -2464,16 +2091,13 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 });
             }
         }
-        
-        // TERTIARY CHECK: Device Model-based detection (catches obvious spoofing attempts)
-        // Multiple signups in short time from same device model might indicate app repackaging
+
         if (deviceModel && deviceModel !== 'unknown') {
             const recentSignupsByModel = await dbConnection.collection('users').countDocuments({
                 'deviceFingerprint.deviceModel': deviceModel,
-                createdAt: { $gte: new Date(now.getTime() - 24*60*60*1000) } // 24 hours
+                createdAt: { $gte: new Date(now.getTime() - 24*60*60*1000) }
             });
-            
-            // Alert if many signups from same model (might be bot farm)
+
             if (recentSignupsByModel > 5) {
                 await logEvent('suspicious_activity', `Many signups from same device model: ${deviceModel}`, null, {
                     email: email,
@@ -2482,20 +2106,18 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 });
             }
         }
-        
-        // IP-based logging (secondary measure, not primary rate limiting)
+
         let clientIP = req.ip;
         if (!clientIP || clientIP.includes(':')) {
-            clientIP = (req.headers['x-forwarded-for'])?.split(',')[0].trim() || 
-                      req.socket?.remoteAddress || 
-                      req.connection?.remoteAddress || 
+            clientIP = (req.headers['x-forwarded-for'])?.split(',')[0].trim() ||
+                      req.socket?.remoteAddress ||
+                      req.connection?.remoteAddress ||
                       'unknown';
         }
 
-        // BOT DETECTION: Check for suspicious patterns
         const userAgent = req.headers['user-agent'] || 'Unknown';
         const isSuspicious = detectSuspiciousActivity(userAgent, req.body.deviceFingerprint);
-        
+
         if (isSuspicious.isBot) {
             await logEvent('bot_detection', `Bot activity detected: ${isSuspicious.reason}`, null, {
                 email: email,
@@ -2503,14 +2125,13 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 userAgent: userAgent,
                 reason: isSuspicious.reason
             });
-            return res.status(403).json({ 
+            return res.status(403).json({
                 success: false,
                 error: 'Access denied',
                 message: 'Suspicious activity detected. Please contact support if you believe this is an error.'
             });
         }
 
-        // Create new unverified user
         const newUser = {
             id: uuidv4(),
             username: username.toLowerCase(),
@@ -2523,15 +2144,13 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
             lastSeen: new Date(),
             createdAt: new Date(),
             updatedAt: new Date(),
-            
-            // Signup metadata for rate limiting
+
             signupMetadata: {
                 ipAddress: clientIP,
                 userAgent: userAgent,
                 signupDate: new Date()
             },
-            
-            // Device fingerprint for enhanced security
+
             deviceFingerprint: req.body.deviceFingerprint ? {
                 deviceId: req.body.deviceFingerprint.deviceId,
                 deviceModel: req.body.deviceFingerprint.deviceModel,
@@ -2542,11 +2161,10 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 androidId: req.body.deviceFingerprint.androidId,
                 timestamp: req.body.deviceFingerprint.timestamp
             } : null,
-            
-            // 2FA Setup - MANDATORY AUTHENTICATOR
+
             twoFactorAuth: {
                 enabled: false,
-                method: selectedTwoFaMethod, // Always 'authenticator'
+                method: selectedTwoFaMethod,
                 verifiedAt: null,
                 authenticatorSecret: null,
                 authenticatorBackupCodes: [],
@@ -2556,10 +2174,9 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 accountVerified: false,
                 verificationMethod: null,
                 verificationCompletedAt: null,
-                mandatorySetup: true // Force setup on first login
+                mandatorySetup: true
             },
 
-            // Standard fields
             monthlyCreationLimit: {
                 enabled: true,
                 maxUsersPerMonth: 1,
@@ -2587,7 +2204,6 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
             }
         };
 
-        // Insert unverified user with transaction support
         let userInserted = false;
         try {
             await executeWithTransaction(async (session) => {
@@ -2600,7 +2216,6 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 email: email,
                 error: dbErr.message
             });
-            // Handle MongoDB duplicate key error (E11000) with clear message
             if (dbErr.code === 11000) {
                 const errMsg = dbErr.message || '';
                 const field = errMsg.includes('email') ? 'Email' : 'Username';
@@ -2609,17 +2224,16 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                     error: `${field} already registered`
                 });
             }
-            // Always send response - CRITICAL for client-side handling
-            return res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: 'Failed to create account. Please try again.' 
+                error: 'Failed to create account. Please try again.'
             });
         }
 
         if (!userInserted) {
-            return res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
-                error: 'Failed to create account. Please try again.' 
+                error: 'Failed to create account. Please try again.'
             });
         }
 
@@ -2629,9 +2243,8 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
             twoFaMethod: twoFaMethod
         });
 
-        // Generate temporary JWT for 2FA setup
         const tempToken = jwt.sign(
-            { 
+            {
                 userId: newUser.id,
                 username: newUser.username,
                 setupMode: true
@@ -2640,16 +2253,14 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
             { expiresIn: '30m' }
         );
 
-        // Log before sending response
         console.log(`[SIGNUP] Account created for ${email}, sending 201 response with tempToken`);
 
-        // Return response with instructions for authenticator setup
         const successResponse = {
             success: true,
             message: `Account created. Complete mandatory 2FA setup with authenticator app`,
             tempToken: tempToken,
             userId: newUser.id,
-            twoFaMethod: selectedTwoFaMethod, // Always 'authenticator'
+            twoFaMethod: selectedTwoFaMethod,
             nextStep: '/api/setup-authenticator',
             instructions: {
                 step: 'setup_authenticator',
@@ -2657,12 +2268,11 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
                 qrCode: 'Will be provided in next step'
             }
         };
-        
-        // Ensure proper response headers for reliable socket communication
+
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Connection', 'close'); // Signal to close connection after response
+        res.setHeader('Connection', 'close');
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        
+
         return res.status(201).json(successResponse);
 
     } catch (err) {
@@ -2672,23 +2282,18 @@ app.post('/api/signup', signupLimiter, async (req, res) => {
             error: err.message,
             stack: err.stack
         });
-        // CRITICAL: Always send a response to prevent hanging requests
-        return res.status(500).json({ 
+        return res.status(500).json({
             success: false,
             error: 'An error occurred during registration',
-            details: err.message 
+            details: err.message
         });
     }
 });
 
-// ==================== 2FA SETUP ENDPOINTS ====================
-
-// Setup Authenticator Endpoint - Step 2a (Authenticator Method)
 app.post('/api/setup-authenticator', passwordResetLimiter, async (req, res) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     try {
-        // Verify temporary token
         const decoded = jwt.verify(token, JWT_SECRET);
         if (!decoded.setupMode) {
             return res.status(401).json({ error: 'Invalid setup mode' });
@@ -2703,30 +2308,26 @@ app.post('/api/setup-authenticator', passwordResetLimiter, async (req, res) => {
             return res.status(404).json({ error: 'User not found or already verified' });
         }
 
-        // Generate authenticator secret
         const secret = speakeasy.generateSecret({
             name: `FreeTime (${user.email})`,
             issuer: 'FreeTime',
             length: 32
         });
 
-        // Generate QR code with error handling
         let qrCode;
         try {
             qrCode = await QRCode.toDataURL(secret.otpauth_url);
         } catch (qrError) {
         console.error('[ERROR] QR code generation failed:', qrError);
-            return res.status(500).json({ 
+            return res.status(500).json({
                 error: 'Failed to generate QR code',
                 fallback: 'Manual entry available: ' + secret.base32
             });
         }
 
-        // Generate backup codes
         const backupCodes = generateBackupCodes(10);
         const now = new Date();
 
-        // Store temporary secret (not confirmed yet)
         const updateResult = await dbConnection.collection('users').updateOne(
             { id: user.id },
             {
@@ -2747,7 +2348,6 @@ app.post('/api/setup-authenticator', passwordResetLimiter, async (req, res) => {
             return res.status(500).json({ error: 'Failed to save authenticator setup' });
         }
 
-        // Send setup email with QR code
         await sendAuthenticatorSetupEmail(user.email, user.name, qrCode);
 
         res.json({
@@ -2767,7 +2367,6 @@ app.post('/api/setup-authenticator', passwordResetLimiter, async (req, res) => {
     }
 });
 
-// Verify Authenticator TOTP Code - Step 2b (Authenticator Method)
 app.post('/api/verify-authenticator', async (req, res) => {
     const { totpCode } = req.body;
     const token = req.headers.authorization?.replace('Bearer ', '');
@@ -2791,7 +2390,6 @@ app.post('/api/verify-authenticator', async (req, res) => {
             return res.status(404).json({ error: 'User not found or authenticator not set up' });
         }
 
-        // Verify TOTP code
         const isValidToken = speakeasy.totp.verify({
             secret: user.twoFactorAuth.authenticatorSecret,
             encoding: 'base32',
@@ -2803,7 +2401,6 @@ app.post('/api/verify-authenticator', async (req, res) => {
             return res.status(401).json({ error: 'Invalid verification code' });
         }
 
-        // Mark account as verified
         await dbConnection.collection('users').updateOne(
             { id: user.id },
             {
@@ -2817,13 +2414,11 @@ app.post('/api/verify-authenticator', async (req, res) => {
             }
         );
 
-        // Send backup codes email
         const backupCodes = user.twoFactorAuth.authenticatorBackupCodes.map(bc => bc.code);
         await sendBackupCodesEmail(user.email, user.name, backupCodes);
 
-        // Generate final JWT token (30 days for Remember Me)
         const finalToken = jwt.sign(
-            { 
+            {
                 userId: user.id,
                 username: user.username,
                 role: user.role
@@ -2855,7 +2450,6 @@ app.post('/api/verify-authenticator', async (req, res) => {
     }
 });
 
-// Send Email Verification Code - Step 2a (Email Method)
 app.post('/api/send-verification-email', async (req, res) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
 
@@ -2874,11 +2468,9 @@ app.post('/api/send-verification-email', async (req, res) => {
             return res.status(404).json({ error: 'User not found or already verified' });
         }
 
-        // Generate verification code
         const verificationCode = generateVerificationCode(6);
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        // Store code
         await dbConnection.collection('users').updateOne(
             { id: user.id },
             {
@@ -2889,10 +2481,6 @@ app.post('/api/send-verification-email', async (req, res) => {
                 }
             }
         );
-
-        // Send email
-        // Email verification is disabled - skip directly to authenticator setup
-        // REMOVED: await sendVerificationEmail(user.email, verificationCode, user.name);
 
         res.json({
             success: true,
@@ -2909,19 +2497,14 @@ app.post('/api/send-verification-email', async (req, res) => {
     }
 });
 
-// Verify Email Code - DISABLED (Email verification disabled - using authenticator only)
 app.post('/api/verify-email-code', async (req, res) => {
-    // Email verification is disabled in favor of authenticator-based 2FA
-    return res.status(403).json({ 
+    return res.status(403).json({
         error: 'Email verification is disabled',
         message: 'Please use authenticator app for two-factor authentication',
         nextStep: '/api/setup-authenticator'
     });
 });
 
-// Email verification endpoint is disabled - all 2FA uses authenticator app
-
-// Verify Token Endpoint
 app.get('/api/admin/verify', verifyToken, async (req, res) => {
     res.json({
         valid: true,
@@ -2929,11 +2512,6 @@ app.get('/api/admin/verify', verifyToken, async (req, res) => {
     });
 });
 
-// User Token Verification Endpoint
-
-// ==================== LOGIN 2FA VERIFICATION ENDPOINTS ====================
-
-// Verify TOTP During Login
 app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
     const { totpCode, rememberMe = true, force = true } = req.body;
     const tempToken = req.headers.authorization?.replace('Bearer ', '');
@@ -2955,19 +2533,17 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
         }
 
         if (!user.twoFactorAuth || !user.twoFactorAuth.authenticatorSecret) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'Two-factor authentication not set up for this user',
                 setupRequired: true
             });
         }
 
-        // Determine if code is TOTP (6 digits) or backup code
         const isTotpFormat = /^\d{6}$/.test(totpCode);
         let isValid = false;
         let usedBackupCode = false;
 
         if (isTotpFormat) {
-            // Verify TOTP code
             isValid = speakeasy.totp.verify({
                 secret: user.twoFactorAuth.authenticatorSecret,
                 encoding: 'base32',
@@ -2975,14 +2551,12 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
                 window: 2
             });
         } else {
-            // Try backup code verification
             if (!user.twoFactorAuth.authenticatorBackupCodes || user.twoFactorAuth.authenticatorBackupCodes.length === 0) {
                 return res.status(401).json({ error: 'Invalid code' });
             }
 
-            // Find and validate backup code (case-insensitive, remove spaces)
             const normalizedInput = totpCode.replace(/\s/g, '').toUpperCase();
-            const backupCodeIndex = user.twoFactorAuth.authenticatorBackupCodes.findIndex(bc => 
+            const backupCodeIndex = user.twoFactorAuth.authenticatorBackupCodes.findIndex(bc =>
                 bc.code.replace(/\s/g, '').toUpperCase() === normalizedInput && !bc.used
             );
 
@@ -2990,7 +2564,6 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
                 isValid = true;
                 usedBackupCode = true;
 
-                // Mark backup code as used
                 const backupCodes = JSON.parse(JSON.stringify(user.twoFactorAuth.authenticatorBackupCodes));
                 backupCodes[backupCodeIndex].used = true;
                 backupCodes[backupCodeIndex].usedAt = new Date();
@@ -3006,19 +2579,16 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Invalid code' });
         }
 
-        // Token expiration: Always 30 days (Remember Me is automatic)
         const tokenExpiry = '30d';
-        
-        // Update online status, record login session and store device ID
+
         const loginSessionData = {
             isOnline: true,
             lastLogin: new Date(),
             updatedAt: new Date()
         };
-        const decodedTemp = decoded; // already defined earlier
+        const decodedTemp = decoded;
         const deviceId = decodedTemp.deviceId || crypto.randomBytes(16).toString('hex');
-        
-        // ✅ NEW: Create session for concurrent login prevention
+
         const deviceInfo = {
             platform: req.body.deviceInfo?.platform || 'Unknown',
             deviceName: req.body.deviceInfo?.deviceName || 'Unknown Device',
@@ -3034,22 +2604,20 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
             force
         );
 
-        // If rememberMe is enabled, store the preference
         if (rememberMe) {
             loginSessionData.rememberMeEnabled = true;
-            loginSessionData.rememberMeExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+            loginSessionData.rememberMeExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         }
 
         await dbConnection.collection('users').updateOne(
             { id: user.id },
-            { 
+            {
                 $set: loginSessionData
             }
         );
 
-        // Generate final token with appropriate expiry
         const token = jwt.sign(
-            { 
+            {
                 userId: user.id,
                 username: user.username,
                 role: user.role,
@@ -3062,11 +2630,10 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
             { expiresIn: tokenExpiry }
         );
 
-        // Generate optional refresh token for rememberMe functionality
         let refreshToken = null;
         if (rememberMe) {
             refreshToken = jwt.sign(
-                { 
+                {
                     userId: user.id,
                     type: 'refresh',
                     deviceId: deviceId,
@@ -3098,22 +2665,20 @@ app.post('/api/verify-login-totp', totpLimiter, async (req, res) => {
 
     } catch (error) {
         console.error('Verification error:', error);
-        
-        // Handle concurrent login error during 2FA verification
+
         if (error.code === 'CONCURRENT_LOGIN') {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 success: false,
                 error: 'Account already in use by another device',
                 code: 'CONCURRENT_LOGIN',
                 message: `This account is already logged in on ${error.existingDevice}. Multi-device login is disabled for security.`
             });
         }
-        
+
         res.status(500).json({ error: 'Verification failed', details: error.message });
     }
 });
 
-// Send Email Code During Login
 app.post('/api/send-login-verification-email', async (req, res) => {
     const tempToken = req.headers.authorization?.replace('Bearer ', '');
 
@@ -3128,11 +2693,9 @@ app.post('/api/send-login-verification-email', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Generate verification code
         const verificationCode = generateVerificationCode(6);
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        // Store code
         await dbConnection.collection('users').updateOne(
             { id: user.id },
             {
@@ -3144,7 +2707,6 @@ app.post('/api/send-login-verification-email', async (req, res) => {
             }
         );
 
-        // Send email
         await sendVerificationEmail(user.email, verificationCode, user.name);
 
         res.json({
@@ -3158,7 +2720,6 @@ app.post('/api/send-login-verification-email', async (req, res) => {
     }
 });
 
-// Verify Email Code During Login
 app.post('/api/verify-login-email-code', async (req, res) => {
     const { code } = req.body;
     const tempToken = req.headers.authorization?.replace('Bearer ', '');
@@ -3167,7 +2728,6 @@ app.post('/api/verify-login-email-code', async (req, res) => {
         return res.status(400).json({ error: 'Code is required' });
     }
 
-    // INPUT VALIDATION: Validate code format - must be 6 digits
     if (!/^\d{6}$/.test(String(code).trim())) {
         return res.status(400).json({ error: 'Invalid code format. Code must be 6 digits' });
     }
@@ -3185,17 +2745,14 @@ app.post('/api/verify-login-email-code', async (req, res) => {
 
         const twoFa = user.twoFactorAuth;
 
-        // Check expiration
         if (new Date() > twoFa.emailVerificationExpiresAt) {
             return res.status(401).json({ error: 'Code expired' });
         }
 
-        // Check attempts
         if (twoFa.emailVerificationAttempts >= 5) {
             return res.status(429).json({ error: 'Too many attempts' });
         }
 
-        // Verify code
         if (code !== twoFa.emailVerificationCode) {
             await dbConnection.collection('users').updateOne(
                 { id: user.id },
@@ -3204,10 +2761,9 @@ app.post('/api/verify-login-email-code', async (req, res) => {
             return res.status(401).json({ error: 'Invalid code' });
         }
 
-        // Update online status
         await dbConnection.collection('users').updateOne(
             { id: user.id },
-            { 
+            {
                 $set: {
                     isOnline: true,
                     lastLogin: new Date(),
@@ -3216,12 +2772,11 @@ app.post('/api/verify-login-email-code', async (req, res) => {
             }
         );
 
-        // Generate final token (30 days for Remember Me)
         const token = jwt.sign(
-            { 
+            {
                 userId: user.id,
                 username: user.username,
-                role: user.role 
+                role: user.role
             },
             JWT_SECRET,
             { expiresIn: '30d' }
@@ -3246,7 +2801,6 @@ app.post('/api/verify-login-email-code', async (req, res) => {
     }
 });
 
-// Refresh Token Endpoint for 30-Day Remember Me Function
 app.post('/api/refresh-token', async (req, res) => {
     const { refreshToken } = req.body;
 
@@ -3255,28 +2809,24 @@ app.post('/api/refresh-token', async (req, res) => {
     }
 
     try {
-        // Verify refresh token
         const decoded = jwt.verify(refreshToken, JWT_SECRET);
 
         if (decoded.type !== 'refresh') {
             return res.status(401).json({ error: 'Invalid refresh token' });
         }
 
-        // Get user information
         const user = await dbConnection.collection('users').findOne({ id: decoded.userId });
 
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Check if rememberMe is still valid
         if (!user.rememberMeEnabled || (user.rememberMeExpiresAt && new Date() > user.rememberMeExpiresAt)) {
             return res.status(401).json({ error: 'Remember Me session expired. Please log in again.' });
         }
 
-        // Generate new access token (24 hours)
         const newToken = jwt.sign(
-            { 
+            {
                 userId: user.id,
                 username: user.username,
                 role: user.role,
@@ -3286,9 +2836,8 @@ app.post('/api/refresh-token', async (req, res) => {
             { expiresIn: '30d' }
         );
 
-        // Generate new refresh token (30 days)
         const newRefreshToken = jwt.sign(
-            { 
+            {
                 userId: user.id,
                 type: 'refresh'
             },
@@ -3296,10 +2845,9 @@ app.post('/api/refresh-token', async (req, res) => {
             { expiresIn: '30d' }
         );
 
-        // Update last activity
         await dbConnection.collection('users').updateOne(
             { id: user.id },
-            { 
+            {
                 $set: {
                     updatedAt: new Date()
                 }
@@ -3328,7 +2876,7 @@ app.post('/api/refresh-token', async (req, res) => {
 
 app.get('/api/verify', async (req, res) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
         return res.status(401).json({ valid: false, error: 'No token provided' });
     }
@@ -3336,7 +2884,7 @@ app.get('/api/verify', async (req, res) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         const user = await dbConnection.collection('users').findOne({ id: decoded.userId });
-        
+
         if (!user) {
             return res.status(401).json({ valid: false, error: 'User not found' });
         }
@@ -3357,7 +2905,6 @@ app.get('/api/verify', async (req, res) => {
     }
 });
 
-// Logout Endpoint - Mark user as offline and clear stored device
 app.post('/api/logout', verifyToken, async (req, res) => {
     try {
         if (req.user?.userId) {
@@ -3373,7 +2920,6 @@ app.post('/api/logout', verifyToken, async (req, res) => {
                 { $set: updates }
             );
 
-            // ✅ NEW: Invalidate session
             if (req.user.sessionToken && req.user.deviceId) {
                 try {
                     await global.sessionManager.logout(
@@ -3393,15 +2939,11 @@ app.post('/api/logout', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: GET /api/sessions
- * Get all active sessions for current user
- */
 app.get('/api/sessions', verifyToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const sessions = await global.sessionManager.getActiveSessions(userId);
-        
+
         res.json({
             success: true,
             sessions: sessions,
@@ -3413,17 +2955,13 @@ app.get('/api/sessions', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: DELETE /api/sessions/:sessionId
- * Logout a specific session
- */
 app.delete('/api/sessions/:sessionId', verifyToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const sessionId = req.params.sessionId;
-        
+
         const result = await global.sessionManager.terminateSession(userId, sessionId);
-        
+
         if (result.success) {
             res.json({ success: true, message: 'Session terminated' });
         } else {
@@ -3435,21 +2973,19 @@ app.delete('/api/sessions/:sessionId', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== MONTHLY LIMITS HELPER FUNCTIONS ====================
-
 async function resetMonthlyCounters() {
-    const config = await dbConnection.collection('systemConfig').findOne({ 
-        configType: 'monthly_limits' 
+    const config = await dbConnection.collection('systemConfig').findOne({
+        configType: 'monthly_limits'
     });
-    
+
     if (!config) return;
-    
+
     const now = new Date();
     const resetDate = new Date(now.getFullYear(), now.getMonth(), config.settings.resetDay);
-    
+
     await dbConnection.collection('systemConfig').updateOne(
         { configType: 'monthly_limits' },
-        { 
+        {
             $set: {
                 lastReset: now,
                 currentMonthStats: {
@@ -3460,11 +2996,10 @@ async function resetMonthlyCounters() {
             }
         }
     );
-    
-    // Reset all user monthly counters
+
     const resetMonthlyResult = await dbConnection.collection('users').updateMany(
         {},
-        { 
+        {
             $set: {
                 "monthlyCreationLimit.currentMonthUsers": 0,
                 "monthlyCreationLimit.lastResetDate": now
@@ -3477,26 +3012,25 @@ async function resetMonthlyCounters() {
 }
 
 async function checkMonthlyLimits(adminRole) {
-    const config = await dbConnection.collection('systemConfig').findOne({ 
-        configType: 'monthly_limits' 
+    const config = await dbConnection.collection('systemConfig').findOne({
+        configType: 'monthly_limits'
     });
-    
+
     if (!config) return { canCreate: true, remaining: 'Unlimited' };
-    
+
     const now = new Date();
     const lastReset = new Date(config.lastReset);
-    
-    // Check if we need to reset monthly counters
+
     if (lastReset.getMonth() !== now.getMonth() || lastReset.getFullYear() !== now.getFullYear()) {
         await resetMonthlyCounters();
         config.currentMonthStats = { usersCreated: 0, moderatorsCreated: 0, adminsCreated: 0 };
     }
-    
+
     let canCreate = false;
     let remaining = 0;
-    
+
     if (adminRole === 'ADMIN') {
-        canCreate = true; // Admins unlimited
+        canCreate = true;
         remaining = 'Unlimited';
     } else if (adminRole === 'MODERATOR') {
         const created = config.currentMonthStats.moderatorsCreated;
@@ -3507,23 +3041,23 @@ async function checkMonthlyLimits(adminRole) {
         canCreate = created < config.settings.userCreationPerMonth;
         remaining = config.settings.userCreationPerMonth - created;
     }
-    
+
     return { canCreate, remaining, config };
 }
 
 async function updateMonthlyCounters(role) {
-    const config = await dbConnection.collection('systemConfig').findOne({ 
-        configType: 'monthly_limits' 
+    const config = await dbConnection.collection('systemConfig').findOne({
+        configType: 'monthly_limits'
     });
-    
+
     if (!config) return;
-    
-    const updateField = role === 'ADMIN' ? 'adminsCreated' : 
+
+    const updateField = role === 'ADMIN' ? 'adminsCreated' :
                        role === 'MODERATOR' ? 'moderatorsCreated' : 'usersCreated';
-    
+
     const updateResult = await dbConnection.collection('systemConfig').updateOne(
         { configType: 'monthly_limits' },
-        { 
+        {
             $inc: {
                 [`currentMonthStats.${updateField}`]: 1
             }
@@ -3537,9 +3071,6 @@ function getNextResetDate() {
     return nextMonth.toISOString().split('T')[0];
 }
 
-// ==================== USER MANAGEMENT ====================
-
-// Get All Users
 app.get('/api/admin/users', verifyToken, async (req, res) => {
     try {
         const users = await dbConnection.collection('users')
@@ -3548,33 +3079,29 @@ app.get('/api/admin/users', verifyToken, async (req, res) => {
             .sort({ createdAt: -1 })
             .toArray();
 
-        // INACTIVITY TIMEOUT: Mark users offline if inactive for 1 minute
-        const INACTIVITY_TIMEOUT_MS = 1 * 60 * 1000; // 1 minute
+        const INACTIVITY_TIMEOUT_MS = 1 * 60 * 1000;
         const now = new Date();
-        
+
         const usersWithStatus = users.map(user => {
             let isOnline = user.isOnline || false;
             const lastActivity = user.lastActivityAt || user.updatedAt || new Date(0);
-            
-            // If user is marked online but hasn't been active for 30 mins, mark offline
+
             if (isOnline && (now - new Date(lastActivity)) > INACTIVITY_TIMEOUT_MS) {
                 isOnline = false;
-                // Update database asynchronously
                 dbConnection.collection('users').updateOne(
                     { id: user.id },
                     { $set: { isOnline: false } }
                 ).catch(err => console.error('Failed to update user online status:', err));
             }
-            
-            // CRITICAL FIX: Explicitly include admin role/tag for UI visibility
+
             return {
                 ...user,
                 isOnline,
                 lastSeen: lastActivity,
                 status: isOnline ? 'online' : 'offline',
-                role: user.role || 'USER',  // Ensure role field is always present
-                isAdmin: user.role === 'ADMIN',  // Add boolean flag for easier UI checks
-                isModerator: user.role === 'MODERATOR'  // Add moderator flag too
+                role: user.role || 'USER',
+                isAdmin: user.role === 'ADMIN',
+                isModerator: user.role === 'MODERATOR'
             };
         });
 
@@ -3584,7 +3111,6 @@ app.get('/api/admin/users', verifyToken, async (req, res) => {
     }
 });
 
-// Get User by ID
 app.get('/api/admin/users/:id', verifyToken, async (req, res) => {
     try {
         const user = await dbConnection.collection('users').findOne(
@@ -3596,12 +3122,11 @@ app.get('/api/admin/users/:id', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // CRITICAL FIX: Explicitly include admin role/tag for UI visibility
         const userWithRole = {
             ...user,
-            role: user.role || 'USER',  // Ensure role field is always present
-            isAdmin: user.role === 'ADMIN',  // Add boolean flag for UI
-            isModerator: user.role === 'MODERATOR'  // Add moderator flag too
+            role: user.role || 'USER',
+            isAdmin: user.role === 'ADMIN',
+            isModerator: user.role === 'MODERATOR'
         };
 
         res.json({ user: userWithRole });
@@ -3610,11 +3135,9 @@ app.get('/api/admin/users/:id', verifyToken, async (req, res) => {
     }
 });
 
-// Create User
 app.post('/api/admin/users', verifyToken, async (req, res) => {
     const { username, email, password, name, role, tags } = req.body;
 
-    // Validation
     if (!username || !email || !password) {
         return res.status(400).json({ error: 'Username, email, and password required' });
     }
@@ -3632,11 +3155,10 @@ app.post('/api/admin/users', verifyToken, async (req, res) => {
     }
 
     try {
-        // Check monthly limits
         const limitCheck = await checkMonthlyLimits(req.user.role);
-        
+
         if (!limitCheck.canCreate) {
-            return res.status(429).json({ 
+            return res.status(429).json({
                 error: 'Monthly creation limit exceeded',
                 remaining: limitCheck.remaining,
                 resetDate: getNextResetDate(),
@@ -3644,11 +3166,9 @@ app.post('/api/admin/users', verifyToken, async (req, res) => {
             });
         }
 
-        // Lowercase normalization
         const normalizedUsername = username?.toLowerCase()?.trim();
         const normalizedEmail = email?.toLowerCase()?.trim();
 
-        // Check if user already exists (case-insensitive via lowercase)
         const existingUser = await dbConnection.collection('users').findOne({
             $or: [
                 { username: normalizedUsername },
@@ -3657,13 +3177,12 @@ app.post('/api/admin/users', verifyToken, async (req, res) => {
         });
 
         if (existingUser) {
-            return res.status(409).json({ 
+            return res.status(409).json({
                 error: 'User already exists',
                 field: existingUser.username === normalizedUsername ? 'username' : 'email'
             });
         }
 
-        // Create new user with enhanced tracking
         const newUser = {
             id: uuidv4(),
             username: normalizedUsername,
@@ -3700,11 +3219,10 @@ app.post('/api/admin/users', verifyToken, async (req, res) => {
                     downloaded: 0
                 }
             },
-            
-            // MANDATORY: All users must have 2FA setup
+
             twoFactorAuth: {
                 enabled: false,
-                method: 'authenticator', // Always authenticator
+                method: 'authenticator',
                 verifiedAt: null,
                 authenticatorSecret: null,
                 authenticatorBackupCodes: [],
@@ -3714,28 +3232,24 @@ app.post('/api/admin/users', verifyToken, async (req, res) => {
                 accountVerified: false,
                 verificationMethod: null,
                 verificationCompletedAt: null,
-                mandatorySetup: true // Force setup on first login
+                mandatorySetup: true
             }
         };
 
         const result = await dbConnection.collection('users').insertOne(newUser);
 
-        // Update monthly counters
         await updateMonthlyCounters(role);
 
-        // Log the creation
-        await logEvent('user_create', `User created: ${username}`, req.user.id || req.user.userId, { 
+        await logEvent('user_create', `User created: ${username}`, req.user.id || req.user.userId, {
             userId: newUser.id,
             role: role,
-            monthlyRemaining: limitCheck.remaining 
+            monthlyRemaining: limitCheck.remaining
         });
 
-        // Get updated monthly stats
         const updatedStats = await checkMonthlyLimits(req.user.roleRole);
 
-        // Generate temporary token for 2FA setup
         const tempToken = jwt.sign(
-            { 
+            {
                 userId: newUser.id,
                 username: newUser.username,
                 setupMode: true
@@ -3775,7 +3289,6 @@ app.post('/api/admin/users', verifyToken, async (req, res) => {
     }
 });
 
-// Update User
 app.put('/api/admin/users/:id', verifyToken, async (req, res) => {
     const { username, email, password, name, role, tags, status } = req.body;
 
@@ -3818,8 +3331,8 @@ app.put('/api/admin/users/:id', verifyToken, async (req, res) => {
             email: result.value.email,
             name: result.value.name,
             role: result.value.role || 'USER',
-            isAdmin: result.value.role === 'ADMIN',  // CRITICAL FIX: Include admin flag
-            isModerator: result.value.role === 'MODERATOR',  // Include moderator flag
+            isAdmin: result.value.role === 'ADMIN',
+            isModerator: result.value.role === 'MODERATOR',
             tags: result.value.tags,
             success: true,
             message: 'User updated successfully'
@@ -3829,7 +3342,6 @@ app.put('/api/admin/users/:id', verifyToken, async (req, res) => {
     }
 });
 
-// Delete User
 app.delete('/api/admin/users/:id', verifyToken, async (req, res) => {
     try {
         const result = await dbConnection.collection('users').deleteOne({ id: req.params.id });
@@ -3846,21 +3358,16 @@ app.delete('/api/admin/users/:id', verifyToken, async (req, res) => {
     }
 });
 
-// ===== BADGE MANAGEMENT (ADMIN) =====
-
-// Assign badge to user
 app.post('/api/admin/users/:userId/badges', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { badgeName, badgeIcon, badgeColor, badgeDescription } = req.body;
     const adminId = req.user?.id || req.user?.username;
 
     try {
-        // Check if admin
         if (req.user?.role !== 'ADMIN') {
             return res.status(403).json({ error: 'Admin access required' });
         }
 
-        // Validate badge data
         if (!badgeName || !badgeIcon) {
             return res.status(400).json({ error: 'Badge name and icon required' });
         }
@@ -3905,13 +3412,11 @@ app.post('/api/admin/users/:userId/badges', verifyToken, async (req, res) => {
     }
 });
 
-// Remove badge from user
 app.delete('/api/admin/users/:userId/badges/:badgeId', verifyToken, async (req, res) => {
     const { userId, badgeId } = req.params;
     const adminId = req.user?.id || req.user?.username;
 
     try {
-        // Check if admin
         if (req.user?.role !== 'ADMIN') {
             return res.status(403).json({ error: 'Admin access required' });
         }
@@ -3944,12 +3449,8 @@ app.delete('/api/admin/users/:userId/badges/:badgeId', verifyToken, async (req, 
     }
 });
 
-// ==================== ADMIN: Abuse Reports Management ====================
-
-// List reports (filterable)
 app.get('/api/admin/reports', verifyToken, async (req, res) => {
     try {
-        // Ensure admin
         if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
 
         const { status, reportedUserId, reporterUserId, limit = 50, skip = 0, from, to } = req.query;
@@ -3965,7 +3466,6 @@ app.get('/api/admin/reports', verifyToken, async (req, res) => {
         const total = await dbConnection.collection('abuseReports').countDocuments(q);
         const reports = await cursor.toArray();
 
-        // Enrich reports with readable reporter/reported user data
         const enrichedReports = await Promise.all(reports.map(async (report) => {
             const [reporterUser, reportedUser] = await Promise.all([
                 report.reporterId ? dbConnection.collection('users').findOne({ id: report.reporterId }, { projection: { username: 1, displayName: 1, id: 1 } }) : null,
@@ -3991,7 +3491,6 @@ app.get('/api/admin/reports', verifyToken, async (req, res) => {
     }
 });
 
-// Get report details
 app.get('/api/admin/reports/:id', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -4006,7 +3505,6 @@ app.get('/api/admin/reports/:id', verifyToken, async (req, res) => {
     }
 });
 
-// Resolve a report
 app.post('/api/admin/reports/:id/resolve', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -4029,7 +3527,6 @@ app.post('/api/admin/reports/:id/resolve', verifyToken, async (req, res) => {
     }
 });
 
-// Dismiss a report
 app.post('/api/admin/reports/:id/dismiss', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -4052,7 +3549,6 @@ app.post('/api/admin/reports/:id/dismiss', verifyToken, async (req, res) => {
     }
 });
 
-// Clear all reports
 app.delete('/api/admin/reports', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -4067,18 +3563,15 @@ app.delete('/api/admin/reports', verifyToken, async (req, res) => {
     }
 });
 
-// Toggle 2FA for User (Admin Endpoint)
 app.post('/api/admin/users/:userId/toggle-2fa', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { enabled } = req.body;
 
     try {
-        // Verify requester is admin
         if (!req.user || req.user.role !== 'ADMIN') {
             return res.status(403).json({ error: 'Admin access required' });
         }
 
-        // Validate enabled parameter
         if (enabled === undefined || typeof enabled !== 'boolean') {
             return res.status(400).json({ error: 'enabled field required (true/false)' });
         }
@@ -4088,7 +3581,6 @@ app.post('/api/admin/users/:userId/toggle-2fa', verifyToken, async (req, res) =>
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Initialize twoFactorAuth if missing
         const currentTwoFA = user.twoFactorAuth || {
             enabled: false,
             method: null,
@@ -4099,11 +3591,9 @@ app.post('/api/admin/users/:userId/toggle-2fa', verifyToken, async (req, res) =>
             authenticatorBackupCodes: []
         };
 
-        // Update 2FA requirement
         const updatedTwoFA = {
             ...currentTwoFA,
             mandatorySetup: enabled,
-            // If disabling 2FA, clear credentials so user must re-setup with new QR code
             enabled: enabled ? currentTwoFA.enabled : false,
             accountVerified: enabled ? currentTwoFA.accountVerified : false,
             secret: enabled ? currentTwoFA.secret : null,
@@ -4149,16 +3639,14 @@ app.post('/api/admin/users/:userId/toggle-2fa', verifyToken, async (req, res) =>
     }
 });
 
-// Monthly Statistics Endpoint
 app.get('/api/admin/monthly-stats', verifyToken, async (req, res) => {
     try {
-        const config = await dbConnection.collection('systemConfig').findOne({ 
-            configType: 'monthly_limits' 
+        const config = await dbConnection.collection('systemConfig').findOne({
+            configType: 'monthly_limits'
         });
-        
+
         const limitCheck = await checkMonthlyLimits(req.user.role);
-        
-        // Get device statistics
+
         const deviceStats = await dbConnection.collection('users').aggregate([
             {
                 $match: { "deviceInfo.deviceId": { $exists: true, $ne: null } }
@@ -4173,8 +3661,7 @@ app.get('/api/admin/monthly-stats', verifyToken, async (req, res) => {
                 }
             }
         ]).toArray();
-        
-        // Get user statistics
+
         const userStats = await dbConnection.collection('users').aggregate([
             {
                 $group: {
@@ -4186,7 +3673,7 @@ app.get('/api/admin/monthly-stats', verifyToken, async (req, res) => {
                 }
             }
         ]).toArray();
-        
+
         res.json({
             success: true,
             stats: {
@@ -4206,10 +3693,9 @@ app.get('/api/admin/monthly-stats', verifyToken, async (req, res) => {
     }
 });
 
-// Device Registration Endpoint
 app.post('/api/device/register', async (req, res) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
         return res.status(401).json({ error: 'No token provided' });
     }
@@ -4217,27 +3703,25 @@ app.post('/api/device/register', async (req, res) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         const user = await dbConnection.collection('users').findOne({ id: decoded.userId });
-        
+
         if (!user) {
             return res.status(401).json({ error: 'User not found' });
         }
 
         const { deviceId, deviceType, deviceName } = req.body;
         const userId = decoded.userId;
-        
-        // Check if device already registered
+
         const existingDevice = await dbConnection.collection('deviceRegistry').findOne({ deviceId });
-        
+
         if (existingDevice && existingDevice.userId !== userId) {
-            return res.status(409).json({ 
-                error: 'Device already registered by another user' 
+            return res.status(409).json({
+                error: 'Device already registered by another user'
             });
         }
-        
-        // Update user device info
+
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $set: {
                     "deviceInfo.deviceId": deviceId,
                     "deviceInfo.deviceType": deviceType,
@@ -4249,11 +3733,10 @@ app.post('/api/device/register', async (req, res) => {
                 }
             }
         );
-        
-        // Register device in device registry
+
         await dbConnection.collection('deviceRegistry').updateOne(
             { deviceId },
-            { 
+            {
                 $set: {
                     userId,
                     deviceType,
@@ -4265,13 +3748,13 @@ app.post('/api/device/register', async (req, res) => {
             },
             { upsert: true }
         );
-        
+
         await logEvent('device_register', `Device registered: ${deviceId}`, userId, {
             deviceId,
             deviceType,
             deviceName
         });
-        
+
         res.json({
             success: true,
             message: 'Device registered successfully',
@@ -4282,21 +3765,17 @@ app.post('/api/device/register', async (req, res) => {
                 registeredAt: new Date()
             }
         });
-        
+
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// ==================== FILE MANAGEMENT ====================
-
-// File Upload Endpoint
 app.post('/api/files/upload', verifyToken, upload.single('file'), async (req, res) => {
     const { recipientId, messageId } = req.body;
     const userId = req.user.userId;
-    
+
     try {
-        // CRITICAL FIX #2: Validate upload directory exists and is accessible
         const uploadDir = path.join(os.tmpdir(), 'freetime-uploads');
         if (!fs.existsSync(uploadDir)) {
             try {
@@ -4307,43 +3786,37 @@ app.post('/api/files/upload', verifyToken, upload.single('file'), async (req, re
                 return res.status(500).json({ error: 'Upload directory not accessible' });
             }
         }
-        
+
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        // Get file upload configuration
         const fileConfig = await dbConnection.collection('systemConfig').findOne({ configType: 'file_upload' });
-        const maxSize = fileConfig?.settings?.maxFileSize || 104857600; // 100MB default
+        const maxSize = fileConfig?.settings?.maxFileSize || 104857600;
         const allowedTypes = fileConfig?.settings?.allowedTypes || [];
 
-        // Validate file size
         if (req.file.size > maxSize) {
-            return res.status(413).json({ 
-                error: `File too large. Maximum size: ${maxSize / 1024 / 1024}MB` 
+            return res.status(413).json({
+                error: `File too large. Maximum size: ${maxSize / 1024 / 1024}MB`
             });
         }
 
-        // Validate file type
         if (allowedTypes.length > 0 && !allowedTypes.includes(req.file.mimetype)) {
-            return res.status(415).json({ 
-                error: `File type not allowed. Allowed types: ${allowedTypes.join(', ')}` 
+            return res.status(415).json({
+                error: `File type not allowed. Allowed types: ${allowedTypes.join(', ')}`
             });
         }
 
-        // Generate unique file ID
         const fileId = uuidv4();
         const fileExtension = path.extname(req.file.originalname);
         const fileName = `${fileId}${fileExtension}`;
         const filePath = path.join(uploadDir, fileName);
 
-        // Move file to storage location - use copy+unlink for cross-device support
         try {
             fs.copyFileSync(req.file.path, filePath);
             fs.unlinkSync(req.file.path);
         } catch (moveErr) {
             console.error('[ERROR] Failed to move uploaded file:', moveErr.message);
-            // Fallback to rename if copy fails (e.g. permission issues on copy but not rename)
             try {
                 fs.renameSync(req.file.path, filePath);
             } catch (renameErr) {
@@ -4351,7 +3824,6 @@ app.post('/api/files/upload', verifyToken, upload.single('file'), async (req, re
             }
         }
 
-        // Store file metadata in database
         const fileRecord = {
             _id: new ObjectId(),
             fileId: fileId,
@@ -4395,29 +3867,25 @@ app.post('/api/files/upload', verifyToken, upload.single('file'), async (req, re
     }
 });
 
-// Download File Endpoint
 app.get('/api/files/:fileId', verifyToken, async (req, res) => {
     const { fileId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const fileRecord = await dbConnection.collection('Files').findOne({ fileId });
-        
+
         if (!fileRecord) {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        // Check if user has permission to access this file
         if (fileRecord.uploadedBy !== userId && fileRecord.chatWithUser !== userId) {
             return res.status(403).json({ error: 'Access denied' });
         }
 
-        // Check if file has expired
         if (fileRecord.expiresAt && fileRecord.expiresAt < new Date()) {
             return res.status(410).json({ error: 'File has expired' });
         }
 
-        // Check if file exists on disk
         if (!fs.existsSync(fileRecord.filePath)) {
             return res.status(404).json({ error: 'File not found on disk' });
         }
@@ -4430,29 +3898,25 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
     }
 });
 
-// Delete File Endpoint
 app.delete('/api/files/:fileId', verifyToken, async (req, res) => {
     const { fileId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const fileRecord = await dbConnection.collection('Files').findOne({ fileId });
-        
+
         if (!fileRecord) {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        // Check if user has permission to delete this file
         if (fileRecord.uploadedBy !== userId) {
             return res.status(403).json({ error: 'Access denied' });
         }
 
-        // Delete file from disk
         if (fs.existsSync(fileRecord.filePath)) {
             fs.unlinkSync(fileRecord.filePath);
         }
 
-        // Delete from database
         const deleteResult = await dbConnection.collection('Files').deleteOne({ fileId });
         if (deleteResult.deletedCount === 0) {
             return res.status(500).json({ error: 'Failed to delete file record' });
@@ -4471,9 +3935,6 @@ app.delete('/api/files/:fileId', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== MESSAGE APIs ====================
-
-// Send Message
 app.post('/api/messages', verifyToken, async (req, res) => {
     const { recipientId, content, messageId, timestamp, replyToMessageId, replyToUsername, replyToText } = req.body;
     const senderId = req.user.userId;
@@ -4483,7 +3944,6 @@ app.post('/api/messages', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'recipientId and content are required' });
         }
 
-        // CRITICAL FIX: Validate that both sender and recipient are real database users
         const senderExists = await dbConnection.collection('users').findOne({ id: senderId });
         if (!senderExists) {
             return res.status(401).json({ error: 'Sender user not found in database', success: false });
@@ -4494,25 +3954,9 @@ app.post('/api/messages', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Recipient user not found in database', success: false });
         }
 
-        // Check if users are friends (optional - can remove if you want to allow messaging non-friends)
-        // Commented out to allow messaging anyone for now
-        /*
-        const isFriend = await dbConnection.collection('friends').findOne({
-            $or: [
-                { userId1: senderId, userId2: recipientId },
-                { userId1: recipientId, userId2: senderId }
-            ]
-        });
-
-        if (!isFriend) {
-            return res.status(403).json({ error: 'You can only message friends' });
-        }
-        */
-
         const dbMessageId = messageId || `msg_${uuidv4()}`;
         const msgTimestamp = timestamp || Date.now();
 
-        // Store message in database
         const msgInsertResult = await dbConnection.collection('messages').insertOne({
             id: dbMessageId,
             senderId,
@@ -4545,27 +3989,23 @@ app.post('/api/messages', verifyToken, async (req, res) => {
             replyToText: replyToText || null
         };
 
-        // ✅ CRITICAL FIX: Broadcast new message to recipient via WebSocket in real-time
         try {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
-            
-            // Enrich message with sender details for UI
+
             const enrichedMessage = {
                 ...messageData,
                 senderUsername: senderExists.username || 'User',
                 senderAvatar: senderExists.profile?.profileImageUrl || '',
                 senderBio: senderExists.profile?.bio || ''
             };
-            
+
             broadcastToUser(global.wsClients, recipientId, 'newMessage', enrichedMessage);
         } catch (broadcastErr) {
             console.warn(`[WARN] Failed to broadcast message to recipient: ${broadcastErr.message}`);
-            // Don't fail the request - message was stored successfully
         }
 
-        // ✅ Send notification to recipient
         try {
-            console.log(`[📨 PRIVATE MESSAGE] Sending notification to recipient ${recipientId}...`);
+            console.log(`[ PRIVATE MESSAGE] Sending notification to recipient ${recipientId}...`);
             const truncatedBody = content.length > 100 ? content.substring(0, 97) + '...' : content;
             await sendPushNotification(recipientId, {
                 notification: {
@@ -4582,14 +4022,13 @@ app.post('/api/messages', verifyToken, async (req, res) => {
                     timestamp: msgTimestamp.toString()
                 }
             });
-            console.log(`[✅ PRIVATE MESSAGE] Notification sent to ${recipientId}`);
+            console.log(`[ PRIVATE MESSAGE] Notification sent to ${recipientId}`);
         } catch (fcmErr) {
-            console.warn(`[⚠️ PRIVATE MESSAGE] Notification failed: ${fcmErr.message}`);
+            console.warn(`[ PRIVATE MESSAGE] Notification failed: ${fcmErr.message}`);
         }
 
         await logEvent('message_sent', `Message sent from ${senderId} to ${recipientId}`, senderId);
 
-        // Return complete message object (not just status)
         res.json({
             ...messageData,
             success: true
@@ -4600,7 +4039,6 @@ app.post('/api/messages', verifyToken, async (req, res) => {
     }
 });
 
-// Get Chat History with User
 app.get('/api/messages/:recipientId', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
@@ -4619,13 +4057,10 @@ app.get('/api/messages/:recipientId', verifyToken, async (req, res) => {
             .toArray();
 
         const formattedMessages = await Promise.all(messages.reverse().map(async (msg) => {
-            // ✅ FIXED: Fetch reply message details if replyToMessageId is present
             let replyUser = msg.replyToUsername || null;
             let replyText = msg.replyToText || null;
             if (msg.replyToMessageId) {
-                // Clean messageId (remove 'msg_' prefix if present)
                 const cleanReplyId = msg.replyToMessageId.replace(/^msg_/, '');
-                // Look up the actual reply message
                 const replyMsg = await dbConnection.collection('messages').findOne({
                     $or: [
                         { id: cleanReplyId },
@@ -4638,19 +4073,17 @@ app.get('/api/messages/:recipientId', verifyToken, async (req, res) => {
                     replyText = replyMsg.content || null;
                 }
             }
-            
-            // ✅ NEW: Fetch sender's profile for color-coding fields (tags, role, admin/moderator status)
+
             const sender = await dbConnection.collection('users').findOne(
                 { id: msg.senderId },
                 { projection: { profile: 1, tags: 1, role: 1, username: 1 } }
             );
-            const senderTags = (sender?.profile?.tags || sender?.tags || []).slice(0, 5); // Limit to 5 tags
+            const senderTags = (sender?.profile?.tags || sender?.tags || []).slice(0, 5);
             const senderRole = sender?.role || 'User';
             const senderIsAdmin = senderRole === 'ADMIN';
             const senderIsModerator = senderRole === 'MODERATOR';
-            // ✅ FIXED: Use username as fallback if displayName is empty
             const senderDisplayName = sender?.profile?.displayName || sender?.displayName || sender?.username || 'User';
-            
+
             return {
                 _id: msg._id?.toString() || msg.id,
                 id: msg.id || msg._id?.toString(),
@@ -4667,13 +4100,11 @@ app.get('/api/messages/:recipientId', verifyToken, async (req, res) => {
                 replyToMessageId: msg.replyToMessageId || null,
                 replyToUsername: msg.replyToUsername || null,
                 replyToText: msg.replyToText || null,
-                // ✅ NEW: Color-coding fields for username display
                 senderTags: senderTags,
                 senderIsAdmin: senderIsAdmin,
                 senderIsModerator: senderIsModerator,
                 senderRole: senderRole,
                 senderDisplayName: senderDisplayName,
-                // ✅ NEW: Announcement metadata
                 subject: msg.subject || '',
                 isAdminAnnouncement: msg.isAdminAnnouncement || false
             };
@@ -4681,29 +4112,12 @@ app.get('/api/messages/:recipientId', verifyToken, async (req, res) => {
 
         res.json(formattedMessages);
 
-        // ✅ FIXED: Disabled "Burn on Read" - messages should persist
-        // Users want to save their chat history, not auto-delete messages after viewing
-        // If this privacy feature is needed in the future, make it a user preference
-        /*
-        // Burn on Read: delete private messages received by the user
-        const retrievedMessageIds = messages
-            .filter(m => m.recipientId === userId)
-            .map(m => m._id);
-
-        if (retrievedMessageIds.length > 0) {
-            await dbConnection.collection('messages').deleteMany({
-                _id: { $in: retrievedMessageIds }
-            });
-            console.log(`Burn on Read: Deleted ${retrievedMessageIds.length} messages for user ${userId}`);
-        }
-        */
     } catch (err) {
         console.error('Get chat history error:', err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// Delete Chat History with User
 app.delete('/api/chat/:recipientId/delete-history', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
@@ -4722,9 +4136,7 @@ app.delete('/api/chat/:recipientId/delete-history', verifyToken, async (req, res
 
         await logEvent('chat_history_deleted', `Chat history deleted between ${userId} and ${recipientId}`, userId);
 
-        // ✅ NEW: Notify BOTH users that chat history was deleted via Socket.IO
         if (global.socketIoServer) {
-            // Notify the user who deleted
             global.socketIoServer.to(`user:${userId}`).emit('chatHistoryDeleted', {
                 recipientId: recipientId,
                 deletedCount: result.deletedCount,
@@ -4732,7 +4144,6 @@ app.delete('/api/chat/:recipientId/delete-history', verifyToken, async (req, res
                 timestamp: new Date().getTime()
             });
 
-            // ✅ Notify the OTHER user that chat history was deleted
             global.socketIoServer.to(`user:${recipientId}`).emit('chatHistoryDeleted', {
                 recipientId: userId,
                 deletedCount: result.deletedCount,
@@ -4753,7 +4164,6 @@ app.delete('/api/chat/:recipientId/delete-history', verifyToken, async (req, res
     }
 });
 
-// Get Chat History with User (alternative endpoint)
 app.get('/api/chat/:recipientId', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
@@ -4785,26 +4195,13 @@ app.get('/api/chat/:recipientId', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== MEDIA UPLOAD & STORAGE ====================
-
-/**
- * Upload media (image/video) to chat - stores encrypted
- * POST /api/media/upload
- * 
- * ✅ NEW: File size limits
- * - Images & Videos: NO limit (unlimited)
- * - Others (PDF, TXT, XML, etc.): 50MB limit
- * 
- * ✅ NEW: Automatic encryption with AES-256-CBC
- */
 app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, res) => {
     const senderId = req.user.userId;
-    const { recipientId, groupId, mediaShareMode } = req.body;  // ✅ FIXED: Added mediaShareMode
+    const { recipientId, groupId, mediaShareMode } = req.body;
 
-    // ✅ CRITICAL: Check database connection before processing
     if (!dbConnection || !dbConnection.isConnected) {
-        console.error('[❌ MEDIA UPLOAD] Database not connected');
-        return res.status(503).json({ 
+        console.error('[ MEDIA UPLOAD] Database not connected');
+        return res.status(503).json({
             error: 'Database unavailable. Please try again in a moment.',
             status: 'db_unavailable'
         });
@@ -4823,7 +4220,6 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
             return res.status(400).json({ error: 'recipientId or groupId is required' });
         }
 
-        // If groupId is provided, verify sender is a member
         if (groupId) {
             const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId }] });
             if (!group) {
@@ -4835,22 +4231,19 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
             }
         }
 
-        // ✅ NEW: Validate file size based on type
         const sizeLimit = getFileSizeLimit(req.file.mimetype);
         if (req.file.size > sizeLimit) {
             const limitMB = sizeLimit === Infinity ? 'unlimited' : (sizeLimit / 1024 / 1024);
-            return res.status(413).json({ 
+            return res.status(413).json({
                 error: `File too large. Limit for ${req.file.mimetype}: ${limitMB}MB`,
                 maxSize: sizeLimit,
                 uploadedSize: req.file.size
             });
         }
 
-        // Generate unique media ID
         const mediaId = uuidv4();
         const now = new Date();
 
-        // ✅ MULTER DATA HANDLING: Multer with 'dest' doesn't provide buffer. Read from path if buffer is missing.
         let fileBuffer = req.file.buffer;
         if (!fileBuffer && req.file.path) {
             console.log(`[MEDIA UPLOAD] Reading file from disk: ${req.file.path}`);
@@ -4862,8 +4255,6 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
             return res.status(500).json({ error: 'File data not available' });
         }
 
-        // ✅ ENCRYPTION POLICY: Check if the file is already encrypted by the client (Android)
-        // Client-side encryption is preferred. Server only encrypts if it receives raw data.
         let encryptedResult;
         const isAlreadyEncrypted = (req.body.encrypted === 'true' || req.body.encrypted === true) && req.body.encryptionKey;
         const isPublic = mediaShareMode === 'public';
@@ -4883,7 +4274,6 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
                 iv: req.body.iv || 'client-side'
             };
         } else {
-            // Re-encrypt/Encrypt if not marked as encrypted by client
             try {
                 console.log(`[ENCRYPTION] Encrypting media ${mediaId} - size=${fileBuffer.length} bytes, type=${req.file.mimetype}`);
                 encryptedResult = await encryptMediaFile(fileBuffer, req.file.mimetype, mediaId);
@@ -4894,10 +4284,8 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
             }
         }
 
-        // Save media record to database
         console.log(`[MEDIA UPLOAD] Using GridFS for media ${mediaId} - size=${fileBuffer.length} bytes`);
-        
-        // Initialize GridFS and upload file
+
         const gridfs = initializeGridFSHandler();
         const fileInfo = await gridfs.uploadFile(
             encryptedResult.encryptedData,
@@ -4923,13 +4311,13 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
             mimeType: req.file.mimetype,
             size: req.file.size,
             uploadedAt: now,
-            expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
             status: 'available',
             encrypted: !isPublic,
             encryptionKey: encryptedResult.encryptionKey,
             iv: encryptedResult.iv,
-            gridfsId: fileInfo.fileId, // Reference to GridFS file
-            mediaShareMode: mediaShareMode || "protected"  // ✅ FIXED: Added mediaShareMode (defaults to protected for privacy)
+            gridfsId: fileInfo.fileId,
+            mediaShareMode: mediaShareMode || "protected"
         };
 
         console.log(`[MEDIA UPLOAD] Inserting metadata into database - mediaId=${mediaId}`);
@@ -4940,7 +4328,6 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
         }
         console.log(`[MEDIA UPLOAD SUCCESS] Saved to DB - insertedId=${mediaInsertResult.insertedId}`);
 
-        // Log event
         await logEvent('media_uploaded', `Media uploaded by ${senderId} for ${recipientId}`, senderId, {
             mediaId: mediaId,
             fileName: req.file.originalname,
@@ -4967,10 +4354,6 @@ app.post('/api/media/upload', verifyToken, upload.single('media'), async (req, r
     }
 });
 
-/**
- * Download media file - returns encrypted media
- * GET /api/media/:mediaId/download
- */
 app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
     const { mediaId } = req.params;
     const userId = req.user.userId;
@@ -4980,7 +4363,6 @@ app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'mediaId is required' });
         }
 
-        // Get media record
         const mediaRecord = await dbConnection.collection('chatMedia').findOne({
             id: mediaId
         });
@@ -4989,14 +4371,8 @@ app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Media not found' });
         }
 
-        // ✅ CRITICAL FIX: Check media share mode FIRST
-        // PUBLIC media: Anyone can download without permission
-        // PROTECTED media: Only sender or approved requesters can download
         const shareMode = (mediaRecord.mediaShareMode || '').toLowerCase();
         if (shareMode !== 'public') {
-            // PROTECTED: Check if user has permission to download:
-            // 1. User is the sender (owner) of the media
-            // 2. User has an approved download request
             if (mediaRecord.senderId !== userId) {
                 const downloadRequest = await dbConnection.collection('mediaDownloadRequests').findOne({
                     mediaId: mediaId,
@@ -5009,23 +4385,19 @@ app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
                 }
             }
         } else {
-            // PUBLIC: Anyone can download
             console.log(`[MEDIA DOWNLOAD] PUBLIC media access granted to ${userId} for ${mediaId}`);
         }
 
-        // Check if media has expired
         if (mediaRecord.expiresAt < new Date()) {
             return res.status(410).json({ error: 'Media has expired' });
         }
 
-        // ✅ UPDATED: Return encrypted file data as binary download from GridFS
         let encryptedBuffer;
         if (mediaRecord.gridfsId) {
             console.log(`[MEDIA DOWNLOAD] Retrieving from GridFS: ${mediaRecord.gridfsId}`);
             const gridfs = initializeGridFSHandler();
             encryptedBuffer = await gridfs.downloadFile(mediaRecord.gridfsId);
         } else if (mediaRecord.encryptedData) {
-            // Fallback for old records stored directly in MongoDB
             console.log(`[MEDIA DOWNLOAD] Retrieving from legacy MongoDB document: ${mediaId}`);
             encryptedBuffer = Buffer.from(mediaRecord.encryptedData, 'base64');
         }
@@ -5034,7 +4406,6 @@ app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Encrypted file data not found' });
         }
 
-        // Set response headers for file download
         res.setHeader('Content-Type', mediaRecord.mimeType || 'application/octet-stream');
         res.setHeader('Content-Length', encryptedBuffer.length);
         res.setHeader('Content-Disposition', `attachment; filename="${mediaRecord.fileName}"`);
@@ -5042,14 +4413,12 @@ app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
         res.setHeader('X-Encryption-Key', mediaRecord.encryptionKey || '');
         res.setHeader('X-Encryption-IV', mediaRecord.iv || '');
 
-        // Log the download
         await logEvent('media_downloaded', `Media downloaded by ${userId}`, userId, {
             mediaId: mediaId,
             fileName: mediaRecord.fileName,
             fileSize: mediaRecord.size
         });
 
-        // Send encrypted file as binary
         res.send(encryptedBuffer);
 
     } catch (err) {
@@ -5058,12 +4427,6 @@ app.get('/api/media/:mediaId/download', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== MEDIA PRIVACY APIs ====================
-
-/**
- * Request media download - user requests permission to download media from sender
- * POST /api/media/:mediaId/download-request
- */
 app.post('/api/media/:mediaId/download-request', verifyToken, async (req, res) => {
     const { mediaId } = req.params;
     const requesterId = req.user.userId;
@@ -5074,34 +4437,30 @@ app.post('/api/media/:mediaId/download-request', verifyToken, async (req, res) =
             return res.status(400).json({ error: 'mediaId is required' });
         }
 
-        // Create download request record
         const downloadRequestId = uuidv4();
         const now = new Date();
 
-        // Get requester info
         const requester = await dbConnection.collection('users').findOne({ id: requesterId });
-        
+
         const downloadRequest = {
             id: downloadRequestId,
             mediaId: mediaId,
             requesterId: requesterId,
             requesterName: requester?.username || 'User',
             requesterAvatar: requester?.avatar || requester?.profile?.profileImageUrl || null,
-            status: 'pending', // pending, approved, denied, expired
+            status: 'pending',
             reason: reason,
             requestedAt: now,
             respondedAt: null,
-            expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000), // 24-hour expiry
+            expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
             approvedDownloadLink: null
         };
 
-        // Insert into database
         const downloadReqResult = await dbConnection.collection('mediaDownloadRequests').insertOne(downloadRequest);
         if (!downloadReqResult.insertedId) {
             return res.status(500).json({ error: 'Failed to create download request' });
         }
 
-        // Broadcast notification via WebSocket to media sender (get sender from media record)
         try {
             const mediaRecord = await dbConnection.collection('chatMedia').findOne({ id: mediaId });
             if (mediaRecord && mediaRecord.senderId) {
@@ -5110,12 +4469,11 @@ app.post('/api/media/:mediaId/download-request', verifyToken, async (req, res) =
                     requestId: downloadRequestId,
                     mediaId: mediaId,
                     requesterId: requesterId,
-                    requesterName: req.user.username, // ✅ Ensure requesterName is included
+                    requesterName: req.user.username,
                     requesterUsername: req.user.username,
                     reason: reason
                 });
 
-                // ✅ NEW: Send FCM Push Notification
                 if (pushNotificationManager) {
                     await pushNotificationManager.sendMediaDownloadRequestNotification(mediaRecord.senderId, {
                         userId: requesterId,
@@ -5137,7 +4495,7 @@ app.post('/api/media/:mediaId/download-request', verifyToken, async (req, res) =
                             mediaId: mediaId,
                             requestId: downloadRequestId,
                             requesterId: requesterId,
-                            requesterName: req.user.username // ✅ Consistency with WebSocket
+                            requesterName: req.user.username
                         }
                     });
                 }
@@ -5166,12 +4524,6 @@ app.post('/api/media/:mediaId/download-request', verifyToken, async (req, res) =
     }
 });
 
-/**
- * Approve media download - sender approves a download request
- * PUT /api/media/download-request/:requestId/approve
- * 
- * ✅ UPDATED: Returns encryption key so requester can decrypt
- */
 app.put('/api/media/download-request/:requestId/approve', verifyToken, async (req, res) => {
     const { requestId } = req.params;
     const approverId = req.user.userId;
@@ -5181,7 +4533,6 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
             return res.status(400).json({ error: 'requestId is required' });
         }
 
-        // Find the download request
         const downloadRequest = await dbConnection.collection('mediaDownloadRequests').findOne({
             id: requestId
         });
@@ -5190,7 +4541,6 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
             return res.status(404).json({ error: 'Download request not found' });
         }
 
-        // Find the media to get encryption key
         const mediaRecord = await dbConnection.collection('chatMedia').findOne({
             id: downloadRequest.mediaId
         });
@@ -5199,7 +4549,6 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
             return res.status(404).json({ error: 'Media not found' });
         }
 
-        // Verify that the approver is the media owner (sender)
         if (mediaRecord.senderId !== approverId) {
             return res.status(403).json({ error: 'Only media owner can approve downloads' });
         }
@@ -5220,7 +4569,6 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
             return res.status(400).json({ error: 'Failed to update download request' });
         }
 
-        // Broadcast notification via WebSocket to requester
         try {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             broadcastToUser(global.wsClients, downloadRequest.requesterId, 'media.download.approved', {
@@ -5230,14 +4578,12 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
                 fileName: mediaRecord.fileName,
                 mimeType: mediaRecord.mimeType,
                 size: mediaRecord.size,
-                expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), // 7-day download link expiry
-                // ✅ NEW: Include encryption key for decryption
+                expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
                 encrypted: mediaRecord.encrypted || false,
                 encryptionKey: mediaRecord.encryptionKey || null,
                 iv: mediaRecord.iv || null
             });
 
-            // ✅ NEW: Send FCM Push Notification with encryption details
             try {
                 if (pushNotificationManager) {
                     await pushNotificationManager.sendMediaApprovedNotification(downloadRequest.requesterId, {
@@ -5283,7 +4629,6 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
             size: mediaRecord.size,
             downloadLink: `/api/media/${downloadRequest.mediaId}/download`,
             expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-            // ✅ NEW: Include encryption details
             encrypted: mediaRecord.encrypted || false,
             encryptionKey: mediaRecord.encryptionKey || null,
             iv: mediaRecord.iv || null
@@ -5295,10 +4640,6 @@ app.put('/api/media/download-request/:requestId/approve', verifyToken, async (re
     }
 });
 
-/**
- * Deny media download - sender denies a download request
- * PUT /api/media/download-request/:requestId/deny
- */
 app.put('/api/media/download-request/:requestId/deny', verifyToken, async (req, res) => {
     const { requestId } = req.params;
     const denierId = req.user.userId;
@@ -5332,7 +4673,6 @@ app.put('/api/media/download-request/:requestId/deny', verifyToken, async (req, 
             return res.status(400).json({ error: 'Failed to update download request' });
         }
 
-        // Broadcast notification to requester
         try {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             broadcastToUser(global.wsClients, downloadRequest.requesterId, 'media.download.denied', {
@@ -5342,7 +4682,6 @@ app.put('/api/media/download-request/:requestId/deny', verifyToken, async (req, 
             });
         } catch (broadcastErr) {
             console.warn(`[WARN] Failed to broadcast media denial: ${broadcastErr.message}`);
-            // Don't fail the request - notification failure shouldn't stop the operation
         }
 
         await logEvent('media_download_denied', `Download request denied for media ${downloadRequest.mediaId}`, denierId, {
@@ -5363,15 +4702,10 @@ app.put('/api/media/download-request/:requestId/deny', verifyToken, async (req, 
     }
 });
 
-/**
- * Get pending download requests for user (requests for media they sent)
- * GET /api/media/download-requests/pending
- */
 app.get('/api/media/download-requests/pending', verifyToken, async (req, res) => {
     const userId = req.user.userId;
 
     try {
-        // Only return pending requests for media owned by this user
         const ownedMedia = await dbConnection.collection('chatMedia').find({ senderId: userId }).project({ id: 1 }).toArray();
         const ownedMediaIds = ownedMedia.map(m => m.id).filter(Boolean);
 
@@ -5410,13 +4744,6 @@ app.get('/api/media/download-requests/pending', verifyToken, async (req, res) =>
     }
 });
 
-// ==================== GROUP VOTING SYSTEM ====================
-
-/**
- * Initiate group deletion vote
- * POST /api/groups/:groupId/deletion-vote/initiate
- * Requires: Group admin
- */
 app.post('/api/groups/:groupId/deletion-vote/initiate', verifyToken, async (req, res) => {
     const { groupId } = req.params;
     const { groupName } = req.body;
@@ -5427,7 +4754,6 @@ app.post('/api/groups/:groupId/deletion-vote/initiate', verifyToken, async (req,
             return res.status(400).json({ error: 'groupId and groupName are required' });
         }
 
-        // Check if user is group admin
         const group = await dbConnection.collection('groups').findOne({
             id: groupId,
             adminId: initiatorId
@@ -5437,12 +4763,10 @@ app.post('/api/groups/:groupId/deletion-vote/initiate', verifyToken, async (req,
             return res.status(403).json({ error: 'Only group admin can initiate deletion vote' });
         }
 
-        // Create deletion vote
         const voteId = uuidv4();
         const now = new Date();
-        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24-hour voting period
+        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-        // Get total group members for threshold calculation
         const totalMembers = group.members ? group.members.length : 0;
 
         const groupVote = {
@@ -5456,8 +4780,8 @@ app.post('/api/groups/:groupId/deletion-vote/initiate', verifyToken, async (req,
             createdAt: now,
             expiresAt: expiresAt,
             totalMembers: totalMembers,
-            approvalThreshold: 50, // >50%
-            votes: [], // Array of { voterId, vote (true/false), votedAt }
+            approvalThreshold: 50,
+            votes: [],
             approvalCount: 0,
             rejectionCount: 0
         };
@@ -5467,15 +4791,8 @@ app.post('/api/groups/:groupId/deletion-vote/initiate', verifyToken, async (req,
             return res.status(500).json({ error: 'Failed to create deletion vote' });
         }
 
-        // TODO: Broadcast vote notification via WebSocket to all group members
-        // broadcastToGroup(groupId, 'group_deletion_vote_started', { 
-        //     voteId, 
-        //     groupName, 
-        //     expiresAt 
-        // })
-
-        await logEvent('group_deletion_vote_initiated', 
-            `Group deletion vote started for group: ${groupName}`, 
+        await logEvent('group_deletion_vote_initiated',
+            `Group deletion vote started for group: ${groupName}`,
             initiatorId,
             { groupId, voteId, totalMembers }
         );
@@ -5495,13 +4812,9 @@ app.post('/api/groups/:groupId/deletion-vote/initiate', verifyToken, async (req,
     }
 });
 
-/**
- * Cast vote on group deletion
- * POST /api/groups/:groupId/deletion-vote/:voteId/vote
- */
 app.post('/api/groups/:groupId/deletion-vote/:voteId/vote', verifyToken, async (req, res) => {
     const { groupId, voteId } = req.params;
-    const { vote } = req.body; // true = approve, false = reject
+    const { vote } = req.body;
     const voterId = req.user.userId;
 
     try {
@@ -5509,7 +4822,6 @@ app.post('/api/groups/:groupId/deletion-vote/:voteId/vote', verifyToken, async (
             return res.status(400).json({ error: 'vote must be true (approve) or false (reject)' });
         }
 
-        // Find the active vote
         const groupVote = await dbConnection.collection('groupDeletionVotes').findOne({
             id: voteId,
             groupId: groupId,
@@ -5520,13 +4832,11 @@ app.post('/api/groups/:groupId/deletion-vote/:voteId/vote', verifyToken, async (
             return res.status(404).json({ error: 'Voting period has ended or vote not found' });
         }
 
-        // Check if user already voted
         const alreadyVoted = groupVote.votes.some(v => v.voterId === voterId);
         if (alreadyVoted) {
             return res.status(409).json({ error: 'You have already voted on this' });
         }
 
-        // Check if user is group member
         const group = await dbConnection.collection('groups').findOne({
             id: groupId
         });
@@ -5535,7 +4845,6 @@ app.post('/api/groups/:groupId/deletion-vote/:voteId/vote', verifyToken, async (
             return res.status(403).json({ error: 'Only group members can vote' });
         }
 
-        // Record the vote
         const now = new Date();
         const updateResult = await dbConnection.collection('groupDeletionVotes').updateOne(
             { id: voteId },
@@ -5557,29 +4866,24 @@ app.post('/api/groups/:groupId/deletion-vote/:voteId/vote', verifyToken, async (
             return res.status(400).json({ error: 'Failed to record vote' });
         }
 
-        // Get updated vote counts
         const updatedVote = await dbConnection.collection('groupDeletionVotes').findOne({
             id: voteId
         });
 
-        const approvalPercentage = updatedVote.totalMembers > 0 
-            ? Math.round((updatedVote.approvalCount / updatedVote.totalMembers) * 100) 
+        const approvalPercentage = updatedVote.totalMembers > 0
+            ? Math.round((updatedVote.approvalCount / updatedVote.totalMembers) * 100)
             : 0;
 
-        // Check if vote threshold is reached
         const isApproved = updatedVote.approvalCount > (updatedVote.totalMembers * 0.5);
-        
-        // Auto-complete vote if threshold reached early or voting period ends
+
         if (isApproved) {
             await dbConnection.collection('groupDeletionVotes').updateOne(
                 { id: voteId },
                 { $set: { status: 'approved' } }
             );
-            
-            // Delete the group
+
             await dbConnection.collection('groups').deleteOne({ id: groupId });
 
-            // TODO: Broadcast group deleted via WebSocket
             await logEvent('group_deleted', `Group deleted by member vote: ${groupVote.groupName}`, voterId);
         }
 
@@ -5605,10 +4909,6 @@ app.post('/api/groups/:groupId/deletion-vote/:voteId/vote', verifyToken, async (
     }
 });
 
-/**
- * Get group voting status
- * GET /api/groups/:groupId/votes/active
- */
 app.get('/api/groups/:groupId/votes/active', verifyToken, async (req, res) => {
     const { groupId } = req.params;
     const userId = req.user.userId;
@@ -5631,8 +4931,8 @@ app.get('/api/groups/:groupId/votes/active', verifyToken, async (req, res) => {
 
         const deletionVotesWithStatus = deletionVotes.map(vote => {
             const hasVoted = vote.votes.some(v => v.voterId === userId);
-            const approvalPercentage = vote.totalMembers > 0 
-                ? Math.round((vote.approvalCount / vote.totalMembers) * 100) 
+            const approvalPercentage = vote.totalMembers > 0
+                ? Math.round((vote.approvalCount / vote.totalMembers) * 100)
                 : 0;
 
             return {
@@ -5654,8 +4954,8 @@ app.get('/api/groups/:groupId/votes/active', verifyToken, async (req, res) => {
 
         const historyVotesWithStatus = historyVotes.map(vote => {
             const hasVoted = !!(vote.votes && vote.votes[userId]);
-            const approvalPercentage = vote.memberCount > 0 
-                ? Math.round((vote.voteCount.yes / vote.memberCount) * 100) 
+            const approvalPercentage = vote.memberCount > 0
+                ? Math.round((vote.voteCount.yes / vote.memberCount) * 100)
                 : 0;
 
             return {
@@ -5689,10 +4989,6 @@ app.get('/api/groups/:groupId/votes/active', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Get voting results
- * GET /api/groups/:groupId/votes/:voteId/results
- */
 app.get('/api/groups/:groupId/votes/:voteId/results', verifyToken, async (req, res) => {
     const { groupId, voteId } = req.params;
 
@@ -5706,8 +5002,8 @@ app.get('/api/groups/:groupId/votes/:voteId/results', verifyToken, async (req, r
             return res.status(404).json({ error: 'Vote not found' });
         }
 
-        const approvalPercentage = vote.totalMembers > 0 
-            ? Math.round((vote.approvalCount / vote.totalMembers) * 100) 
+        const approvalPercentage = vote.totalMembers > 0
+            ? Math.round((vote.approvalCount / vote.totalMembers) * 100)
             : 0;
 
         const isApproved = vote.approvalCount > (vote.totalMembers * 0.5);
@@ -5734,13 +5030,10 @@ app.get('/api/groups/:groupId/votes/:voteId/results', verifyToken, async (req, r
     }
 });
 
-// ==================== FILE APIs ====================
-
-// Get Chat History with User
 app.get('/api/chat/:recipientId/files', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const files = await dbConnection.collection('Files').find({
             $or: [
@@ -5767,26 +5060,23 @@ app.get('/api/chat/:recipientId/files', verifyToken, async (req, res) => {
     }
 });
 
-// Attach File to Message
 app.post('/api/messages/:messageId/files', verifyToken, async (req, res) => {
     const { messageId } = req.params;
     const { fileId } = req.body;
     const userId = req.user.userId;
-    
+
     try {
-        // Verify file exists and user has permission
         const fileRecord = await dbConnection.collection('Files').findOne({ fileId });
         if (!fileRecord || fileRecord.uploadedBy !== userId) {
             return res.status(404).json({ error: 'File not found or access denied' });
         }
 
-        // Update file with message association
         await dbConnection.collection('Files').updateOne(
             { fileId },
-            { 
-                $set: { 
+            {
+                $set: {
                     messageId: messageId,
-                    chatWithUser: null, // Will be set when message is sent
+                    chatWithUser: null,
                     updatedAt: new Date()
                 }
             }
@@ -5805,18 +5095,12 @@ app.post('/api/messages/:messageId/files', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== GROUP MESSAGE FILE SHARING (Feature Parity) ====================
-
-/**
- * POST /api/groups/:groupId/messages/:messageId/files - Attach file to group message
- */
 app.post('/api/groups/:groupId/messages/:messageId/files', verifyToken, async (req, res) => {
     const { groupId, messageId } = req.params;
     const { fileId } = req.body;
     const userId = req.user.userId;
-    
+
     try {
-        // Verify group exists
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -5824,29 +5108,25 @@ app.post('/api/groups/:groupId/messages/:messageId/files', verifyToken, async (r
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Verify user is group member
         const isMember = Array.isArray(group.members) && group.members.some(m => m && (typeof m === 'object' ? (m.userId || m.id) : m) === userId);
         if (!isMember) {
             return res.status(403).json({ error: 'Not a member of this group' });
         }
 
-        // Verify message exists and belongs to this group
         const message = await dbConnection.collection('groupMessages').findOne({ messageId });
         if (!message || message.groupId !== (group.id || groupId)) {
             return res.status(404).json({ error: 'Message not found in group' });
         }
 
-        // Verify file exists and user has permission
         const fileRecord = await dbConnection.collection('Files').findOne({ fileId });
         if (!fileRecord || fileRecord.uploadedBy !== userId) {
             return res.status(404).json({ error: 'File not found or access denied' });
         }
 
-        // Update file with message association
         await dbConnection.collection('Files').updateOne(
             { fileId },
-            { 
-                $set: { 
+            {
+                $set: {
                     messageId: messageId,
                     messageType: 'group',
                     groupId: group.id || groupId,
@@ -5855,7 +5135,6 @@ app.post('/api/groups/:groupId/messages/:messageId/files', verifyToken, async (r
             }
         );
 
-        // Update message with file reference
         await dbConnection.collection('groupMessages').updateOne(
             { messageId },
             { $push: { files: fileId } }
@@ -5875,57 +5154,45 @@ app.post('/api/groups/:groupId/messages/:messageId/files', verifyToken, async (r
     }
 });
 
-// ==================== FCM TOKEN MANAGEMENT ====================
-
-// Register FCM Token
 app.post('/api/users/:userId/fcm-token', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { fcmToken, deviceName } = req.body;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // ✅ CRITICAL: Check database connection before processing
         if (!dbConnection || !dbConnection.isConnected) {
-            console.error('[❌ FCM TOKEN] Database not connected');
-            return res.status(503).json({ 
+            console.error('[ FCM TOKEN] Database not connected');
+            return res.status(503).json({
                 error: 'Database unavailable. Please try again in a moment.',
                 status: 'db_unavailable'
             });
         }
 
-        // Verify user can only register their own token
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot register token for another user' });
         }
 
-        // Get FCM configuration
         const fcmConfig = await dbConnection.collection('systemConfig').findOne({ configType: 'fcm' });
         const maxTokens = fcmConfig?.settings?.maxTokensPerUser || 5;
 
-        // Check existing tokens for this user
         const existingTokens = await dbConnection.collection('FCMTokens').find({ userId }).toArray();
-        
-        // ✅ NEW: If at max tokens, remove the oldest token automatically
+
         if (existingTokens.length >= maxTokens) {
-            // Find oldest token by registeredAt
             const oldestToken = existingTokens.reduce((oldest, current) => {
                 const oldestDate = new Date(oldest.registeredAt || oldest.lastUsedAt || new Date());
                 const currentDate = new Date(current.registeredAt || current.lastUsedAt || new Date());
                 return currentDate < oldestDate ? current : oldest;
             });
 
-            // Remove oldest token
             await dbConnection.collection('FCMTokens').deleteOne({ _id: oldestToken._id });
             console.log(`[OK] Auto-removed oldest FCM token for user ${userId} to make room for new device`);
         }
 
-        // Check if token already exists
         const tokenExists = existingTokens.some(token => token.fcmToken === fcmToken);
         if (tokenExists) {
-            // Update existing token
             await dbConnection.collection('FCMTokens').updateOne(
                 { userId, fcmToken },
-                { 
+                {
                     $set: {
                         deviceName: deviceName || 'Unknown Device',
                         lastUsedAt: new Date(),
@@ -5935,7 +5202,6 @@ app.post('/api/users/:userId/fcm-token', verifyToken, async (req, res) => {
             );
             console.log(`[OK] Updated existing FCM token for user ${userId}`);
         } else {
-            // Register new token
             const fcmInsertResult = await dbConnection.collection('FCMTokens').insertOne({
                 _id: new ObjectId(),
                 userId: userId,
@@ -5966,22 +5232,19 @@ app.post('/api/users/:userId/fcm-token', verifyToken, async (req, res) => {
     }
 });
 
-// Unregister FCM Token
 app.delete('/api/users/:userId/fcm-token', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { fcmToken } = req.body;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Verify user can only unregister their own token
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot unregister token for another user' });
         }
 
-        // Delete the specific token
-        const result = await dbConnection.collection('FCMTokens').deleteOne({ 
-            userId, 
-            fcmToken: fcmToken 
+        const result = await dbConnection.collection('FCMTokens').deleteOne({
+            userId,
+            fcmToken: fcmToken
         });
 
         if (result.deletedCount === 0) {
@@ -6000,31 +5263,27 @@ app.delete('/api/users/:userId/fcm-token', verifyToken, async (req, res) => {
     }
 });
 
-// Send FCM Notification (Internal)
 app.post('/api/notifications/send-fcm', verifyToken, async (req, res) => {
     const { userId, title, message, type, data } = req.body;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Only admins can send notifications (for now)
         const user = await dbConnection.collection('users').findOne({ id: requestUserId });
         if (!user || user.role !== 'ADMIN') {
             return res.status(403).json({ error: 'Insufficient permissions' });
         }
 
-        // Get target user's FCM tokens
         const targetUser = await dbConnection.collection('users').findOne({ id: userId });
         if (!targetUser) {
             return res.status(404).json({ error: 'Target user not found' });
         }
 
         const fcmTokens = await dbConnection.collection('FCMTokens').find({ userId }).toArray();
-        
+
         if (fcmTokens.length === 0) {
             return res.status(400).json({ error: 'User has no registered FCM tokens' });
         }
 
-        // Prepare notification payload
         const notification = {
             data: {
                 type: type || 'message',
@@ -6040,9 +5299,6 @@ app.post('/api/notifications/send-fcm', verifyToken, async (req, res) => {
             }
         };
 
-        // Send to all tokens for the user
-        // Note: In production, you would use Firebase Admin SDK here
-        // For now, we'll just log it
         await logEvent('fcm_notification_sent', `FCM notification sent to user ${userId}`, requestUserId, {
             targetUserId: userId,
             title: title,
@@ -6062,14 +5318,13 @@ app.post('/api/notifications/send-fcm', verifyToken, async (req, res) => {
     }
 });
 
-// Subscribe to Topic
 app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
     const { topic } = req.body;
     const userId = req.user.userId;
 
     try {
         const fcmConfig = await dbConnection.collection('systemConfig').findOne({ configType: 'fcm' });
-        const allowedTopics = fcmConfig?.settings?.defaultTopics || ['messages', 'calls', 'system'];
+        const allowedTopics = fcmConfig?.settings?.defaultTopics || ['messages', 'system'];
 
         if (!allowedTopics.includes(topic)) {
             return res.status(400).json({
@@ -6077,7 +5332,6 @@ app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
             });
         }
 
-        // In production, this would subscribe to Firebase topics
         await logEvent('topic_subscribe', `User ${userId} subscribed to topic ${topic}`, userId, {
             topic: topic
         });
@@ -6093,10 +5347,6 @@ app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Register FCM Token (Alternative Endpoint for Android Compatibility)
- * POST /api/notifications/register-token
- */
 app.post('/api/notifications/register-token', verifyToken, async (req, res) => {
     const { fcmToken, fcm_token, platform = 'android', deviceName, device_name } = req.body;
     const userId = req.user.userId;
@@ -6109,14 +5359,11 @@ app.post('/api/notifications/register-token', verifyToken, async (req, res) => {
     }
 
     try {
-        // Get FCM configuration
         const fcmConfig = await dbConnection.collection('systemConfig').findOne({ configType: 'fcm' });
         const maxTokens = fcmConfig?.settings?.maxTokensPerUser || 5;
 
-        // Check existing tokens for this user
         const existingTokens = await dbConnection.collection('FCMTokens').find({ userId }).toArray();
 
-        // Auto-remove oldest if at max
         if (existingTokens.length >= maxTokens) {
             const oldestToken = existingTokens.reduce((oldest, current) => {
                 const oldestDate = new Date(oldest.registeredAt || oldest.lastUsedAt || new Date());
@@ -6126,12 +5373,11 @@ app.post('/api/notifications/register-token', verifyToken, async (req, res) => {
             await dbConnection.collection('FCMTokens').deleteOne({ _id: oldestToken._id });
         }
 
-        // Check if token already exists
         const tokenExists = existingTokens.find(t => t.fcmToken === token);
         if (tokenExists) {
             await dbConnection.collection('FCMTokens').updateOne(
                 { userId, fcmToken: token },
-                { 
+                {
                     $set: {
                         deviceName: device,
                         platform: platform,
@@ -6163,11 +5409,10 @@ app.post('/api/notifications/register-token', verifyToken, async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-// Unsubscribe from Topic
 app.post('/api/notifications/unsubscribe', verifyToken, async (req, res) => {
     const { topic } = req.body;
     const userId = req.user.userId;
-    
+
     try {
         await logEvent('topic_unsubscribe', `User ${userId} unsubscribed from topic ${topic}`, userId, {
             topic: topic
@@ -6184,21 +5429,19 @@ app.post('/api/notifications/unsubscribe', verifyToken, async (req, res) => {
     }
 });
 
-// Get Notification History
 app.get('/api/notifications/history', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const { limit = 50, offset = 0 } = req.query;
-    
+
     try {
-        // Get notification logs (you would implement this based on your logging system)
         const notifications = await dbConnection.collection('logs').find({
             userId: userId,
             event: { $in: [
-                'fcm_notification_sent', 
-                'message_received', 
+                'fcm_notification_sent',
+                'message_received',
                 'message_sent',
-                'call_initiated', 
-                'friend_request_sent', 
+                'call_initiated',
+                'friend_request_sent',
                 'friend_request_received',
                 'friend_accepted',
                 'media_download_request',
@@ -6227,17 +5470,13 @@ app.get('/api/notifications/history', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ NEW: Get Pending Notifications for Background Polling
-// Called by BackgroundPollingService when app is closed
-// Returns messages and calls that arrived while offline
 app.get('/api/notifications/pending', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const lastFetchTime = req.query.lastFetch ? new Date(parseInt(req.query.lastFetch)) : new Date(0);
-    
+
     try {
-        console.log(`[📬 Pending Notifications] Fetching for user ${userId} since ${lastFetchTime.toISOString()}`);
-        
-        // Get unread messages since last fetch
+        console.log(`[ Pending Notifications] Fetching for user ${userId} since ${lastFetchTime.toISOString()}`);
+
         const messages = await dbConnection.collection('messages').find({
             $or: [
                 { recipientId: userId, read: false },
@@ -6246,20 +5485,9 @@ app.get('/api/notifications/pending', verifyToken, async (req, res) => {
             timestamp: { $gt: lastFetchTime }
         })
         .sort({ timestamp: -1 })
-        .limit(20)  // Limit to recent 20 messages
+        .limit(20)
         .toArray();
-        
-        // Get missed calls since last fetch
-        const calls = await dbConnection.collection('calls').find({
-            recipientId: userId,
-            status: 'missed',
-            timestamp: { $gt: lastFetchTime }
-        })
-        .sort({ timestamp: -1 })
-        .limit(10)  // Limit to recent 10 calls
-        .toArray();
-        
-        // Format messages for notification
+
         const formattedMessages = messages.map(msg => ({
             chatId: msg.chatId || msg.senderId,
             senderId: msg.senderId,
@@ -6268,58 +5496,41 @@ app.get('/api/notifications/pending', verifyToken, async (req, res) => {
             content: msg.content || msg.message || '',
             timestamp: msg.timestamp.getTime()
         }));
-        
-        // Format calls for notification
-        const formattedCalls = calls.map(call => ({
-            callerId: call.callerId,
-            callerName: call.callerName || 'Unknown',
-            callerAvatar: call.callerAvatar,
-            callType: call.type || 'audio',
-            timestamp: call.timestamp.getTime()
-        }));
-        
-        console.log(`[✅ Pending Notifications] Returning ${formattedMessages.length} messages, ${formattedCalls.length} calls`);
-        
+
+        console.log(`[ Pending Notifications] Returning ${formattedMessages.length} messages`);
+
         res.json({
             success: true,
             messages: formattedMessages,
-            calls: formattedCalls,
             fetchedAt: new Date().getTime()
         });
-        
+
     } catch (err) {
-        console.error('[❌ Pending Notifications Error]', err);
-        res.status(500).json({ 
+        console.error('[ Pending Notifications Error]', err);
+        res.status(500).json({
             error: err.message,
-            messages: [],
-            calls: []
+            messages: []
         });
     }
 });
 
-// ==================== KEY EXCHANGE FOR E2E ENCRYPTION ====================
-
-// Exchange Public Keys
 app.post('/api/keys/exchange/:peerId', verifyToken, async (req, res) => {
     const { peerId } = req.params;
     const { publicKey } = req.body;
     const userId = req.user.userId;
-    
+
     try {
-        // Get encryption configuration
         const encryptionConfig = await dbConnection.collection('systemConfig').findOne({ configType: 'encryption' });
         const keyAlgorithm = encryptionConfig?.settings?.keyAlgorithm || 'RSA';
         const keySize = encryptionConfig?.settings?.keySize || 2048;
 
-        // Validate public key format (basic validation)
         if (!publicKey || publicKey.length < 100) {
             return res.status(400).json({ error: 'Invalid public key format' });
         }
 
-        // Store the peer's public key
         await dbConnection.collection('PublicKeys').updateOne(
             { userId, peerId },
-            { 
+            {
                 $set: {
                     publicKey: publicKey,
                     keyType: keyAlgorithm,
@@ -6330,9 +5541,8 @@ app.post('/api/keys/exchange/:peerId', verifyToken, async (req, res) => {
             { upsert: true }
         );
 
-        // Get user's current public key to send in response
         const userPublicKey = await dbConnection.collection('users').findOne({ id: userId });
-        
+
         await logEvent('key_exchange', `Public key exchanged with peer ${peerId}`, userId, {
             peerId: peerId,
             keyAlgorithm: keyAlgorithm,
@@ -6355,15 +5565,13 @@ app.post('/api/keys/exchange/:peerId', verifyToken, async (req, res) => {
     }
 });
 
-// Get User's Public Key
 app.get('/api/keys/:userId', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Users can get their own public key or others can get any public key
         const user = await dbConnection.collection('users').findOne({ id: userId });
-        
+
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -6387,21 +5595,16 @@ app.get('/api/keys/:userId', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== ENHANCED USER PROFILES ====================
-
-// Update User Profile (Enhanced)
 app.put('/api/users/:userId/profile', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { username, bio, status, privacyLevel, tags } = req.body;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Verify user can only update their own profile
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot update another user\'s profile' });
         }
 
-        // Validate user exists before updating (CRITICAL FIX #5 - Null Checks)
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
@@ -6409,9 +5612,7 @@ app.put('/api/users/:userId/profile', verifyToken, async (req, res) => {
 
         const updateData = {};
 
-        // Update username if provided
         if (username && typeof username === 'string' && username.trim()) {
-            // Check if username is already taken
             const existingUser = await dbConnection.collection('users').findOne({
                 username: username,
                 id: { $ne: userId }
@@ -6424,8 +5625,6 @@ app.put('/api/users/:userId/profile', verifyToken, async (req, res) => {
             updateData['username'] = username;
         }
 
-        // Update profile fields with null checks (CRITICAL FIX #5)
-        // ✅ ANDROID COMPATIBILITY: Support both flat and nested profile fields
         const finalBio = bio || (req.body.profile && req.body.profile.bio);
         const finalStatus = status || (req.body.profile && req.body.profile.status);
         const finalDisplayName = req.body.displayName || (req.body.profile && req.body.profile.displayName);
@@ -6439,30 +5638,25 @@ app.put('/api/users/:userId/profile', verifyToken, async (req, res) => {
         }
         if (finalDisplayName !== undefined && finalDisplayName !== null && typeof finalDisplayName === 'string') {
             updateData['profile.displayName'] = finalDisplayName;
-            updateData['displayName'] = finalDisplayName; // Also keep flat for easy lookup
+            updateData['displayName'] = finalDisplayName;
         }
         if (finalPrivacyLevel !== undefined && finalPrivacyLevel !== null && typeof finalPrivacyLevel === 'string') {
             updateData['profile.privacyLevel'] = finalPrivacyLevel;
         }
-        // Add tags support
         if (tags !== undefined && Array.isArray(tags)) {
-            // Ensure tags are strings and filter empty values
             updateData['profile.tags'] = tags.filter(t => typeof t === 'string' && t.trim()).map(t => t.trim());
         }
 
-        // Update privacy settings if provided
         if (req.body.privacySettings !== undefined && typeof req.body.privacySettings === 'object') {
-            // Validate privacy options: 'nobody' | 'friends' | 'everyone'
             const validatePrivacyOption = (val) => {
                 const validOptions = ['nobody', 'friends', 'everyone'];
-                return validOptions.includes(val) ? val : 'friends'; // Default to 'friends'
+                return validOptions.includes(val) ? val : 'friends';
             };
-            
+
             updateData['profile.privacySettings'] = {
                 lastSeen: validatePrivacyOption(req.body.privacySettings.lastSeen),
                 onlineStatus: validatePrivacyOption(req.body.privacySettings.onlineStatus),
                 bio: validatePrivacyOption(req.body.privacySettings.bio),
-                calls: validatePrivacyOption(req.body.privacySettings.calls),
                 groups: validatePrivacyOption(req.body.privacySettings.groups),
                 aboutBio: validatePrivacyOption(req.body.privacySettings.aboutBio)
             };
@@ -6484,10 +5678,8 @@ app.put('/api/users/:userId/profile', verifyToken, async (req, res) => {
             fields: Object.keys(updateData)
         });
 
-        // ✅ CRITICAL FIX: Broadcast profile update via WebSocket and Socket.IO
         try {
             const { notifyUserProfileUpdated } = require('../websocket/broadcast-utils.js');
-            // Get user's friends to notify them
             const userWithFriends = await dbConnection.collection('users').findOne({ id: userId });
             const friends = (userWithFriends && userWithFriends.friends) || [];
             notifyUserProfileUpdated(global.wsClients, userId, updateData, friends);
@@ -6506,34 +5698,28 @@ app.put('/api/users/:userId/profile', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== PRIVACY SETTINGS ENDPOINTS ====================
-
-// Get User's Privacy Settings
 app.get('/api/users/:userId/privacy-settings', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Users can only view their own privacy settings
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Can only view your own privacy settings' });
         }
-        
+
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
-        // Return privacy settings with defaults
+
         const privacySettings = user.profile?.privacySettings || {
             lastSeen: 'friends',
             onlineStatus: 'friends',
             bio: 'friends',
-            calls: 'friends',
             groups: 'friends',
             aboutBio: 'friends'
         };
-        
+
         res.json({
             success: true,
             privacySettings
@@ -6544,51 +5730,46 @@ app.get('/api/users/:userId/privacy-settings', verifyToken, async (req, res) => 
     }
 });
 
-// Update User's Privacy Settings
 app.put('/api/users/:userId/privacy-settings', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Users can only update their own privacy settings
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Can only update your own privacy settings' });
         }
-        
+
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
-        // Validate privacy options
+
         const validatePrivacyOption = (val) => {
             const validOptions = ['nobody', 'friends', 'everyone'];
             return validOptions.includes(val) ? val : 'friends';
         };
-        
-        // Build update object with only provided settings
+
         const updateData = {
             'profile.privacySettings': {
                 lastSeen: validatePrivacyOption(req.body.lastSeen !== undefined ? req.body.lastSeen : user.profile?.privacySettings?.lastSeen),
                 onlineStatus: validatePrivacyOption(req.body.onlineStatus !== undefined ? req.body.onlineStatus : user.profile?.privacySettings?.onlineStatus),
                 bio: validatePrivacyOption(req.body.bio !== undefined ? req.body.bio : user.profile?.privacySettings?.bio),
-                calls: validatePrivacyOption(req.body.calls !== undefined ? req.body.calls : user.profile?.privacySettings?.calls),
                 groups: validatePrivacyOption(req.body.groups !== undefined ? req.body.groups : user.profile?.privacySettings?.groups),
                 aboutBio: validatePrivacyOption(req.body.aboutBio !== undefined ? req.body.aboutBio : user.profile?.privacySettings?.aboutBio)
             },
             'profile.lastUpdated': new Date(),
             'updatedAt': new Date()
         };
-        
+
         const result = await dbConnection.collection('users').updateOne(
             { id: userId },
             { $set: updateData }
         );
-        
+
         if (result.matchedCount === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
+
         res.json({
             success: true,
             privacySettings: updateData['profile.privacySettings'],
@@ -6600,7 +5781,6 @@ app.put('/api/users/:userId/privacy-settings', verifyToken, async (req, res) => 
     }
 });
 
-// Upload Profile Image (FIXED: Base64 MongoDB storage)
 app.post('/api/users/:userId/profile-image', (req, res, next) => {
     if (req.is('application/json')) {
         return next();
@@ -6609,7 +5789,7 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
 }, verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user?.userId;
-    
+
     console.log('[UPLOAD] Profile image POST request:', {
         urlUserId: userId,
         tokenUserId: requestUserId,
@@ -6621,12 +5801,11 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
         authHeaders: req.headers.authorization ? 'YES' : 'NO',
         contentType: req.headers['content-type']
     });
-    
+
     try {
-        // Verify user can only upload their own profile image
         if (userId !== requestUserId) {
             console.error('[UPLOAD] USER MISMATCH:', { urlUserId, requestUserId });
-            return res.status(403).json({ 
+            return res.status(403).json({
                 error: 'Cannot upload profile image for another user',
                 details: `URL userId (${userId}) != Token userId (${requestUserId})`
             });
@@ -6635,7 +5814,6 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
         let base64Image, mimeType, originalname, fileSize;
 
         if (req.file) {
-            // Multipart upload via multer
             const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             if (!allowedTypes.includes(req.file.mimetype)) {
                 return res.status(415).json({ error: `Image type not allowed. Allowed types: ${allowedTypes.join(', ')}` });
@@ -6646,7 +5824,6 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
             originalname = req.file.originalname;
             fileSize = req.file.size;
         } else if (req.body && req.body.image) {
-            // JSON upload with base64 image
             base64Image = req.body.image;
             mimeType = req.body.mimeType || 'image/jpeg';
             originalname = 'upload.' + (mimeType.split('/')[1] || 'jpg');
@@ -6655,13 +5832,11 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
             return res.status(400).json({ error: 'No profile image uploaded. Send multipart with field "profileImage" or JSON with "image" (base64).' });
         }
 
-        // Generate unique image ID
         const imageId = uuidv4();
         const imageUrl = `/api/users/${userId}/profile-image/${imageId}`;
-        
+
         console.log('[UPLOAD] Storing image:', { userId, imageId, fileName: originalname, size: fileSize });
-        
-        // Store in MongoDB instead of disk
+
         const imagesCollection = dbConnection.collection('profile_images');
         const imageInsertResult = await imagesCollection.insertOne({
             imageId: imageId,
@@ -6674,10 +5849,9 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
             updatedAt: new Date()
         });
 
-        // ✅ CRITICAL FIX: Check if image was actually stored
         if (!imageInsertResult.insertedId) {
             console.error('[UPLOAD] DB INSERT FAILED');
-            return res.status(500).json({ 
+            return res.status(500).json({
                 error: 'Failed to store image in database',
                 success: false
             });
@@ -6685,10 +5859,9 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
 
         console.log('[UPLOAD] Image stored:', { insertedId: imageInsertResult.insertedId });
 
-        // Update user profile with image URL
         const profileUpdateResult = await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $set: {
                     'profile.profileImageUrl': imageUrl,
                     'profile.profileImageId': imageId,
@@ -6698,10 +5871,9 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
             }
         );
 
-        // ✅ CRITICAL FIX: Check if profile was actually updated
         if (profileUpdateResult.matchedCount === 0) {
             console.error('[UPLOAD] USER NOT FOUND:', { userId });
-            return res.status(404).json({ 
+            return res.status(404).json({
                 error: 'User not found or profile not updated',
                 success: false
             });
@@ -6711,7 +5883,6 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
             console.warn(`[UPLOAD] Profile already has same image for user ${userId}`);
         }
 
-        // Clean up temporary file if multipart upload
         if (req.file && req.file.path && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
@@ -6724,7 +5895,6 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
 
         console.log('[UPLOAD] SUCCESS:', { userId, imageUrl });
 
-        // 📡 Broadcast profile update to all users (especially friends)
         try {
             if (global.io) {
                 global.io.emit('profile_updated', {
@@ -6737,7 +5907,6 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
             }
         } catch (emitErr) {
             console.warn('[SOCKET.IO] Failed to broadcast profile update:', emitErr.message);
-            // Don't fail the response - image upload succeeded even if broadcast failed
         }
 
         res.status(201).json({
@@ -6751,37 +5920,32 @@ app.post('/api/users/:userId/profile-image', (req, res, next) => {
 
     } catch (err) {
         console.error('[UPLOAD] EXCEPTION:', { error: err.message, stack: err.stack });
-        // Clean up temp file if exists
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
-        res.status(500).json({ 
+        res.status(500).json({
             error: `Server error: ${err.message}`,
             errorType: err.constructor.name
         });
     }
 });
 
-// Get Profile Image (serves from MongoDB - PUBLIC endpoint)
 app.get('/api/users/:userId/profile-image/:imageId?', async (req, res) => {
     const { userId, imageId } = req.params;
-    
-    // 🔧 CRITICAL: Add CORS headers for image access
+
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
+
     try {
         console.log(`[IMG] Fetching profile image:`, { userId, imageId });
-        
-        // Get user to check privacy settings
+
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             console.warn(`[IMG] User not found:`, { userId });
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Check privacy settings - profile image visibility
         const privacySettings = user.privacySettings || { profileImage: 'public' };
         if (privacySettings.profileImage === 'private') {
             console.warn(`[IMG] Profile image is private:`, { userId });
@@ -6789,18 +5953,16 @@ app.get('/api/users/:userId/profile-image/:imageId?', async (req, res) => {
         }
 
         let image;
-        
+
         if (imageId) {
-            // 🔧 Retrieve specific image by ID
             console.log(`[IMG] Querying by imageId:`, { userId, imageId });
-            image = await dbConnection.collection('profile_images').findOne({ 
+            image = await dbConnection.collection('profile_images').findOne({
                 imageId: imageId,
-                userId: userId 
+                userId: userId
             });
-            
+
             if (!image) {
                 console.warn(`[IMG] Image not found by ID:`, { userId, imageId });
-                // Check what images exist for this user in database
                 const existingImages = await dbConnection.collection('profile_images')
                     .find({ userId: userId })
                     .project({ imageId: 1 })
@@ -6809,98 +5971,89 @@ app.get('/api/users/:userId/profile-image/:imageId?', async (req, res) => {
                 console.warn(`[IMG] Existing images for user ${userId}:`, existingImages);
             }
         } else {
-            // Retrieve latest profile image for user from user's profile URL
             const profileImageUrl = user?.profile?.profileImageUrl;
             console.log(`[IMG] User profile.profileImageUrl:`, { userId, url: profileImageUrl });
-            
+
             if (!profileImageUrl) {
                 console.warn(`[IMG] No profileImageUrl in user profile:`, { userId });
                 return res.status(404).json({ error: 'Profile image not found - no URL in profile' });
             }
-            
-            // Extract image ID from URL: /api/users/{userId}/profile-image/{imageId}
+
             const extractedId = profileImageUrl.split('/').pop();
             console.log(`[IMG] Extracted imageId from URL:`, { userId, extractedId });
-            
-            image = await dbConnection.collection('profile_images').findOne({ 
+
+            image = await dbConnection.collection('profile_images').findOne({
                 imageId: extractedId,
-                userId: userId 
+                userId: userId
             });
-            
+
             if (!image) {
                 console.warn(`[IMG] Image not found by extracted ID:`, { userId, extractedId });
             }
         }
-        
+
         if (!image) {
-            console.error(`[IMG] ❌ Profile image not found in database:`, { userId, imageId });
+            console.error(`[IMG] Profile image not found in database:`, { userId, imageId });
             return res.status(404).json({ error: 'Profile image not found in database' });
         }
 
-        console.log(`[IMG] ✅ Image found, serving:`, { userId, imageId: image.imageId, size: image.base64Data?.length });
-        
-        // Serve image from base64 data
-        // Remove data: prefix if present
+        console.log(`[IMG] Image found, serving:`, { userId, imageId: image.imageId, size: image.base64Data?.length });
+
         let base64Data = image.base64Data;
         if (!base64Data) {
-            console.error(`[IMG] ❌ Image has no base64Data:`, { userId, imageId });
+            console.error(`[IMG] Image has no base64Data:`, { userId, imageId });
             return res.status(500).json({ error: 'Image data is corrupted (missing base64Data)' });
         }
-        
+
         if (base64Data.startsWith('data:')) {
             base64Data = base64Data.split(',')[1];
         }
-        
-        // Convert base64 to buffer
+
         let imageBuffer;
         try {
             imageBuffer = Buffer.from(base64Data, 'base64');
             if (imageBuffer.length === 0) {
-                console.error(`[IMG] ❌ Buffer is empty after conversion:`, { userId, imageId });
+                console.error(`[IMG] Buffer is empty after conversion:`, { userId, imageId });
                 return res.status(500).json({ error: 'Image data is corrupted (empty buffer)' });
             }
         } catch (bufErr) {
-            console.error(`[IMG] ❌ Failed to convert base64 to buffer:`, { userId, imageId, error: bufErr.message });
+            console.error(`[IMG] Failed to convert base64 to buffer:`, { userId, imageId, error: bufErr.message });
             return res.status(500).json({ error: 'Failed to decode image data' });
         }
-        
-        // Set proper headers
+
         const mimeType = image.mimetype || 'image/jpeg';
         res.setHeader('Content-Type', mimeType);
         res.setHeader('Content-Length', imageBuffer.length);
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+        res.setHeader('Cache-Control', 'public, max-age=86400');
         res.setHeader('X-Image-Source', 'profile-images-collection');
-        
-        console.log(`[IMG] ✅ Sending image to client:`, { userId, mimeType, size: imageBuffer.length });
+
+        console.log(`[IMG] Sending image to client:`, { userId, mimeType, size: imageBuffer.length });
         res.send(imageBuffer);
 
     } catch (err) {
-        console.error(`[IMG] ❌ Error serving profile image:`, { error: err.message, stack: err.stack });
+        console.error(`[IMG] Error serving profile image:`, { error: err.message, stack: err.stack });
         res.status(500).json({ error: err.message });
     }
 });
 
-// Delete Profile Image
 app.delete('/api/users/:userId/profile-image', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Verify user can only delete their own profile image
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot delete another user\'s profile image' });
         }
 
         const user = await dbConnection.collection('users').findOne({ id: userId });
-        
+
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Remove profile image URL from user profile
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $set: {
                     'profile.profileImageUrl': '',
                     'profile.lastUpdated': new Date(),
@@ -6919,9 +6072,6 @@ app.delete('/api/users/:userId/profile-image', verifyToken, async (req, res) => 
     }
 });
 
-// ============ NEW: ONLINE/OFFLINE STATUS ENDPOINTS ============
-
-// Get Online Status of Single User
 app.get('/api/users/:userId/online-status', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
@@ -6946,7 +6096,7 @@ app.get('/api/users/:userId/online-status', verifyToken, async (req, res) => {
 
         const now = Date.now();
         const lastActivity = user.lastActivityAt ? new Date(user.lastActivityAt).getTime() : null;
-        const isOnline = (lastActivity && (now - lastActivity) < 5 * 60 * 1000) || user.isOnline === true;
+        const isOnline = lastActivity && (now - lastActivity) < 5 * 60 * 1000;
 
         let lastSeenStr = null;
         if (isOnline) {
@@ -6976,7 +6126,6 @@ app.get('/api/users/:userId/online-status', verifyToken, async (req, res) => {
     }
 });
 
-// Get Online Status of Multiple Users (Batch)
 app.post('/api/users/online-status-batch', verifyToken, async (req, res) => {
     const { userIds } = req.body;
     const requestUserId = req.user.userId;
@@ -6991,7 +6140,6 @@ app.post('/api/users/online-status-batch', verifyToken, async (req, res) => {
             .project({ id: 1, isOnline: 1, lastSeen: 1, lastActivityAt: 1, status: 1, 'profile.privacySettings': 1 })
             .toArray();
 
-        // Fetch all friend relationships in one query for efficiency
         const otherIds = userIds.filter(id => id !== requestUserId);
         const friendRelations = otherIds.length > 0 ? await dbConnection.collection('friends').find({
             $or: [
@@ -7038,7 +6186,6 @@ app.post('/api/users/online-status-batch', verifyToken, async (req, res) => {
             };
         });
 
-        // Fill in missing users as offline
         userIds.forEach(id => {
             if (!statusMap[id]) {
                 statusMap[id] = {
@@ -7060,7 +6207,6 @@ app.post('/api/users/online-status-batch', verifyToken, async (req, res) => {
     }
 });
 
-// Upload Profile Banner
 app.post('/api/users/:userId/profile-banner', (req, res, next) => {
     if (req.is('application/json')) {
         return next();
@@ -7069,9 +6215,8 @@ app.post('/api/users/:userId/profile-banner', (req, res, next) => {
 }, verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Verify user can only upload their own profile banner
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot upload profile banner for another user' });
         }
@@ -7097,11 +6242,9 @@ app.post('/api/users/:userId/profile-banner', (req, res, next) => {
             return res.status(400).json({ error: 'No profile banner uploaded. Send multipart with field "profileBanner" or JSON with "image" (base64).' });
         }
 
-        // Generate unique banner ID
         const bannerId = uuidv4();
         const bannerUrl = `/api/users/${userId}/profile-banner/${bannerId}`;
-        
-        // Store in MongoDB instead of disk
+
         const bannersCollection = dbConnection.collection('profile_banners');
         const bannerInsertResult = await bannersCollection.insertOne({
             bannerId: bannerId,
@@ -7114,18 +6257,16 @@ app.post('/api/users/:userId/profile-banner', (req, res, next) => {
             updatedAt: new Date()
         });
 
-        // ✅ CRITICAL FIX: Check if banner was actually stored
         if (!bannerInsertResult.insertedId) {
-            return res.status(500).json({ 
+            return res.status(500).json({
                 error: 'Failed to store banner in database',
                 success: false
             });
         }
 
-        // Update user profile with banner URL
         const bannerUpdateResult = await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $set: {
                     'profile.bannerUrl': bannerUrl,
                     'profile.lastUpdated': new Date(),
@@ -7134,9 +6275,8 @@ app.post('/api/users/:userId/profile-banner', (req, res, next) => {
             }
         );
 
-        // ✅ CRITICAL FIX: Check if profile was actually updated
         if (bannerUpdateResult.matchedCount === 0) {
-            return res.status(404).json({ 
+            return res.status(404).json({
                 error: 'User not found or banner not updated',
                 success: false
             });
@@ -7146,23 +6286,23 @@ app.post('/api/users/:userId/profile-banner', (req, res, next) => {
             console.warn(`Banner update for user ${userId} matched but did not modify (possible duplicate banner)`);
         }
 
-        // Clean up temporary file
         if (req.file && req.file.path && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
 
         await logEvent('profile_banner_upload', `Profile banner uploaded for user ${userId}`, userId, {
-            fileName: req.file.originalname,
-            fileSize: req.file.size,
+            fileName: originalname,
+            fileSize: fileSize,
             bannerUrl: bannerUrl
         });
 
         res.status(201).json({
             success: true,
+            bannerUrl: bannerUrl,
             profileBanner: {
                 bannerUrl: bannerUrl,
-                fileName: req.file.originalname,
-                fileSize: req.file.size
+                fileName: originalname,
+                fileSize: fileSize
             }
         });
 
@@ -7175,35 +6315,29 @@ app.post('/api/users/:userId/profile-banner', (req, res, next) => {
     }
 });
 
-// Get Profile Banner (serves from MongoDB)
-app.get('/api/users/:userId/profile-banner/:bannerId', verifyToken, async (req, res) => {
+app.get('/api/users/:userId/profile-banner/:bannerId', async (req, res) => {
     const { userId, bannerId } = req.params;
     try {
-        // Retrieve banner from MongoDB
-        const banner = await dbConnection.collection('profile_banners').findOne({ 
+        const banner = await dbConnection.collection('profile_banners').findOne({
             bannerId: bannerId,
-            userId: userId 
+            userId: userId
         });
 
         if (!banner) {
             return res.status(404).json({ error: 'Profile banner not found' });
         }
 
-        // Serve image from base64 data
-        // Remove data: prefix if present
         let base64Data = banner.base64Data;
         if (base64Data.startsWith('data:')) {
             base64Data = base64Data.split(',')[1];
         }
-        
-        // Convert base64 to buffer
+
         const bannerBuffer = Buffer.from(base64Data, 'base64');
-        
-        // Set proper headers
+
         res.setHeader('Content-Type', banner.mimetype || 'image/jpeg');
         res.setHeader('Content-Length', bannerBuffer.length);
-        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
-        
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+
         res.send(bannerBuffer);
 
     } catch (err) {
@@ -7212,11 +6346,10 @@ app.get('/api/users/:userId/profile-banner/:bannerId', verifyToken, async (req, 
     }
 });
 
-// Delete Profile Banner
 app.delete('/api/users/:userId/profile-banner', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot delete another user\'s profile banner' });
@@ -7224,7 +6357,7 @@ app.delete('/api/users/:userId/profile-banner', verifyToken, async (req, res) =>
 
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $set: {
                     'profile.bannerUrl': '',
                     'profile.lastUpdated': new Date(),
@@ -7242,11 +6375,10 @@ app.delete('/api/users/:userId/profile-banner', verifyToken, async (req, res) =>
     }
 });
 
-// Block/Unblock User
 app.post('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res) => {
     const { userId, blockUserId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot block users for another account' });
@@ -7258,7 +6390,7 @@ app.post('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res) 
 
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $addToSet: {
                     'profile.blockedUsers': blockUserId
                 },
@@ -7279,11 +6411,10 @@ app.post('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res) 
     }
 });
 
-// Unblock User
 app.delete('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res) => {
     const { userId, blockUserId } = req.params;
     const requestUserId = req.user.userId;
-    
+
     try {
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot unblock users for another account' });
@@ -7291,7 +6422,7 @@ app.delete('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res
 
         const unblockResult = await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $pull: {
                     'profile.blockedUsers': blockUserId
                 },
@@ -7301,11 +6432,11 @@ app.delete('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res
                 }
             }
         );
-        
+
         if (unblockResult.matchedCount === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
+
         if (unblockResult.modifiedCount === 0) {
             return res.status(404).json({ error: 'User was not in blocked list' });
         }
@@ -7320,7 +6451,6 @@ app.delete('/api/users/:userId/block/:blockUserId', verifyToken, async (req, res
     }
 });
 
-// Report User for Abuse/Harassment
 app.post('/api/users/:reportedUserId/report', verifyToken, async (req, res) => {
     const { reportedUserId } = req.params;
     const { reason, description } = req.body;
@@ -7335,13 +6465,11 @@ app.post('/api/users/:reportedUserId/report', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Cannot report yourself' });
         }
 
-        // Validate reported user exists
         const reportedUser = await dbConnection.collection('users').findOne({ id: reportedUserId });
         if (!reportedUser) {
             return res.status(404).json({ error: 'Reported user not found' });
         }
 
-        // Create abuse report
         const reportId = `report_${uuidv4()}`;
         const abuseReportResult = await dbConnection.collection('abuseReports').insertOne({
             id: reportId,
@@ -7370,18 +6498,13 @@ app.post('/api/users/:reportedUserId/report', verifyToken, async (req, res) => {
     }
 });
 
-
-
-// Get User Profile
-
-// Get all users (public endpoint for searching)
 app.get('/api/users', verifyToken, async (req, res) => {
     const { search } = req.query;
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
     const skip = parseInt(req.query.skip) || 0;
 
     try {
-        let filter = { role: { $ne: 'ADMIN' } }; // Don't return admin users
+        let filter = { role: { $ne: 'ADMIN' } };
 
         if (search && search.trim().length > 0) {
             const searchRegex = { $regex: search.trim(), $options: 'i' };
@@ -7429,26 +6552,18 @@ app.get('/api/users', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== USER SEARCH ENDPOINTS ====================
-
-/**
- * Search users by username
- * GET /api/users/search?q=query
- */
 app.get('/api/users/search', verifyToken, async (req, res) => {
     const { q } = req.query;
     const currentUserId = req.user.userId;
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
     try {
-        // Get current user's blocked list
         const currentUser = await dbConnection.collection('users').findOne({ id: currentUserId });
         const blockedUserIds = currentUser?.profile?.blockedUsers || [];
 
         let users;
 
         if (!q || q.trim().length === 0) {
-            // Return all non-admin users (with privacy level check)
             users = await dbConnection.collection('users')
                 .find({ id: { $ne: currentUserId, $nin: blockedUserIds } })
                 .project({
@@ -7484,13 +6599,11 @@ app.get('/api/users/search', verifyToken, async (req, res) => {
                 .toArray();
         }
 
-        // Filter by privacy level
         users = users.filter(user => {
             const privacyLevel = user.profile?.privacyLevel || 'public';
             return privacyLevel === 'public' || user.id === currentUserId;
         });
 
-        // Batch fetch friend relationships
         const otherIds = users.map(u => u.id).filter(id => id !== currentUserId);
         const friendRelations = otherIds.length > 0 ? await dbConnection.collection('friends').find({
             $or: [
@@ -7503,7 +6616,6 @@ app.get('/api/users/search', verifyToken, async (req, res) => {
             friendIds.add(f.userId1 === currentUserId ? f.userId2 : f.userId1);
         });
 
-        // Batch fetch pending friend requests
         const pendingRequests = otherIds.length > 0 ? await dbConnection.collection('friendRequests').find({
             $or: [
                 { senderId: currentUserId, recipientId: { $in: otherIds }, status: 'pending' },
@@ -7517,7 +6629,6 @@ app.get('/api/users/search', verifyToken, async (req, res) => {
             if (r.recipientId === currentUserId) pendingReceived.add(r.senderId);
         });
 
-        // Check who has blocked the current user
         const blockers = otherIds.length > 0 ? await dbConnection.collection('users').find({
             id: { $in: otherIds },
             'profile.blockedUsers': currentUserId
@@ -7568,7 +6679,6 @@ app.get('/api/users/search', verifyToken, async (req, res) => {
     }
 });
 
-// Check if username exists
 app.get('/api/users/check-username', verifyToken, async (req, res) => {
     const { username } = req.query;
 
@@ -7595,7 +6705,6 @@ app.get('/api/users/:userId', verifyToken, async (req, res) => {
     const requestUserId = req.user.userId;
 
     try {
-        // Validate database connection
         if (!dbConnection || !dbConnection.collection) {
             console.error('Database not connected');
             return res.status(503).json({ error: 'Database unavailable', success: false });
@@ -7607,21 +6716,19 @@ app.get('/api/users/:userId', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'User not found', success: false });
         }
 
-        // Check privacy settings
         const privacyLevel = user.profile?.privacyLevel || 'public';
         if (privacyLevel === 'private' && userId !== requestUserId) {
             return res.status(403).json({ error: 'User profile is private', success: false });
         }
 
-        // Build response using privacy-aware helper function
         try {
             const profileData = await getUserProfileRespectingPrivacy(user, requestUserId);
-            
+
             const responseData = {
                 success: true,
                 user: profileData
             };
-            
+
             res.json(responseData);
         } catch (buildErr) {
             console.error('Error building response:', buildErr);
@@ -7635,20 +6742,17 @@ app.get('/api/users/:userId', verifyToken, async (req, res) => {
     }
 });
 
-// Get User Status for Real-Time Polling (lightweight, just status info)
 app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
     const startTime = Date.now();
 
     try {
-        // Check if database is available
         if (!dbConnection) {
             console.warn('[STATUS] Database not available');
             return res.status(503).json({ error: 'Service temporarily unavailable', success: false });
         }
 
-        // Validate userId format
         if (!userId || userId.trim().length === 0) {
             console.warn('[STATUS] Empty userId provided');
             return res.status(400).json({ error: 'Invalid userId', success: false });
@@ -7656,8 +6760,7 @@ app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
 
         console.log(`[STATUS] Query for user: ${userId}`);
 
-        // Add timeout protection - abort if taking too long
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Status query timeout')), 5000)
         );
 
@@ -7688,9 +6791,9 @@ app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
         };
 
         const now = Date.now();
-        const lastActivity = user.lastActivityAt ? new Date(user.lastActivityAt).getTime() : null;
-        const isOnline = (lastActivity && (now - lastActivity) < 5 * 60 * 1000) || user.isOnline === true;
-        
+            const lastActivity = user.lastActivityAt ? new Date(user.lastActivityAt).getTime() : null;
+            const isOnline = lastActivity && (now - lastActivity) < 5 * 60 * 1000;
+
         let lastSeen = '';
         if (isOnline) {
             lastSeen = 'Online now';
@@ -7709,10 +6812,10 @@ app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
         }
 
         const duration = Date.now() - startTime;
-        
+
         const canViewOnline = canViewPrivateField(settings.onlineStatus, requestUserId, userId, friendStatus);
         const canViewLastSeen = canViewPrivateField(settings.lastSeen, requestUserId, userId, friendStatus);
-        
+
         const response = {
             success: true,
             userId: user.id,
@@ -7724,21 +6827,20 @@ app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
         };
 
         console.log(`[STATUS] Returned status for ${userId} (${duration}ms)`);
-        
+
         try {
             res.json(response);
         } catch (resErr) {
             console.error('[STATUS] Error sending response:', resErr.message);
         }
-        
+
         if (duration > 1000) {
             console.warn(`[SLOW] Status endpoint took ${duration}ms for user ${userId}`);
         }
     } catch (err) {
         const duration = Date.now() - startTime;
         console.error(`[STATUS] Request failed after ${duration}ms: ${err.message}`);
-        
-        // Return 503 on timeout to trigger client retry
+
         if (err.message === 'Status query timeout') {
             try {
                 return res.status(503).json({ error: 'Service temporarily unavailable', success: false });
@@ -7746,7 +6848,7 @@ app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
                 console.error('[STATUS] Failed to send timeout response:', e.message);
             }
         }
-        
+
         try {
             res.status(500).json({ error: err.message, success: false });
         } catch (e) {
@@ -7755,7 +6857,6 @@ app.get('/api/users/:userId/status', verifyToken, async (req, res) => {
     }
 });
 
-// Get Multiple Users Status for Bulk Updates (for friends list)
 app.post('/api/users/status/bulk', verifyToken, async (req, res) => {
     const { userIds = [] } = req.body;
     const requestUserId = req.user.userId;
@@ -7766,13 +6867,11 @@ app.post('/api/users/status/bulk', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'userIds array required', success: false });
         }
 
-        // Cap at 100 users per request to prevent resource exhaustion
         if (userIds.length > 100) {
             return res.status(400).json({ error: 'Maximum 100 users per request', success: false });
         }
 
-        // Add timeout protection for bulk queries
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Bulk status query timeout')), 5000)
         );
 
@@ -7785,7 +6884,6 @@ app.post('/api/users/status/bulk', verifyToken, async (req, res) => {
 
         const users = await Promise.race([queryPromise, timeoutPromise]);
 
-        // Fetch all friend relationships in one query for efficiency
         const otherIds = userIds.filter(id => id !== requestUserId);
         const friendRelations = otherIds.length > 0 ? await dbConnection.collection('friends').find({
             $or: [
@@ -7810,7 +6908,7 @@ app.post('/api/users/status/bulk', verifyToken, async (req, res) => {
 
             const lastActivity = user.lastActivityAt ? new Date(user.lastActivityAt).getTime() : null;
             const isOnline = (lastActivity && (now - lastActivity) < 5 * 60 * 1000) || user.isOnline === true;
-            
+
             let lastSeen = '';
             if (isOnline) {
                 lastSeen = 'Online now';
@@ -7848,13 +6946,12 @@ app.post('/api/users/status/bulk', verifyToken, async (req, res) => {
             queriedCount: userIds.length,
             foundCount: statuses.length
         });
-        
+
         if (duration > 1000) {
             console.warn(`[SLOW] Bulk status endpoint took ${duration}ms for ${userIds.length} users`);
         }
     } catch (err) {
         console.error('Get bulk user status error:', err.message);
-        // Return 503 on timeout to trigger client retry
         if (err.message === 'Bulk status query timeout') {
             return res.status(503).json({ error: 'Service temporarily unavailable', success: false });
         }
@@ -7862,14 +6959,12 @@ app.post('/api/users/status/bulk', verifyToken, async (req, res) => {
     }
 });
 
-// Update user account details
 app.put('/api/users/:userId', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
     const { displayName, status, bio } = req.body;
 
     try {
-        // Users can only update their own profile
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot update another user\'s profile' });
         }
@@ -7923,14 +7018,12 @@ app.put('/api/users/:userId', verifyToken, async (req, res) => {
     }
 });
 
-// Update username (with 30-day cooldown)
 app.put('/api/users/:userId/username', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { username } = req.body;
     const requestUserId = req.user.userId;
 
     try {
-        // Verify user can only update their own username
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot update another user\'s username' });
         }
@@ -7941,7 +7034,6 @@ app.put('/api/users/:userId/username', verifyToken, async (req, res) => {
 
         const trimmedUsername = username.toLowerCase().trim();
 
-        // Check if username already exists
         const existingUser = await dbConnection.collection('users').findOne({
             username: trimmedUsername,
             id: { $ne: userId }
@@ -7951,14 +7043,12 @@ app.put('/api/users/:userId/username', verifyToken, async (req, res) => {
             return res.status(409).json({ error: 'Username already taken' });
         }
 
-        // Get current user to check last username change
         const user = await dbConnection.collection('users').findOne({ id: userId });
 
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Check 4-day cooldown
         const lastChange = user.profile?.lastUsernameChangeAt || user.createdAt?.getTime() || Date.now();
         const now = Date.now();
         const daysSinceLastChange = Math.floor((now - lastChange) / (1000 * 60 * 60 * 24));
@@ -7974,7 +7064,6 @@ app.put('/api/users/:userId/username', verifyToken, async (req, res) => {
             });
         }
 
-        // Update username and last change timestamp
         const result = await dbConnection.collection('users').findOneAndUpdate(
             { id: userId },
             {
@@ -8004,14 +7093,12 @@ app.put('/api/users/:userId/username', verifyToken, async (req, res) => {
     }
 });
 
-// Update user display name (14-day cooldown)
 app.put('/api/users/:userId/displayName', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { displayName } = req.body;
     const requestUserId = req.user.userId;
 
     try {
-        // Verify user can only update their own display name
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot update another user\'s display name' });
         }
@@ -8024,14 +7111,12 @@ app.put('/api/users/:userId/displayName', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Display name must be 50 characters or less' });
         }
 
-        // Get current user to check last display name change
         const user = await dbConnection.collection('users').findOne({ id: userId });
 
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Check 1-day cooldown
         const lastChange = user.profile?.lastDisplayNameChangeAt || user.createdAt?.getTime() || Date.now();
         const now = Date.now();
         const hoursSinceLastChange = Math.floor((now - lastChange) / (1000 * 60 * 60));
@@ -8044,7 +7129,6 @@ app.put('/api/users/:userId/displayName', verifyToken, async (req, res) => {
             });
         }
 
-        // Update display name and last change timestamp
         const result = await dbConnection.collection('users').findOneAndUpdate(
             { id: userId },
             {
@@ -8076,7 +7160,6 @@ app.put('/api/users/:userId/displayName', verifyToken, async (req, res) => {
     }
 });
 
-// Update user status message
 app.put('/api/users/:userId/status-message', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { message } = req.body;
@@ -8117,7 +7200,6 @@ app.put('/api/users/:userId/status-message', verifyToken, async (req, res) => {
     }
 });
 
-// Update user language preference
 app.put('/api/users/:userId/preferences/language', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { language } = req.body;
@@ -8153,7 +7235,6 @@ app.put('/api/users/:userId/preferences/language', verifyToken, async (req, res)
     }
 });
 
-// Update user theme preference
 app.put('/api/users/:userId/preferences/theme', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { theme } = req.body;
@@ -8191,7 +7272,6 @@ app.put('/api/users/:userId/preferences/theme', verifyToken, async (req, res) =>
     }
 });
 
-// Change password
 app.put('/api/users/:userId/change-password', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { oldPassword, newPassword, totpCode } = req.body;
@@ -8210,7 +7290,6 @@ app.put('/api/users/:userId/change-password', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'New password must be between 6 and 1000 characters' });
         }
 
-        // Verify old password
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
@@ -8222,7 +7301,6 @@ app.put('/api/users/:userId/change-password', verifyToken, async (req, res) => {
             return res.status(401).json({ error: 'Current password is incorrect' });
         }
 
-        // Verify TOTP if user has 2FA enabled
         if (user.twoFactorAuth && user.twoFactorAuth.enabled && user.twoFactorAuth.secret) {
             if (!totpCode) {
                 return res.status(400).json({ error: 'Two-factor authentication code is required' });
@@ -8239,7 +7317,6 @@ app.put('/api/users/:userId/change-password', verifyToken, async (req, res) => {
             }
         }
 
-        // Hash and update password
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await dbConnection.collection('users').updateOne(
             { id: userId },
@@ -8252,7 +7329,6 @@ app.put('/api/users/:userId/change-password', verifyToken, async (req, res) => {
             }
         );
 
-        // Invalidate all sessions except current one
         await dbConnection.collection('tokens').updateMany(
             { userId: userId, token: { $ne: req.headers.authorization?.replace('Bearer ', '') } },
             { $set: { invalidated: true, invalidatedAt: new Date() } }
@@ -8270,7 +7346,6 @@ app.put('/api/users/:userId/change-password', verifyToken, async (req, res) => {
     }
 });
 
-// Delete account
 app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { reason } = req.body;
@@ -8286,7 +7361,6 @@ app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) =>
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Store deletion record before removing user
         const deletionRecord = {
             userId: userId,
             username: user.username,
@@ -8301,7 +7375,6 @@ app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) =>
         };
         await dbConnection.collection('deleted_accounts').insertOne(deletionRecord);
 
-        // Notify friends via WebSocket before deletion
         try {
             const { notifyFriendRemoved } = require('../websocket/broadcast-utils');
             const friends = (user.friends || []).map(f => typeof f === 'object' ? f.userId || f.id : f);
@@ -8312,7 +7385,6 @@ app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) =>
             console.warn(`[WARN] Failed to broadcast account deletion: ${broadcastErr.message}`);
         }
 
-        // Remove user from all groups (handle both string and object member formats)
         const groups = user.groups || [];
         for (const groupId of groups) {
             await dbConnection.collection('groups').updateOne(
@@ -8327,7 +7399,6 @@ app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) =>
             );
         }
 
-        // Remove user from friends lists
         const friends = user.friends || [];
         for (const friend of friends) {
             const friendId = typeof friend === 'object' ? friend.userId || friend.id : friend;
@@ -8337,15 +7408,12 @@ app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) =>
             );
         }
 
-        // Delete user messages
         await dbConnection.collection('messages').deleteMany({
             $or: [{ senderId: userId }, { recipientId: userId }]
         });
 
-        // Delete all tokens
         await dbConnection.collection('tokens').deleteMany({ userId: userId });
 
-        // Remove the user document
         await dbConnection.collection('users').deleteOne({ id: userId });
 
         await logEvent('account_deleted', `Account deleted for user ${userId}`, userId);
@@ -8360,14 +7428,12 @@ app.delete('/api/users/:userId/delete-account', verifyToken, async (req, res) =>
     }
 });
 
-// Update user bio
 app.put('/api/users/:userId/bio', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { bio } = req.body;
     const requestUserId = req.user.userId;
 
     try {
-        // Verify user can only update their own bio
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot update another user\'s bio' });
         }
@@ -8402,7 +7468,6 @@ app.put('/api/users/:userId/bio', verifyToken, async (req, res) => {
     }
 });
 
-// Get public user profile (limited info for other users to view)
 app.get('/api/users/:userId/public-profile', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user?.userId;
@@ -8414,7 +7479,6 @@ app.get('/api/users/:userId/public-profile', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Check if requestor is blocked
         if (user.profile?.blockedUsers?.includes(requestUserId)) {
             return res.status(403).json({ error: 'User has blocked you' });
         }
@@ -8431,10 +7495,8 @@ app.get('/api/users/:userId/public-profile', verifyToken, async (req, res) => {
             banner: rawPrivacySettings.banner || 'friends'
         };
 
-        // Helper to check if a field can be viewed
         const canView = (field) => canViewPrivateField(settings[field], requestUserId, userId, friendStatus);
 
-        // Build profile response respecting privacy settings
         const pubProfile = {
             displayName: user.profile?.displayName || user.displayName || user.name || user.username || '',
             username: user.username || '',
@@ -8459,7 +7521,6 @@ app.get('/api/users/:userId/public-profile', verifyToken, async (req, res) => {
     }
 });
 
-// Get user badges
 app.get('/api/users/:userId/badges', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const requestUserId = req.user.userId;
@@ -8486,28 +7547,26 @@ app.get('/api/users/:userId/badges', verifyToken, async (req, res) => {
     }
 });
 
-// Set Privacy Level
 app.put('/api/users/:userId/privacy', verifyToken, async (req, res) => {
     const { userId } = req.params;
-    const { privacyLevel } = req.body; // public, friends, private
+    const { privacyLevel } = req.body;
     const requestUserId = req.user.userId;
-    
+
     try {
-        // Verify user can only set their own privacy
         if (userId !== requestUserId) {
             return res.status(403).json({ error: 'Cannot set another user\'s privacy level' });
         }
 
         const validLevels = ['public', 'friends', 'private'];
         if (!validLevels.includes(privacyLevel)) {
-            return res.status(400).json({ 
-                error: `Invalid privacy level. Valid levels: ${validLevels.join(', ')}` 
+            return res.status(400).json({
+                error: `Invalid privacy level. Valid levels: ${validLevels.join(', ')}`
             });
         }
 
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
+            {
                 $set: {
                     'profile.privacyLevel': privacyLevel,
                     'profile.lastUpdated': new Date(),
@@ -8531,9 +7590,6 @@ app.put('/api/users/:userId/privacy', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== PEER MANAGEMENT ====================
-
-// Get All Peers
 app.get('/api/admin/peers', verifyToken, async (req, res) => {
     try {
         const peers = await dbConnection.collection('peers')
@@ -8547,7 +7603,6 @@ app.get('/api/admin/peers', verifyToken, async (req, res) => {
     }
 });
 
-// Create Peer Connection
 app.post('/api/admin/peers', verifyToken, async (req, res) => {
     const { name, type, address, port, apiKey } = req.body;
 
@@ -8556,7 +7611,6 @@ app.post('/api/admin/peers', verifyToken, async (req, res) => {
     }
 
     try {
-        // Check for duplicate names
         const existing = await dbConnection.collection('peers').findOne({ name });
         if (existing) {
             return res.status(409).json({ error: 'Peer name already exists' });
@@ -8565,7 +7619,7 @@ app.post('/api/admin/peers', verifyToken, async (req, res) => {
         const newPeer = {
             id: uuidv4(),
             name,
-            type, // domain, local-ip, public-ip
+            type,
             address,
             port,
             apiKey: apiKey ? await bcrypt.hash(apiKey, 10) : null,
@@ -8592,7 +7646,6 @@ app.post('/api/admin/peers', verifyToken, async (req, res) => {
     }
 });
 
-// Update Peer
 app.put('/api/admin/peers/:id', verifyToken, async (req, res) => {
     const { name, type, address, port } = req.body;
 
@@ -8627,12 +7680,11 @@ app.put('/api/admin/peers/:id', verifyToken, async (req, res) => {
     }
 });
 
-// Disconnect Peer
 app.post('/api/admin/peers/:id/disconnect', verifyToken, async (req, res) => {
     try {
         const result = await dbConnection.collection('peers').findOneAndUpdate(
             { id: req.params.id },
-            { 
+            {
                 $set: {
                     connected: false,
                     updatedAt: new Date()
@@ -8653,7 +7705,6 @@ app.post('/api/admin/peers/:id/disconnect', verifyToken, async (req, res) => {
     }
 });
 
-// Test Peer Connection
 app.post('/api/admin/peers/:id/test', verifyToken, async (req, res) => {
     try {
         const peer = await dbConnection.collection('peers').findOne({ id: req.params.id });
@@ -8663,29 +7714,26 @@ app.post('/api/admin/peers/:id/test', verifyToken, async (req, res) => {
         }
 
         const startTime = Date.now();
-        
-        // CRITICAL FIX #4: Implement exponential backoff for peer discovery
+
         const maxRetries = 3;
-        const baseTimeout = 2000; // Start with 2 seconds
+        const baseTimeout = 2000;
         let lastError;
-        
+
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                const timeout = baseTimeout * Math.pow(2, attempt); // 2s, 4s, 8s
+                const timeout = baseTimeout * Math.pow(2, attempt);
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeout);
-                
-                // Simple connectivity test with exponential backoff
+
                 const response = await fetch(`http://${peer.address}:${peer.port}/health`, {
                     signal: controller.signal
                 });
-                
+
                 clearTimeout(timeoutId);
-                
+
                 const latency = Date.now() - startTime;
 
                 if (response.ok) {
-                    // Update peer status
                     await dbConnection.collection('peers').updateOne(
                         { id: req.params.id },
                         {
@@ -8717,8 +7765,7 @@ app.post('/api/admin/peers/:id/test', verifyToken, async (req, res) => {
                 }
             }
         }
-        
-        // All retries failed
+
         await logEvent('peer_test_fail', `Peer test failed after ${maxRetries} attempts: ${peer.name}`, req.user.id || req.user.username);
 
         res.status(503).json({
@@ -8730,7 +7777,6 @@ app.post('/api/admin/peers/:id/test', verifyToken, async (req, res) => {
     }
 });
 
-// Delete Peer
 app.delete('/api/admin/peers/:id', verifyToken, async (req, res) => {
     try {
         const result = await dbConnection.collection('peers').deleteOne({ id: req.params.id });
@@ -8747,9 +7793,6 @@ app.delete('/api/admin/peers/:id', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== LOGS ENDPOINTS ====================
-
-// Get Logs
 app.get('/api/admin/logs', verifyToken, async (req, res) => {
     try {
         const filter = req.query.filter || '';
@@ -8769,11 +7812,10 @@ app.get('/api/admin/logs', verifyToken, async (req, res) => {
     }
 });
 
-// Clear Logs
 app.delete('/api/admin/logs', verifyToken, async (req, res) => {
     try {
         const clearResult = await dbConnection.collection('logs').deleteMany({});
-        
+
         await logEvent('logs_clear', `System logs cleared (${clearResult.deletedCount} entries removed)`, req.user.id || req.user.username);
 
         res.json({ success: true, deletedCount: clearResult.deletedCount });
@@ -8782,10 +7824,6 @@ app.delete('/api/admin/logs', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Get user profile by username
- * GET /api/users/:username
- */
 app.get('/api/users/username/:username', verifyToken, async (req, res) => {
     const { username } = req.params;
     const requestUserId = req.user.userId;
@@ -8800,7 +7838,7 @@ app.get('/api/users/username/:username', verifyToken, async (req, res) => {
         });
 
         if (!user) {
-            return res.status(404).json({ 
+            return res.status(404).json({
                 error: 'User not found',
                 username: username
             });
@@ -8830,9 +7868,6 @@ app.get('/api/users/username/:username', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== FRIEND SYSTEM ENDPOINTS ====================
-
-// Send Friend Request
 app.post('/api/friends/request', verifyToken, async (req, res) => {
     const { recipientId } = req.body;
     const senderId = req.user.userId;
@@ -8846,13 +7881,11 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Cannot send friend request to yourself' });
         }
 
-        // CRITICAL FIX #3: Validate recipient user exists before creating request
         const recipient = await dbConnection.collection('users').findOne({ id: recipientId });
         if (!recipient) {
             return res.status(404).json({ error: 'Recipient user not found' });
         }
 
-        // Check if request already exists (in either direction)
         const outgoingRequest = await dbConnection.collection('friendRequests').findOne({
             senderId, recipientId
         });
@@ -8861,11 +7894,9 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
             senderId: recipientId, recipientId: senderId
         });
 
-        // Handle mutual friend requests - auto-accept both
         if (incomingRequest && !outgoingRequest) {
             console.log(`[FRIEND SYSTEM] Mutual friend request detected: ${senderId} <-> ${recipientId}`);
-            
-            // Accept the incoming request
+
             const updateResult = await dbConnection.collection('friendRequests').updateOne(
                 { id: incomingRequest.id },
                 { $set: { status: 'accepted', updatedAt: new Date() } }
@@ -8874,11 +7905,9 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
                 return res.status(500).json({ error: 'Failed to update friend request status' });
             }
 
-            // Get both users' info
             const sender = await dbConnection.collection('users').findOne({ id: senderId });
             const recipient = await dbConnection.collection('users').findOne({ id: recipientId });
 
-            // Create friendship record
             const friendshipId = uuidv4();
             const friendshipResult = await dbConnection.collection('friends').insertOne({
                 id: friendshipId,
@@ -8895,7 +7924,6 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
                 return res.status(500).json({ error: 'Failed to create friendship record' });
             }
 
-            // Remove the incoming request from pending
             const deleteResult = await dbConnection.collection('friendRequests').deleteOne({ id: incomingRequest.id });
             if (deleteResult.deletedCount === 0) {
                 console.warn(`[FRIEND SYSTEM] Failed to delete mutual friend request ${incomingRequest.id}`);
@@ -8903,7 +7931,6 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
 
             await logEvent('friend_request_auto_accepted', `Mutual friend request - now friends: ${senderId} <-> ${recipientId}`, senderId);
 
-            // Broadcast to both users
             if (global.wsClients) {
                 const { broadcastToUser } = require('../websocket/broadcast-utils.js');
                 broadcastToUser(global.wsClients, senderId, 'friend.request.auto_accepted', {
@@ -8918,21 +7945,19 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
                 });
             }
 
-            return res.status(200).json({ 
-                success: true, 
+            return res.status(200).json({
+                success: true,
                 message: 'Mutual friend request - now friends!',
                 autoAccepted: true,
                 friendshipId
             });
         }
 
-        // Clean up any old/corrupted outgoing requests from this sender to allow fresh attempts
         if (outgoingRequest) {
             console.log(`[FRIEND SYSTEM] Removing old request ${outgoingRequest.id} to allow fresh attempt`);
             await dbConnection.collection('friendRequests').deleteOne({ id: outgoingRequest.id });
         }
 
-        // Check if already friends
         const isFriend = await dbConnection.collection('friends').findOne({
             $or: [
                 { userId1: senderId, userId2: recipientId },
@@ -8944,14 +7969,12 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
             return res.status(409).json({ error: 'Already friends with this user' });
         }
 
-        // Get sender and channel info for notifications
         const sender = await dbConnection.collection('users').findOne({ id: senderId });
         const user = sender;
         if (!sender) {
             return res.status(404).json({ error: 'Sender not found' });
         }
 
-        // Create friend request
         const requestId = uuidv4();
         const now = new Date();
         const insertResult = await dbConnection.collection('friendRequests').insertOne({
@@ -8970,7 +7993,6 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
 
         await logEvent('friend_request_sent', `Friend request sent from ${senderId} to ${recipientId}`, senderId);
 
-        // Broadcast WebSocket event to recipient
         const eventData = {
             requestId,
             senderId,
@@ -8983,14 +8005,14 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
             broadcastToUser(global.wsClients, recipientId, 'friend.request.received', eventData);
         }
 
-        // Send FCM notification
-        try {
-            if (pushNotificationManager) {
-                await pushNotificationManager.sendFriendRequestNotification(recipientId, {
-                    userId: senderId,
-                    username: sender.username
-                }, requestId);
-            } else {
+try {
+    if (pushNotificationManager) {
+        await pushNotificationManager.sendFriendRequestNotification(recipientId, {
+            userId: senderId,
+            username: sender.username,
+            avatar: sender.profile?.profileImageUrl || sender.avatar || ''
+        }, requestId);
+    } else {
                 await sendPushNotification(recipientId, {
                     notification: {
                         title: `Friend Request`,
@@ -9020,10 +8042,6 @@ app.post('/api/friends/request', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Send friend request by username (Discord-style)
- * POST /api/friends/request/username
- */
 app.post('/api/friends/request/username', verifyToken, async (req, res) => {
     const { username } = req.body;
     const senderId = req.user.userId;
@@ -9033,21 +8051,19 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'username is required' });
         }
 
-        // Normalize username
         const normalizedUsername = username.toLowerCase().trim();
 
         if (normalizedUsername.length < 3) {
             return res.status(400).json({ error: 'Username must be at least 3 characters' });
         }
 
-        // Find recipient by username
         const recipient = await dbConnection.collection('users').findOne({
             username: normalizedUsername
         });
 
         if (!recipient) {
-            return res.status(404).json({ 
-                error: 'User not found', 
+            return res.status(404).json({
+                error: 'User not found',
                 username: username,
                 hint: 'Make sure you have the exact username'
             });
@@ -9059,13 +8075,11 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Cannot send friend request to yourself' });
         }
 
-        // Get sender info first
         const sender = await dbConnection.collection('users').findOne({ id: senderId });
         if (!sender) {
             return res.status(404).json({ error: 'Sender not found' });
         }
 
-        // Check for outgoing and incoming requests separately to handle mutual requests
         const outgoingRequest = await dbConnection.collection('friendRequests').findOne({
             senderId, recipientId
         });
@@ -9074,11 +8088,9 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
             senderId: recipientId, recipientId: senderId
         });
 
-        // Handle mutual friend requests - auto-accept both
         if (incomingRequest && !outgoingRequest) {
             console.log(`[FRIEND SYSTEM] Mutual friend request detected (username): ${senderId} <-> ${recipientId}`);
-            
-            // Accept the incoming request
+
             const updateReqResult = await dbConnection.collection('friendRequests').updateOne(
                 { id: incomingRequest.id },
                 { $set: { status: 'accepted', updatedAt: new Date() } }
@@ -9087,7 +8099,6 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
                 return res.status(500).json({ error: 'Failed to update friend request' });
             }
 
-            // Create friendship record
             const friendshipId = uuidv4();
             const friendshipResult = await dbConnection.collection('friends').insertOne({
                 id: friendshipId,
@@ -9104,7 +8115,6 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
                 return res.status(500).json({ error: 'Failed to create friendship' });
             }
 
-            // Remove the incoming request from pending
             const deleteReqResult = await dbConnection.collection('friendRequests').deleteOne({ id: incomingRequest.id });
             if (deleteReqResult.deletedCount === 0) {
                 console.warn(`Failed to delete friend request ${incomingRequest.id}`);
@@ -9112,7 +8122,6 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
 
             await logEvent('friend_request_auto_accepted_username', `Mutual friend request - now friends: ${senderId} <-> ${recipientId}`, senderId);
 
-            // Broadcast to both users
             if (global.wsClients) {
                 const { broadcastToUser } = require('../websocket/broadcast-utils.js');
                 broadcastToUser(global.wsClients, senderId, 'friend.request.auto_accepted', {
@@ -9127,21 +8136,19 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
                 });
             }
 
-            return res.status(200).json({ 
-                success: true, 
+            return res.status(200).json({
+                success: true,
                 message: 'Mutual friend request - now friends!',
                 autoAccepted: true,
                 friendshipId
             });
         }
 
-        // Clean up any old/corrupted outgoing requests from this sender to allow fresh attempts
         if (outgoingRequest) {
             console.log(`[FRIEND SYSTEM] Removing old request ${outgoingRequest.id} to allow fresh attempt`);
             await dbConnection.collection('friendRequests').deleteOne({ id: outgoingRequest.id });
         }
 
-        // Check if already friends
         const isFriend = await dbConnection.collection('friends').findOne({
             $or: [
                 { userId1: senderId, userId2: recipientId },
@@ -9153,7 +8160,6 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
             return res.status(409).json({ error: 'Already friends with this user' });
         }
 
-        // Create friend request
         const requestId = uuidv4();
         await dbConnection.collection('friendRequests').insertOne({
             id: requestId,
@@ -9166,16 +8172,15 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
             status: 'pending',
             createdAt: new Date(),
             updatedAt: new Date(),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30-day expiry
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
         });
 
-        await logEvent('friend_request_sent_username', 
-            `Friend request sent from @${sender.username} to @${recipient.username}`, 
+        await logEvent('friend_request_sent_username',
+            `Friend request sent from @${sender.username} to @${recipient.username}`,
             senderId,
             { recipientId, recipientUsername: recipient.username }
         );
 
-        // Broadcast WebSocket notification to recipient
         if (global.wsClients) {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             broadcastToUser(global.wsClients, recipientId, 'friend.request.received', {
@@ -9201,10 +8206,6 @@ app.post('/api/friends/request/username', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Cancel pending friend request ("End Request" like Discord)
- * DELETE /api/friends/requests/:requestId
- */
 app.delete('/api/friends/requests/:requestId', verifyToken, async (req, res) => {
     const { requestId } = req.params;
     const userId = req.user.userId;
@@ -9214,7 +8215,6 @@ app.delete('/api/friends/requests/:requestId', verifyToken, async (req, res) => 
             return res.status(400).json({ error: 'requestId is required' });
         }
 
-        // Find the request
         const friendRequest = await dbConnection.collection('friendRequests').findOne({
             id: requestId
         });
@@ -9223,12 +8223,10 @@ app.delete('/api/friends/requests/:requestId', verifyToken, async (req, res) => 
             return res.status(404).json({ error: 'Friend request not found' });
         }
 
-        // Verify that user is the sender (only sender can cancel)
         if (friendRequest.senderId !== userId) {
             return res.status(403).json({ error: 'Only the sender can cancel this request' });
         }
 
-        // Delete the request
         const deleteResult = await dbConnection.collection('friendRequests').deleteOne({
             id: requestId
         });
@@ -9237,8 +8235,8 @@ app.delete('/api/friends/requests/:requestId', verifyToken, async (req, res) => 
             return res.status(400).json({ error: 'Failed to delete request' });
         }
 
-        await logEvent('friend_request_canceled', 
-            `Friend request canceled: ${requestId}`, 
+        await logEvent('friend_request_canceled',
+            `Friend request canceled: ${requestId}`,
             userId
         );
 
@@ -9252,10 +8250,6 @@ app.delete('/api/friends/requests/:requestId', verifyToken, async (req, res) => 
     }
 });
 
-/**
- * Get pending outgoing friend requests
- * GET /api/friends/requests/outgoing/pending
- */
 app.get('/api/friends/requests/outgoing/pending', verifyToken, async (req, res) => {
     const userId = req.user.userId;
 
@@ -9288,10 +8282,6 @@ app.get('/api/friends/requests/outgoing/pending', verifyToken, async (req, res) 
     }
 });
 
-/**
- * Get pending incoming friend requests
- * GET /api/friends/requests/incoming/pending
- */
 app.get('/api/friends/requests/incoming/pending', verifyToken, async (req, res) => {
     const userId = req.user.userId;
 
@@ -9330,7 +8320,6 @@ app.get('/api/friends/requests/incoming/pending', verifyToken, async (req, res) 
     }
 });
 
-// Get Pending Friend Requests
 app.get('/api/friends/requests/pending', verifyToken, async (req, res) => {
     const userId = req.user.userId;
 
@@ -9358,13 +8347,12 @@ app.get('/api/friends/requests/pending', verifyToken, async (req, res) => {
     }
 });
 
-// Accept Friend Request
 app.post('/api/friends/requests/:senderId/accept', verifyToken, async (req, res) => {
     const { senderId } = req.params;
     const userId = req.user.userId;
 
     try {
-        const friendRequest = await dbConnection.collection('friendRequests').findOne({ 
+        const friendRequest = await dbConnection.collection('friendRequests').findOne({
             senderId: senderId,
             recipientId: userId,
             status: 'pending'
@@ -9377,14 +8365,11 @@ app.post('/api/friends/requests/:senderId/accept', verifyToken, async (req, res)
         const friendshipId = uuidv4();
         const now = new Date();
 
-        // Get recipient info for notification
         const recipientUser = await dbConnection.collection('users').findOne({ id: userId });
-        
-        // Use transaction to ensure both operations succeed or both fail
+
         let transactionSuccess = false;
         try {
             await executeWithTransaction(async (session) => {
-                // Create friendship
                 const friendshipInsertResult = await dbConnection.collection('friends').insertOne({
                     id: friendshipId,
                     userId1: senderId,
@@ -9396,7 +8381,6 @@ app.post('/api/friends/requests/:senderId/accept', verifyToken, async (req, res)
                     throw new Error('Failed to create friendship record');
                 }
 
-                // Update request status
                 const updateResult = await dbConnection.collection('friendRequests').updateOne(
                     { id: friendRequest.id },
                     { $set: { status: 'accepted', updatedAt: now } },
@@ -9417,7 +8401,6 @@ app.post('/api/friends/requests/:senderId/accept', verifyToken, async (req, res)
 
         await logEvent('friend_request_accepted', `${userId} accepted friend request from ${senderId}`, userId);
 
-        // Broadcast WebSocket event to sender
         const eventData = {
             userId,
             username: recipientUser?.username || 'Unknown User',
@@ -9429,7 +8412,6 @@ app.post('/api/friends/requests/:senderId/accept', verifyToken, async (req, res)
             broadcastToUser(global.wsClients, senderId, 'friend.request.accepted', eventData);
         }
 
-        // Send FCM notification to sender
         try {
             if (pushNotificationManager) {
                 await pushNotificationManager.sendFriendAcceptedNotification(senderId, {
@@ -9466,7 +8448,6 @@ app.post('/api/friends/requests/:senderId/accept', verifyToken, async (req, res)
     }
 });
 
-// Reject/Delete Friend Request
 app.delete('/api/friends/requests/:senderId', verifyToken, async (req, res) => {
     const { senderId } = req.params;
     const userId = req.user.userId;
@@ -9494,12 +8475,10 @@ app.delete('/api/friends/requests/:senderId', verifyToken, async (req, res) => {
     }
 });
 
-// Get Friends List
 app.get('/api/friends', verifyToken, async (req, res) => {
     const userId = req.user.userId;
 
     try {
-        // ✅ Get user's blocked list
         const user = await dbConnection.collection('users').findOne({ id: userId });
         const blockedUserIds = user?.profile?.blockedUsers || [];
 
@@ -9513,19 +8492,40 @@ app.get('/api/friends', verifyToken, async (req, res) => {
             .toArray();
 
         const friendIds = friendships.map(f => f.userId1 === userId ? f.userId2 : f.userId1)
-            .filter(id => !blockedUserIds.includes(id)); // Filter out blocked users
+            .filter(id => !blockedUserIds.includes(id));
 
-        // Get friend details
         const friends = await dbConnection.collection('users')
             .find({ id: { $in: friendIds } })
             .toArray();
 
-        const friendList = friends.map(friend => {
-            // Calculate online status: user is online if last activity was within 5 minutes
+        const friendList = await Promise.all(friends.map(async friend => {
             const lastActivityAt = friend.lastActivityAt ? new Date(friend.lastActivityAt) : null;
             const now = new Date();
             const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-            const isOnline = lastActivityAt && lastActivityAt > fiveMinutesAgo;
+            const rawIsOnline = lastActivityAt && lastActivityAt > fiveMinutesAgo;
+
+            const friendPrivacy = friend.profile?.privacySettings || {};
+            const friendStatus = await checkFriendStatus(userId, friend.id);
+
+            const canSeeOnline = canViewPrivateField(
+                friendPrivacy.onlineStatus || 'friends', userId, friend.id, friendStatus
+            );
+            const canSeeLastSeen = canViewPrivateField(
+                friendPrivacy.lastSeen || 'friends', userId, friend.id, friendStatus
+            );
+
+            let lastSeen = friend.lastActivityAt || friend.lastLogin || 'Never';
+            if (!canSeeLastSeen) {
+                lastSeen = 'Hidden';
+            } else if (!rawIsOnline && lastActivityAt) {
+                const minutesAgo = Math.floor((now - lastActivityAt) / (60 * 1000));
+                if (minutesAgo < 1) lastSeen = 'Just now';
+                else if (minutesAgo < 60) lastSeen = `${minutesAgo}m ago`;
+                else {
+                    const hoursAgo = Math.floor(minutesAgo / 60);
+                    lastSeen = hoursAgo < 24 ? `${hoursAgo}h ago` : 'Offline';
+                }
+            }
 
             return {
                 userId: friend.id,
@@ -9540,10 +8540,10 @@ app.get('/api/friends', verifyToken, async (req, res) => {
                 role: friend.role || 'USER',
                 isAdmin: friend.role === 'ADMIN',
                 isModerator: friend.role === 'MODERATOR',
-                isOnline: isOnline,
-                lastSeen: friend.lastActivityAt || friend.lastLogin || 'Never'
+                isOnline: canSeeOnline ? rawIsOnline : false,
+                lastSeen: lastSeen
             };
-        });
+        }));
 
         res.json({ friends: friendList });
     } catch (err) {
@@ -9552,7 +8552,6 @@ app.get('/api/friends', verifyToken, async (req, res) => {
     }
 });
 
-// Remove Friend
 app.delete('/api/friends/:friendId', verifyToken, async (req, res) => {
     const { friendId } = req.params;
     const userId = req.user.userId;
@@ -9586,7 +8585,6 @@ app.delete('/api/friends/:friendId', verifyToken, async (req, res) => {
     }
 });
 
-// Block User
 app.post('/api/friends/:userId/block', verifyToken, async (req, res) => {
     const { userId: blockUserId } = req.params;
     const currentUserId = req.user.userId;
@@ -9598,7 +8596,6 @@ app.post('/api/friends/:userId/block', verifyToken, async (req, res) => {
 
         const blockId = uuidv4();
 
-        // Create block record
         const blockInsertResult = await dbConnection.collection('blockedUsers').insertOne({
             id: blockId,
             userId: currentUserId,
@@ -9610,16 +8607,13 @@ app.post('/api/friends/:userId/block', verifyToken, async (req, res) => {
             return res.status(500).json({ error: 'Failed to create block record' });
         }
 
-        // Remove friend if they are friends
         const unfriendResult = await dbConnection.collection('friends').deleteOne({
             $or: [
                 { userId1: currentUserId, userId2: blockUserId },
                 { userId1: blockUserId, userId2: currentUserId }
             ]
         });
-        // Note: deletedCount can be 0 if not friends - this is OK, we just wanted to remove if they were
 
-        // Delete pending requests
         const deleteRequestsResult = await dbConnection.collection('friendRequests').deleteMany({
             $or: [
                 { senderId: currentUserId, recipientId: blockUserId },
@@ -9643,9 +8637,6 @@ app.post('/api/friends/:userId/block', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== SYSTEM ENDPOINTS ====================
-
-// Health Check
 app.get('/health', (req, res) => {
     res.json({
         status: 'online',
@@ -9654,7 +8645,6 @@ app.get('/health', (req, res) => {
     });
 });
 
-// API Health Check (as per AI instructions)
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'UP',
@@ -9665,28 +8655,25 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Server Stats
 app.get('/api/admin/stats', verifyToken, async (req, res) => {
     try {
         const totalUsers = await dbConnection.collection('users').countDocuments();
-        
-        // Get REAL online users from database (updated by WebSocket server)
+
         const onlineUsers = await dbConnection.collection('users').countDocuments({ isOnline: true });
-        
+
         const totalPeers = await dbConnection.collection('peers').countDocuments();
         const connectedPeers = await dbConnection.collection('peers').countDocuments({ connected: true });
         const admins = await dbConnection.collection('users').countDocuments({ role: 'ADMIN' });
         const mods = await dbConnection.collection('users').countDocuments({ role: 'MODERATOR' });
         const users = await dbConnection.collection('users').countDocuments({ role: 'USER' });
-        
-        // Get active WebSocket connections from stats endpoint
+
         let wsStats = {
             active: 0,
             maximum: 35000,
             queued: 0,
             percentageUsed: 0
         };
-        
+
         try {
             const wsResponse = await fetch('http://localhost:8080/queue-status', { timeout: 2000 });
             if (wsResponse.ok) {
@@ -9713,7 +8700,7 @@ app.get('/api/admin/stats', verifyToken, async (req, res) => {
         res.json({
             users: {
                 total: totalUsers,
-                online: onlineUsers,  // REAL online users from DB
+                online: onlineUsers,
                 offline: totalUsers - onlineUsers,
                 admins,
                 mods,
@@ -9736,8 +8723,8 @@ app.get('/api/admin/stats', verifyToken, async (req, res) => {
                 available: Math.max(0, wsStats.maximum - wsStats.active),
                 percentageUsed: wsStats.percentageUsed,
                 atCapacity: wsStats.active >= wsStats.maximum,
-                message: wsStats.active >= wsStats.maximum ? 
-                    `Server at capacity. ${wsStats.queued} connections waiting.` : 
+                message: wsStats.active >= wsStats.maximum ?
+                    `Server at capacity. ${wsStats.queued} connections waiting.` :
                     `${Math.max(0, wsStats.maximum - wsStats.active)} connections available`
             },
             uptime: process.uptime(),
@@ -9748,83 +8735,8 @@ app.get('/api/admin/stats', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: GET /api/admin/calls/stats
- * Get call statistics for admin dashboard
- * Returns: Total calls, call minutes, quality metrics, devices used
- */
-app.get('/api/admin/calls/stats', verifyToken, async (req, res) => {
-    try {
-        // Verify admin role
-        if (req.user?.role !== 'ADMIN') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        
-        // Get call statistics from callLogs collection
-        const totalCalls = await dbConnection.collection('callLogs').countDocuments();
-        const callsLast30Days = await dbConnection.collection('callLogs').countDocuments({ 
-            createdAt: { $gte: thirtyDaysAgo } 
-        });
-        
-        const callStats = await dbConnection.collection('callLogs').aggregate([
-            {
-                $group: {
-                    _id: null,
-                    totalDuration: { $sum: '$duration' },
-                    avgDuration: { $avg: '$duration' },
-                    maxDuration: { $max: '$duration' }
-                }
-            }
-        ]).toArray();
-        
-        // Get device type breakdown
-        const deviceStats = await dbConnection.collection('callLogs').aggregate([
-            {
-                $group: {
-                    _id: '$deviceType',
-                    count: { $sum: 1 }
-                }
-            }
-        ]).toArray();
-
-        // Get call quality metrics
-        const qualityMetrics = await dbConnection.collection('callLogs').aggregate([
-            {
-                $group: {
-                    _id: '$quality',
-                    count: { $sum: 1 }
-                }
-            }
-        ]).toArray();
-
-        res.json({
-            totalCalls: totalCalls,
-            callsLast30Days: callsLast30Days,
-            duration: {
-                total: callStats[0]?.totalDuration || 0,
-                average: Math.round((callStats[0]?.avgDuration || 0) / 60), // In seconds, convert to minutes
-                maximum: Math.round((callStats[0]?.maxDuration || 0) / 60)
-            },
-            deviceBreakdown: deviceStats,
-            qualityBreakdown: qualityMetrics,
-            timestamp: new Date()
-        });
-    } catch (err) {
-        console.error('Get call stats error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/**
- * ✅ NEW: POST /api/admin/broadcast
- * Send a broadcast message to specific users or all users
- * Body: { message, targetUsers: ['userId1', 'userId2'] || 'all', title }
- */
 app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
     try {
-        // Verify admin role
         if (req.user?.role !== 'ADMIN') {
             return res.status(403).json({ error: 'Admin access required' });
         }
@@ -9837,7 +8749,6 @@ app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
         const broadcastId = require('uuid').v4();
         const now = new Date();
 
-        // Determine target users
         let targets = [];
         if (targetUsers === 'all') {
             const allUsers = await dbConnection.collection('users').find({}, { projection: { id: 1 } }).toArray();
@@ -9848,7 +8759,6 @@ app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'targetUsers must be "all" or an array of user IDs' });
         }
 
-        // Create broadcast record
         const broadcast = {
             id: broadcastId,
             title: title,
@@ -9863,14 +8773,12 @@ app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
 
         await dbConnection.collection('broadcasts').insertOne(broadcast);
 
-        // Send to each user via WebSocket and FCM
         const { broadcastToUser } = require('../websocket/broadcast-utils.js');
         let delivered = 0;
         let failed = 0;
 
         for (const userId of targets) {
             try {
-                // Try WebSocket first
                 broadcastToUser(global.wsClients, userId, 'admin:broadcast', {
                     id: broadcastId,
                     title: title,
@@ -9879,11 +8787,9 @@ app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
                 });
                 delivered++;
             } catch (err) {
-                // Fall back to FCM if WebSocket fails
                 try {
                     const targetUser = await dbConnection.collection('users').findOne({ id: userId });
                     if (targetUser && targetUser.fcmToken) {
-                        // FCM send would go here
                         delivered++;
                     }
                 } catch (fcmErr) {
@@ -9892,7 +8798,6 @@ app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
             }
         }
 
-        // Update broadcast stats
         await dbConnection.collection('broadcasts').updateOne(
             { id: broadcastId },
             { $set: { delivered, failed } }
@@ -9914,14 +8819,8 @@ app.post('/api/admin/broadcast', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: POST /api/admin/email/send
- * Send bulk emails to users
- * Body: { subject, htmlContent, targetUsers: ['userId1', ...] || 'all', plainText }
- */
 app.post('/api/admin/email/send', verifyToken, async (req, res) => {
     try {
-        // Verify admin role
         if (req.user?.role !== 'ADMIN') {
             return res.status(403).json({ error: 'Admin access required' });
         }
@@ -9934,7 +8833,6 @@ app.post('/api/admin/email/send', verifyToken, async (req, res) => {
         const emailBatchId = require('uuid').v4();
         const now = new Date();
 
-        // Determine target users
         let targets = [];
         if (targetUsers === 'all') {
             const allUsers = await dbConnection.collection('users').find({}, { projection: { id: 1, email: 1 } }).toArray();
@@ -9949,7 +8847,6 @@ app.post('/api/admin/email/send', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'targetUsers must be "all" or an array of user IDs' });
         }
 
-        // Create email batch record
         const emailBatch = {
             id: emailBatchId,
             subject: subject,
@@ -9965,14 +8862,11 @@ app.post('/api/admin/email/send', verifyToken, async (req, res) => {
 
         await dbConnection.collection('emailBatches').insertOne(emailBatch);
 
-        // Queue emails for sending (simplified - would use actual email service like SendGrid)
         let delivered = 0;
         let failed = 0;
 
         for (const userObj of targets) {
             try {
-                // In production, use email service like SendGrid, Mailgun, or AWS SES
-                // For now, just track that we attempted to send
                 android.util.Log.d('EMAIL_SEND', `Email queued for ${userObj.email}`);
                 delivered++;
             } catch (err) {
@@ -10001,12 +8895,6 @@ app.post('/api/admin/email/send', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== CHANNELS ENDPOINTS ====================
-
-/**
- * Create a new channel
- * POST /api/channels
- */
 app.post('/api/channels', verifyToken, async (req, res) => {
     const { name, description, isPublic } = req.body;
     const createdBy = req.user.userId;
@@ -10038,7 +8926,6 @@ app.post('/api/channels', verifyToken, async (req, res) => {
         await dbConnection.collection('channels').insertOne(channel);
         await logEvent('channel_created', `Channel ${name} created by ${createdBy}`, createdBy);
 
-        // Broadcast channel creation via WebSocket in real-time
         if (wss && wss.clients) {
             const broadcastMessage = JSON.stringify({
                 type: 'channel_created',
@@ -10047,13 +8934,13 @@ app.post('/api/channels', verifyToken, async (req, res) => {
                 channel: channel,
                 timestamp: new Date()
             });
-            
+
             Array.from(wss.clients).forEach(client => {
                 if (client.userId && client.readyState === 1) {
                     client.send(broadcastMessage);
                 }
             });
-            console.log(`✓ Broadcast channel_created event for channel: ${name}`);
+            console.log(` Broadcast channel_created event for channel: ${name}`);
         }
 
         res.status(201).json({
@@ -10067,10 +8954,6 @@ app.post('/api/channels', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * List/Search channels
- * GET /api/channels?query=search
- */
 app.get('/api/channels', verifyToken, async (req, res) => {
     const { query } = req.query;
 
@@ -10104,10 +8987,6 @@ app.get('/api/channels', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Get featured channels
- * GET /api/channels/featured
- */
 app.get('/api/channels/featured', verifyToken, async (req, res) => {
     try {
         const featured = await dbConnection
@@ -10127,10 +9006,6 @@ app.get('/api/channels/featured', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Subscribe to channel
- * POST /api/channels/:channelId/subscribe
- */
 app.post('/api/channels/:channelId/subscribe', verifyToken, async (req, res) => {
     const { channelId } = req.params;
     const userId = req.user.userId;
@@ -10142,12 +9017,10 @@ app.post('/api/channels/:channelId/subscribe', verifyToken, async (req, res) => 
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check if already subscribed
         if (channel.members && channel.members.includes(userId)) {
             return res.status(409).json({ error: 'Already subscribed to this channel' });
         }
 
-        // Add user to subscribers
         await dbConnection.collection('channels').updateOne(
             { id: channelId },
             {
@@ -10169,10 +9042,6 @@ app.post('/api/channels/:channelId/subscribe', verifyToken, async (req, res) => 
     }
 });
 
-/**
- * Unsubscribe from channel
- * POST /api/channels/:channelId/unsubscribe
- */
 app.post('/api/channels/:channelId/unsubscribe', verifyToken, async (req, res) => {
     const { channelId } = req.params;
     const userId = req.user.userId;
@@ -10184,12 +9053,10 @@ app.post('/api/channels/:channelId/unsubscribe', verifyToken, async (req, res) =
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check if subscribed
         if (!channel.members || !channel.members.includes(userId)) {
             return res.status(404).json({ error: 'Not subscribed to this channel' });
         }
 
-        // Remove user from subscribers
         await dbConnection.collection('channels').updateOne(
             { id: channelId },
             {
@@ -10211,18 +9078,11 @@ app.post('/api/channels/:channelId/unsubscribe', verifyToken, async (req, res) =
     }
 });
 
-// ==================== CHANNEL PERMISSION SYSTEM ====================
-
-/**
- * Check if user can send message in channel
- * GET /api/channels/:channelId/permissions/message
- */
 app.get('/api/channels/:channelId/permissions/message', verifyToken, async (req, res) => {
     const { channelId } = req.params;
     const userId = req.user.userId;
 
     try {
-        // Get channel info
         const channel = await dbConnection.collection('channels').findOne({
             id: channelId
         });
@@ -10231,7 +9091,6 @@ app.get('/api/channels/:channelId/permissions/message', verifyToken, async (req,
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check if user is member
         const isMember = channel.members && channel.members.includes(userId);
         if (!isMember) {
             return res.status(403).json({
@@ -10241,7 +9100,6 @@ app.get('/api/channels/:channelId/permissions/message', verifyToken, async (req,
             });
         }
 
-        // Check if channel is admin-only and user is not admin
         const isAdmin = channel.adminIds && channel.adminIds.includes(userId);
         const isAdminOnly = channel.type === 'admin_only' || channel.isAdminOnly;
 
@@ -10267,10 +9125,6 @@ app.get('/api/channels/:channelId/permissions/message', verifyToken, async (req,
     }
 });
 
-/**
- * Send message to channel
- * POST /api/channels/:channelId/messages
- */
 app.post('/api/channels/:channelId/messages', verifyToken, async (req, res) => {
     const { channelId } = req.params;
     const { content } = req.body;
@@ -10281,7 +9135,6 @@ app.post('/api/channels/:channelId/messages', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Message content is required' });
         }
 
-        // Get channel info
         const channel = await dbConnection.collection('channels').findOne({
             id: channelId
         });
@@ -10290,19 +9143,16 @@ app.post('/api/channels/:channelId/messages', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check membership
         const isMember = channel.members && channel.members.includes(senderId);
         if (!isMember) {
             return res.status(403).json({ error: 'Not a member of this channel' });
         }
 
-        // Check permissions
         const isAdmin = channel.adminIds && channel.adminIds.includes(senderId);
         if ((channel.type === 'admin_only' || channel.isAdminOnly) && !isAdmin) {
             return res.status(403).json({ error: 'Only admins can send messages in this channel' });
         }
 
-        // Create message
         const messageId = uuidv4();
         const now = new Date();
 
@@ -10319,8 +9169,6 @@ app.post('/api/channels/:channelId/messages', verifyToken, async (req, res) => {
             likes: 0
         });
 
-        // TODO: Broadcast message via WebSocket to channel members ✅ IMPLEMENTED BELOW
-        // Broadcast channel message event
         const messageEventData = {
             messageId,
             channelId,
@@ -10332,16 +9180,14 @@ app.post('/api/channels/:channelId/messages', verifyToken, async (req, res) => {
 
         if (global.wsClients) {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
-            // Get all channel members and broadcast to them
             const members = channel.members || [];
             members.forEach(memberId => {
-                if (memberId !== senderId) { // Don't notify sender
+                if (memberId !== senderId) {
                     broadcastToUser(global.wsClients, memberId, 'channel.message.received', messageEventData);
                 }
             });
         }
 
-        // Send FCM notifications to channel members
         try {
             const members = channel.members || [];
             members.forEach(async (memberId) => {
@@ -10386,10 +9232,6 @@ app.post('/api/channels/:channelId/messages', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Get channel members
- * GET /api/channels/:channelId/members
- */
 app.get('/api/channels/:channelId/members', verifyToken, async (req, res) => {
     const { channelId } = req.params;
 
@@ -10402,7 +9244,6 @@ app.get('/api/channels/:channelId/members', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Get member details
         const memberIds = channel.members || [];
         const members = await dbConnection.collection('users')
             .find({
@@ -10429,9 +9270,7 @@ app.get('/api/channels/:channelId/members', verifyToken, async (req, res) => {
             channelId: channelId,
             memberCount: enrichedMembers.length,
             members: enrichedMembers.sort((a, b) => {
-                // Admins first
                 if (a.isAdmin !== b.isAdmin) return b.isAdmin ? 1 : -1;
-                // Then by username
                 return a.username.localeCompare(b.username);
             })
         });
@@ -10442,16 +9281,11 @@ app.get('/api/channels/:channelId/members', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Promote user to channel admin
- * POST /api/channels/:channelId/members/:memberId/promote
- */
 app.post('/api/channels/:channelId/members/:memberId/promote', verifyToken, async (req, res) => {
     const { channelId, memberId } = req.params;
     const requesterId = req.user.userId;
 
     try {
-        // Get channel
         const channel = await dbConnection.collection('channels').findOne({
             id: channelId
         });
@@ -10460,22 +9294,18 @@ app.post('/api/channels/:channelId/members/:memberId/promote', verifyToken, asyn
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check if requester is channel admin
         if (!channel.adminIds || !channel.adminIds.includes(requesterId)) {
             return res.status(403).json({ error: 'Only channel admins can promote members' });
         }
 
-        // Check if user is member
         if (!channel.members || !channel.members.includes(memberId)) {
             return res.status(404).json({ error: 'User is not a channel member' });
         }
 
-        // Check if already admin
         if (channel.adminIds && channel.adminIds.includes(memberId)) {
             return res.status(409).json({ error: 'User is already an admin' });
         }
 
-        // Promote user
         const updateResult = await dbConnection.collection('channels').updateOne(
             { id: channelId },
             {
@@ -10487,8 +9317,8 @@ app.post('/api/channels/:channelId/members/:memberId/promote', verifyToken, asyn
             return res.status(400).json({ error: 'Failed to promote user' });
         }
 
-        await logEvent('channel_member_promoted', 
-            `Member promoted to admin in channel ${channel.name}`, 
+        await logEvent('channel_member_promoted',
+            `Member promoted to admin in channel ${channel.name}`,
             requesterId,
             { channelId: channelId, memberId: memberId }
         );
@@ -10506,10 +9336,6 @@ app.post('/api/channels/:channelId/members/:memberId/promote', verifyToken, asyn
     }
 });
 
-/**
- * Demote admin to regular member
- * POST /api/channels/:channelId/members/:memberId/demote
- */
 app.post('/api/channels/:channelId/members/:memberId/demote', verifyToken, async (req, res) => {
     const { channelId, memberId } = req.params;
     const requesterId = req.user.userId;
@@ -10523,22 +9349,18 @@ app.post('/api/channels/:channelId/members/:memberId/demote', verifyToken, async
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check if requester is channel admin
         if (!channel.adminIds || !channel.adminIds.includes(requesterId)) {
             return res.status(403).json({ error: 'Only channel admins can demote members' });
         }
 
-        // Check if user is admin
         if (!channel.adminIds || !channel.adminIds.includes(memberId)) {
             return res.status(404).json({ error: 'User is not an admin' });
         }
 
-        // Prevent demoting the last admin
         if (channel.adminIds.length === 1 && channel.adminIds[0] === memberId) {
             return res.status(400).json({ error: 'Cannot demote the last channel admin' });
         }
 
-        // Demote user
         const updateResult = await dbConnection.collection('channels').updateOne(
             { id: channelId },
             {
@@ -10550,8 +9372,8 @@ app.post('/api/channels/:channelId/members/:memberId/demote', verifyToken, async
             return res.status(400).json({ error: 'Failed to demote user' });
         }
 
-        await logEvent('channel_member_demoted', 
-            `Member demoted from admin in channel ${channel.name}`, 
+        await logEvent('channel_member_demoted',
+            `Member demoted from admin in channel ${channel.name}`,
             requesterId,
             { channelId: channelId, memberId: memberId }
         );
@@ -10569,16 +9391,11 @@ app.post('/api/channels/:channelId/members/:memberId/demote', verifyToken, async
     }
 });
 
-/**
- * Delete message from channel (admin only)
- * DELETE /api/channels/:channelId/messages/:messageId
- */
 app.delete('/api/channels/:channelId/messages/:messageId', verifyToken, async (req, res) => {
     const { channelId, messageId } = req.params;
     const requesterId = req.user.userId;
 
     try {
-        // Get channel
         const channel = await dbConnection.collection('channels').findOne({
             id: channelId
         });
@@ -10587,12 +9404,10 @@ app.delete('/api/channels/:channelId/messages/:messageId', verifyToken, async (r
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check if requester is channel admin
         if (!channel.adminIds || !channel.adminIds.includes(requesterId)) {
             return res.status(403).json({ error: 'Only channel admins can delete messages' });
         }
 
-        // Get message
         const message = await dbConnection.collection('channelMessages').findOne({
             id: messageId,
             channelId: channelId
@@ -10602,7 +9417,6 @@ app.delete('/api/channels/:channelId/messages/:messageId', verifyToken, async (r
             return res.status(404).json({ error: 'Message not found' });
         }
 
-        // Delete message (soft delete)
         const updateResult = await dbConnection.collection('channelMessages').updateOne(
             { id: messageId },
             {
@@ -10618,11 +9432,8 @@ app.delete('/api/channels/:channelId/messages/:messageId', verifyToken, async (r
             return res.status(400).json({ error: 'Failed to delete message' });
         }
 
-        // TODO: Broadcast deletion via WebSocket
-        // broadcastToChannel(channelId, 'channel_message_deleted', { messageId })
-
-        await logEvent('channel_message_deleted', 
-            `Message deleted from channel ${channel.name}`, 
+        await logEvent('channel_message_deleted',
+            `Message deleted from channel ${channel.name}`,
             requesterId,
             { channelId: channelId, messageId: messageId }
         );
@@ -10639,10 +9450,6 @@ app.delete('/api/channels/:channelId/messages/:messageId', verifyToken, async (r
     }
 });
 
-/**
- * Get channel info
- * GET /api/channels/:channelId
- */
 app.get('/api/channels/:channelId', verifyToken, async (req, res) => {
     const { channelId } = req.params;
     const userId = req.user.userId;
@@ -10656,7 +9463,6 @@ app.get('/api/channels/:channelId', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        // Check membership
         const isMember = channel.members && channel.members.includes(userId);
         if (!isMember) {
             return res.status(403).json({ error: 'Not a member of this channel' });
@@ -10683,16 +9489,10 @@ app.get('/api/channels/:channelId', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== TYPING INDICATORS ====================
-
-/**
- * Broadcast user is typing
- * POST /api/chat/:recipientId/typing
- */
 app.post('/api/chat/:recipientId/typing', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const typingData = {
             userId,
@@ -10701,13 +9501,12 @@ app.post('/api/chat/:recipientId/typing', verifyToken, async (req, res) => {
             isTyping: true,
             timestamp: Date.now()
         };
-        
-        // Broadcast via WebSocket to recipient
+
         if (global.wsClients) {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             broadcastToUser(global.wsClients, recipientId, 'user.typing', typingData);
         }
-        
+
         res.json({ success: true, message: 'Typing indicator sent' });
     } catch (err) {
         console.error('Typing indicator error:', err);
@@ -10715,14 +9514,10 @@ app.post('/api/chat/:recipientId/typing', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Stop typing
- * POST /api/chat/:recipientId/typing-stop
- */
 app.post('/api/chat/:recipientId/typing-stop', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const typingData = {
             userId,
@@ -10731,13 +9526,12 @@ app.post('/api/chat/:recipientId/typing-stop', verifyToken, async (req, res) => 
             isTyping: false,
             timestamp: Date.now()
         };
-        
-        // Broadcast via WebSocket to recipient
+
         if (global.wsClients) {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             broadcastToUser(global.wsClients, recipientId, 'user.typing', typingData);
         }
-        
+
         res.json({ success: true, message: 'Typing stopped' });
     } catch (err) {
         console.error('Stop typing error:', err);
@@ -10745,36 +9539,27 @@ app.post('/api/chat/:recipientId/typing-stop', verifyToken, async (req, res) => 
     }
 });
 
-// ==================== MESSAGE READ RECEIPTS ====================
-
-/**
- * Mark message as read
- * POST /api/messages/:messageId/read
- */
 app.post('/api/messages/:messageId/read', verifyToken, async (req, res) => {
     const { messageId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const now = new Date();
-        
-        // Update message read status
+
         await dbConnection.collection('messages').updateOne(
             { id: messageId },
-            { 
-                $set: { 
+            {
+                $set: {
                     readAt: now,
                     readBy: userId,
                     isRead: true
                 }
             }
         );
-        
-        // Get message details to notify sender
+
         const message = await dbConnection.collection('messages').findOne({ id: messageId });
-        
+
         if (message && message.senderId !== userId) {
-            // Broadcast read receipt via WebSocket to sender
             if (global.wsClients) {
                 const { broadcastToUser } = require('../websocket/broadcast-utils.js');
                 const readReceiptData = {
@@ -10787,9 +9572,9 @@ app.post('/api/messages/:messageId/read', verifyToken, async (req, res) => {
                 broadcastToUser(global.wsClients, message.senderId, 'message.read', readReceiptData);
             }
         }
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: 'Message marked as read',
             readAt: now
         });
@@ -10799,34 +9584,28 @@ app.post('/api/messages/:messageId/read', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Mark all messages in conversation as read
- * POST /api/chat/:recipientId/read-all
- */
 app.post('/api/chat/:recipientId/read-all', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const now = new Date();
-        
-        // Update all unread messages from recipient
+
         const result = await dbConnection.collection('messages').updateMany(
-            { 
+            {
                 senderId: recipientId,
                 recipientId: userId,
                 isRead: false
             },
-            { 
-                $set: { 
+            {
+                $set: {
                     readAt: now,
                     readBy: userId,
                     isRead: true
                 }
             }
         );
-        
-        // Notify sender that all messages are read
+
         if (global.wsClients && result.modifiedCount > 0) {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
             const readReceiptData = {
@@ -10839,9 +9618,9 @@ app.post('/api/chat/:recipientId/read-all', verifyToken, async (req, res) => {
             };
             broadcastToUser(global.wsClients, recipientId, 'conversation.allRead', readReceiptData);
         }
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `${result.modifiedCount} messages marked as read`,
             markedCount: result.modifiedCount
         });
@@ -10851,26 +9630,21 @@ app.post('/api/chat/:recipientId/read-all', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * Get read receipt status for message
- * GET /api/messages/:messageId/read-status
- */
 app.get('/api/messages/:messageId/read-status', verifyToken, async (req, res) => {
     const { messageId } = req.params;
     const userId = req.user.userId;
-    
+
     try {
         const message = await dbConnection.collection('messages').findOne({ id: messageId });
-        
+
         if (!message) {
             return res.status(404).json({ error: 'Message not found' });
         }
-        
-        // Only message sender can see read status
+
         if (message.senderId !== userId) {
             return res.status(403).json({ error: 'Not authorized' });
         }
-        
+
         res.json({
             success: true,
             messageId,
@@ -10885,56 +9659,47 @@ app.get('/api/messages/:messageId/read-status', verifyToken, async (req, res) =>
     }
 });
 
-/**
- * Add reaction to message
- * POST /api/messages/:messageId/reactions
- */
 app.post('/api/messages/:messageId/reactions', verifyToken, async (req, res) => {
     try {
         const { messageId } = req.params;
         const { emoji } = req.body;
         const userId = req.user.userId;
-        
+
         if (!emoji || typeof emoji !== 'string') {
             return res.status(400).json({ error: 'Emoji is required' });
         }
-        
+
         const message = await dbConnection.collection('messages').findOne({ id: messageId });
         if (!message) {
             return res.status(404).json({ error: 'Message not found' });
         }
-        
-        // Initialize reactions array if not present
+
         if (!message.reactions) {
             message.reactions = [];
         }
-        
-        // Check if user already reacted with this emoji
+
         const reactionExists = message.reactions.some(r => r.emoji === emoji && r.userId === userId);
         if (reactionExists) {
             return res.status(400).json({ error: 'User already reacted with this emoji' });
         }
-        
-        // Add reaction
+
         message.reactions.push({
             emoji,
             userId,
             timestamp: new Date()
         });
-        
+
         await dbConnection.collection('messages').updateOne(
             { id: messageId },
             { $set: { reactions: message.reactions, updatedAt: new Date() } }
         );
-        
+
         console.log(`[OK] Reaction added: ${emoji} by ${userId} to message ${messageId}`);
 
-        // ✅ CRITICAL FIX: Broadcast reaction update
         try {
             const { broadcastToUsers } = require('../websocket/broadcast-utils.js');
             const recipients = [message.senderId, message.recipientId].filter(id => id !== userId);
-            
-            // Broadcast via Socket.IO
+
             const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
             if (io) {
                 io.emit('message:reaction:added', {
@@ -10946,7 +9711,6 @@ app.post('/api/messages/:messageId/reactions', verifyToken, async (req, res) => 
                 });
             }
 
-            // Broadcast via raw WebSocket
             broadcastToUsers(global.wsClients, recipients, 'message:reaction:added', {
                 messageId,
                 userId,
@@ -10970,32 +9734,125 @@ app.post('/api/messages/:messageId/reactions', verifyToken, async (req, res) => 
     }
 });
 
-/**
- * Remove reaction from message
- * DELETE /api/messages/:messageId/reactions/:emoji
- */
-app.delete('/api/messages/:messageId/reactions/:emoji', verifyToken, async (req, res) => {
+app.delete('/api/messages/:messageId', verifyToken, async (req, res) => {
     try {
-        const { messageId, emoji } = req.params;
+        const { messageId } = req.params;
         const userId = req.user.userId;
-        
+
         const message = await dbConnection.collection('messages').findOne({ id: messageId });
         if (!message) {
             return res.status(404).json({ error: 'Message not found' });
         }
-        
+
+        if (message.senderId !== userId) {
+            return res.status(403).json({ error: 'You can only delete your own messages' });
+        }
+
+        if (message.mediaId) {
+            try {
+                await dbConnection.collection('media').deleteOne({ mediaId: message.mediaId });
+            } catch (e) {
+                console.warn('Failed to delete media for message:', e.message);
+            }
+        }
+
+        await dbConnection.collection('messages').deleteOne({ id: messageId });
+
+        console.log(`[OK] Message deleted: ${messageId} by ${userId}`);
+
+        try {
+            const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
+            if (io) {
+                io.to(`user:${message.senderId}`).emit('message:deleted', { messageId });
+                io.to(`user:${message.recipientId}`).emit('message:deleted', { messageId });
+            }
+        } catch (e) {
+            console.warn('Broadcast message deletion failed:', e.message);
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Delete message error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/groups/:groupId/messages/:messageId', verifyToken, async (req, res) => {
+    try {
+        const { groupId, messageId } = req.params;
+        const userId = req.user.userId;
+
+        const group = await dbConnection.collection('groups').findOne({
+            $or: [{ id: groupId }, { groupId: groupId }]
+        });
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
+        const members = (group.members || []).map(m => typeof m === 'string' ? m : (m.userId || m.id || ''));
+        if (!members.includes(userId) && group.createdBy !== userId && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Not a member of this group' });
+        }
+
+        const message = await dbConnection.collection('groupMessages').findOne({
+            $or: [{ messageId: messageId }, { id: messageId }]
+        });
+        if (!message) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+
+        if (message.senderId !== userId) {
+            return res.status(403).json({ error: 'You can only delete your own messages' });
+        }
+
+        await dbConnection.collection('groupMessages').deleteOne({
+            $or: [{ messageId: messageId }, { id: messageId }]
+        });
+
+        console.log(`[OK] Group message deleted: ${messageId} by ${userId} in group ${groupId}`);
+
+        try {
+            const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
+            if (io) {
+                io.to(`group:${groupId}`).emit('groupMessage:deleted', {
+                    groupId: groupId,
+                    messageId: messageId,
+                    deletedBy: userId,
+                    timestamp: Date.now()
+                });
+            }
+        } catch (e) {
+            console.warn('Broadcast group message deletion failed:', e.message);
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Delete group message error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/messages/:messageId/reactions/:emoji', verifyToken, async (req, res) => {
+    try {
+        const { messageId, emoji } = req.params;
+        const userId = req.user.userId;
+
+        const message = await dbConnection.collection('messages').findOne({ id: messageId });
+        if (!message) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+
         if (!message.reactions || message.reactions.length === 0) {
             return res.status(400).json({ error: 'No reactions on this message' });
         }
-        
-        // Remove reaction only by the same user who added it
+
         const initialLength = message.reactions.length;
         message.reactions = message.reactions.filter(r => !(r.emoji === decodeURIComponent(emoji) && r.userId === userId));
-        
+
         if (message.reactions.length === initialLength) {
             return res.status(400).json({ error: 'User has not reacted with this emoji' });
         }
-        
+
         await dbConnection.collection('messages').updateOne(
             { id: messageId },
             { $set: { reactions: message.reactions, updatedAt: new Date() } }
@@ -11003,12 +9860,10 @@ app.delete('/api/messages/:messageId/reactions/:emoji', verifyToken, async (req,
 
         console.log(`[OK] Reaction removed: ${emoji} by ${userId} from message ${messageId}`);
 
-        // ✅ CRITICAL FIX: Broadcast reaction removal
         try {
             const { broadcastToUsers } = require('../websocket/broadcast-utils.js');
             const recipients = [message.senderId, message.recipientId].filter(id => id !== userId);
 
-            // Broadcast via Socket.IO
             const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
             if (io) {
                 io.emit('message:reaction:remove', {
@@ -11020,7 +9875,6 @@ app.delete('/api/messages/:messageId/reactions/:emoji', verifyToken, async (req,
                 });
             }
 
-            // Broadcast via raw WebSocket
             broadcastToUsers(global.wsClients, recipients, 'message:reaction:remove', {
                 messageId,
                 userId,
@@ -11037,29 +9891,25 @@ app.delete('/api/messages/:messageId/reactions/:emoji', verifyToken, async (req,
             messageId,
             emoji: decodeURIComponent(emoji),
             reactions: message.reactions
-        });    } catch (err) {
+        }); } catch (err) {
         console.error('Remove reaction error:', err);
         res.status(500).json({ error: err.message });
     }
 });
 
-/**
- * ✅ POST /api/groups/:groupId/messages/:messageId/reactions - Add reaction to GROUP message
- */
 app.post('/api/groups/:groupId/messages/:messageId/reactions', verifyToken, async (req, res) => {
     try {
         const { groupId, messageId } = req.params;
         const { emoji } = req.body;
         const userId = req.user.userId;
-        
+
         console.log(`[REACTION] POST /api/groups/${groupId}/messages/${messageId}/reactions - emoji='${emoji}', body keys=${Object.keys(req.body).join(',')}`);
-        
+
         if (!emoji || typeof emoji !== 'string') {
-            console.error(`[❌ REACTION ERROR] Missing or invalid emoji. Received: '${emoji}' (type: ${typeof emoji})`);
+            console.error(`[ REACTION ERROR] Missing or invalid emoji. Received: '${emoji}' (type: ${typeof emoji})`);
             return res.status(400).json({ error: 'Emoji is required and must be a string' });
         }
 
-        // Verify user is member of group
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -11072,12 +9922,11 @@ app.post('/api/groups/:groupId/messages/:messageId/reactions', verifyToken, asyn
             return res.status(403).json({ error: 'Not a member of this group' });
         }
 
-        // Find message in group - Handle both msg_* and bare UUID formats  
         const actualGroupId = group.id || groupId;
         const msgIdWithPrefix = messageId.startsWith('msg_') ? messageId : `msg_${messageId}`;
         const msgIdWithoutPrefix = messageId.startsWith('msg_') ? messageId.substring(4) : messageId;
-        
-        let message = await dbConnection.collection('groupMessages').findOne({ 
+
+        let message = await dbConnection.collection('groupMessages').findOne({
             $or: [
                 { id: messageId, groupId: actualGroupId },
                 { messageId: messageId, groupId: actualGroupId },
@@ -11088,41 +9937,36 @@ app.post('/api/groups/:groupId/messages/:messageId/reactions', verifyToken, asyn
             ]
         });
         if (!message) {
-            console.error(`❌ Message not found. Searched for: ${messageId}, ${msgIdWithPrefix}, ${msgIdWithoutPrefix} in group ${actualGroupId}`);
+            console.error(` Message not found. Searched for: ${messageId}, ${msgIdWithPrefix}, ${msgIdWithoutPrefix} in group ${actualGroupId}`);
             return res.status(404).json({ error: 'Message not found' });
         }
-        
-        // Initialize reactions array if not present
+
         if (!message.reactions) {
             message.reactions = [];
         }
-        
-        // Check if user already reacted with this emoji
+
         const reactionExists = message.reactions.some(r => r.emoji === emoji && r.userId === userId);
         if (reactionExists) {
             return res.status(400).json({ error: 'User already reacted with this emoji' });
         }
-        
-        // Add reaction
+
         message.reactions.push({
             emoji,
             userId,
             timestamp: new Date()
         });
-        
-        // Update using the actual message's _id to ensure we update the right record
+
         await dbConnection.collection('groupMessages').updateOne(
             { _id: message._id },
             { $set: { reactions: message.reactions, updatedAt: new Date() } }
         );
-        
+
         console.log(`[OK] GROUP Reaction added: ${emoji} by ${userId} to message ${messageId} in group ${groupId}`);
 
-        // ✅ Broadcast reaction update to group members
         try {
             const { broadcastToUsers } = require('../websocket/broadcast-utils.js');
             const members = (group.members || []).filter(m => m).map(m => typeof m === 'object' ? (m.userId || m.id) : m);
-            
+
             const reactionPayload = {
                 groupId: group.id || groupId,
                 messageId,
@@ -11130,21 +9974,18 @@ app.post('/api/groups/:groupId/messages/:messageId/reactions', verifyToken, asyn
                 emoji,
                 reactions: message.reactions
             };
-            
-            // Broadcast via Socket.IO (primary)
+
             const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
             if (io) {
-                console.log(`[📢 GROUP REACTION] Broadcasting via Socket.IO to all connections...`);
+                console.log(`[ GROUP REACTION] Broadcasting via Socket.IO to all connections...`);
                 io.emit('group:message:reaction:added', reactionPayload);
-                
-                // Also emit to group room if it exists
+
                 io.to(`group:${group.id || groupId}`).emit('group:message:reaction:added', reactionPayload);
             }
 
-            // Broadcast via raw WebSocket to all group members (fallback)
-            console.log(`[📢 GROUP REACTION] Broadcasting to ${members.length} members via WebSocket...`);
+            console.log(`[ GROUP REACTION] Broadcasting to ${members.length} members via WebSocket...`);
             broadcastToUsers(global.wsClients, members, 'group:message:reaction:added', reactionPayload);
-            console.log(`[✅ GROUP REACTION] Broadcast complete`);
+            console.log(`[ GROUP REACTION] Broadcast complete`);
         } catch (e) {
             console.warn('Broadcast GROUP reaction failed:', e.message);
         }
@@ -11162,15 +10003,11 @@ app.post('/api/groups/:groupId/messages/:messageId/reactions', verifyToken, asyn
     }
 });
 
-/**
- * ✅ DELETE /api/groups/:groupId/messages/:messageId/reactions/:emoji - Remove reaction from GROUP message
- */
 app.delete('/api/groups/:groupId/messages/:messageId/reactions/:emoji', verifyToken, async (req, res) => {
     try {
         const { groupId, messageId, emoji } = req.params;
         const userId = req.user.userId;
-        
-        // Verify user is member of group
+
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -11183,12 +10020,11 @@ app.delete('/api/groups/:groupId/messages/:messageId/reactions/:emoji', verifyTo
             return res.status(403).json({ error: 'Not a member of this group' });
         }
 
-        // Find message in group - Handle both msg_* and bare UUID formats  
         const actualGroupId = group.id || groupId;
         const msgIdWithPrefix = messageId.startsWith('msg_') ? messageId : `msg_${messageId}`;
         const msgIdWithoutPrefix = messageId.startsWith('msg_') ? messageId.substring(4) : messageId;
-        
-        let message = await dbConnection.collection('groupMessages').findOne({ 
+
+        let message = await dbConnection.collection('groupMessages').findOne({
             $or: [
                 { id: messageId, groupId: actualGroupId },
                 { messageId: messageId, groupId: actualGroupId },
@@ -11201,20 +10037,18 @@ app.delete('/api/groups/:groupId/messages/:messageId/reactions/:emoji', verifyTo
         if (!message) {
             return res.status(404).json({ error: 'Message not found' });
         }
-        
+
         if (!message.reactions || message.reactions.length === 0) {
             return res.status(400).json({ error: 'No reactions on this message' });
         }
-        
-        // Remove reaction only by the same user who added it
+
         const initialLength = message.reactions.length;
         message.reactions = message.reactions.filter(r => !(r.emoji === decodeURIComponent(emoji) && r.userId === userId));
-        
+
         if (message.reactions.length === initialLength) {
             return res.status(400).json({ error: 'User has not reacted with this emoji' });
         }
-        
-        // Update using the actual message's _id to ensure we update the right record
+
         await dbConnection.collection('groupMessages').updateOne(
             { _id: message._id },
             { $set: { reactions: message.reactions, updatedAt: new Date() } }
@@ -11222,7 +10056,6 @@ app.delete('/api/groups/:groupId/messages/:messageId/reactions/:emoji', verifyTo
 
         console.log(`[OK] GROUP Reaction removed: ${emoji} by ${userId} from message ${messageId} in group ${groupId}`);
 
-        // ✅ Broadcast reaction removal to group members
         try {
             const { broadcastToUsers } = require('../websocket/broadcast-utils.js');
             const members = (group.members || []).filter(m => m).map(m => typeof m === 'object' ? (m.userId || m.id) : m);
@@ -11234,21 +10067,18 @@ app.delete('/api/groups/:groupId/messages/:messageId/reactions/:emoji', verifyTo
                 emoji: decodeURIComponent(emoji),
                 reactions: message.reactions
             };
-            
-            // Broadcast via Socket.IO (primary)
+
             const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
             if (io) {
-                console.log(`[📢 GROUP REACTION REMOVAL] Broadcasting via Socket.IO...`);
+                console.log(`[ GROUP REACTION REMOVAL] Broadcasting via Socket.IO...`);
                 io.emit('group:message:reaction:removed', reactionPayload);
-                
-                // Also emit to group room if it exists
+
                 io.to(`group:${group.id || groupId}`).emit('group:message:reaction:removed', reactionPayload);
             }
 
-            // Broadcast via raw WebSocket to all group members (fallback)
-            console.log(`[📢 GROUP REACTION REMOVAL] Broadcasting to ${members.length} members...`);
+            console.log(`[ GROUP REACTION REMOVAL] Broadcasting to ${members.length} members...`);
             broadcastToUsers(global.wsClients, members, 'group:message:reaction:removed', reactionPayload);
-            console.log(`[✅ GROUP REACTION REMOVAL] Broadcast complete`);
+            console.log(`[ GROUP REACTION REMOVAL] Broadcast complete`);
         } catch (e) {
             console.warn('Broadcast GROUP reaction removal failed:', e.message);
         }
@@ -11259,846 +10089,11 @@ app.delete('/api/groups/:groupId/messages/:messageId/reactions/:emoji', verifyTo
             messageId,
             emoji: decodeURIComponent(emoji),
             reactions: message.reactions
-        });    } catch (err) {
+        }); } catch (err) {
         console.error('Remove GROUP reaction error:', err);
         res.status(500).json({ error: err.message });
     }
 });
-
-// ============ NEW: CALL SIGNALING ENDPOINTS ============
-
-// Initiate Call
-app.post('/api/calls/initiate', verifyToken, async (req, res) => {
-    const { recipientId, callType, offer } = req.body;
-    const callerId = req.user.userId;
-
-    try {
-        // ✅ CRITICAL: Check database connection before processing
-        if (!dbConnection || !dbConnection.isConnected) {
-            console.error('[❌ CALL] Database not connected - cannot initiate call');
-            return res.status(503).json({ 
-                error: 'Database unavailable. Please try again in a moment.',
-                status: 'db_unavailable'
-            });
-        }
-
-        if (!recipientId || !callType) {
-            return res.status(400).json({ error: 'recipientId and callType required' });
-        }
-
-        if (callType !== 'audio' && callType !== 'video') {
-            return res.status(400).json({ error: 'callType must be "audio" or "video"' });
-        }
-
-        // Verify recipient exists
-        const recipientUser = await dbConnection.collection('users').findOne({ id: recipientId });
-        if (!recipientUser) {
-            return res.status(404).json({ error: 'Recipient user not found' });
-        }
-
-        // Create call record
-        const callId = uuidv4();
-        const now = new Date();
-        
-        // Validate callId before using it (CRITICAL: validates against undefined/null)
-        if (!callId || typeof callId !== 'string') {
-            console.error('ERROR: callId generation failed', { callId });
-            return res.status(500).json({ error: 'Failed to generate call ID' });
-        }
-        
-        const callRecord = {
-            id: callId,  // ✅ Ensured valid UUID string
-            callId: callId,
-            callerId: callerId,
-            recipientId: recipientId,
-            callType: callType,
-            status: 'ringing',
-            offer: offer,
-            createdAt: now,
-            expiresAt: new Date(Date.now() + 60000) // 60 second expiry
-        };
-
-        // CRITICAL: Validate callRecord before insertion to catch id field issues
-        if (!callRecord.id || callRecord.id !== callId) {
-            console.error('ERROR: callRecord.id mismatch or missing', {
-                expected: callId,
-                actual: callRecord.id,
-                recordKeys: Object.keys(callRecord)
-            });
-            return res.status(500).json({ error: 'Failed to create valid call record' });
-        }
-
-        // Insert into database with validation (CRITICAL FIX)
-        // MongoDB unique index on 'id' field will reject if id is null/missing
-        let callInsertResult;
-        try {
-            callInsertResult = await dbConnection.collection('calls').insertOne(callRecord);
-        } catch (dbErr) {
-            console.error('E11000 Error Details:', {
-                error: dbErr.message,
-                code: dbErr.code,
-                recordId: callRecord.id,
-                recordIds: callRecord.callId
-            });
-            // If E11000, it means record with this id already exists or id is null
-            if (dbErr.code === 11000) {
-                return res.status(409).json({ 
-                    error: 'Call already exists or failed to generate unique ID',
-                    details: `Duplicate key error on field: ${Object.keys(dbErr.keyPattern || {})[0] || 'unknown'}`
-                });
-            }
-            throw dbErr;
-        }
-        
-        if (!callInsertResult.insertedId) {
-            return res.status(500).json({ 
-                error: 'Failed to create call record in database' 
-            });
-        }
-
-        // Attempt to notify recipient via WebSocket/Socket.IO
-        let notificationSent = false;
-        
-        // Try Socket.IO if available (broadcast to user:recipientId room)
-        if (global.socketIoServer) {
-            try {
-                // Fetch caller details to include avatar in real-time notification
-                const caller = await dbConnection.collection('users').findOne({ id: callerId });
-                const callerAvatar = caller?.profile?.profileImageUrl || caller?.profile?.profileImage || caller?.avatar || null;
-
-                global.socketIoServer.to(`user:${recipientId}`).emit('incomingCall', {
-                    callId: callId,
-                    callerId: callerId,
-                    callerUsername: req.user.username,
-                    callerAvatar: callerAvatar,
-                    callType: callType,
-                    offer: offer,
-                    timestamp: now.getTime()
-                });
-                notificationSent = true;
-                console.log(`[OK] Call notification sent via Socket.IO to ${recipientId} with avatar`);
-            } catch (socketErr) {
-                console.warn(`[WARN] Socket.IO broadcast failed: ${socketErr.message}`);
-            }
-        }
-
-        // Fallback: Try raw WebSocket if available
-        if (!notificationSent && global.wsClients && global.wsClients.get && typeof global.wsClients.get === 'function') {
-            try {
-                const recipientWs = global.wsClients.get(recipientId);
-                if (recipientWs && recipientWs.send) {
-                    recipientWs.send(JSON.stringify({
-                        type: 'call.incoming',
-                        data: {
-                            callId: callId,
-                            callerId: callerId,
-                            callerUsername: req.user.username,
-                            callType: callType,
-                            offer: offer
-                        }
-                    }));
-                    notificationSent = true;
-                    console.log(`[OK] Call notification sent via WebSocket to ${recipientId}`);
-                }
-            } catch (wsErr) {
-                console.warn(`[WARN] WebSocket notification failed: ${wsErr.message}`);
-            }
-        }
-
-        // CRITICAL FIX: Send FCM push notification to wake up device if not connected
-        // This ensures the call reaches users even when WebSocket is disconnected
-        if (firebaseInitialized && admin) {
-            try {
-                const recipientTokens = await dbConnection.collection('FCMTokens').find({ userId: recipientId }).toArray();
-                
-                if (recipientTokens && recipientTokens.length > 0) {
-                    const tokensToSend = recipientTokens.map(t => t.fcmToken);
-                    
-                    // Load caller profile to include avatar in data payload (ensures Android receives callerAvatar)
-                    const callerUser = await dbConnection.collection('users').findOne({ id: callerId });
-                    const callerAvatar = callerUser?.profile?.profileImageUrl || callerUser?.profileImageUrl || callerUser?.avatar || null;
-
-                    console.log(`[☎️ CALL FCM] Preparing to send to ${tokensToSend.length} FCM token(s) for recipient ${recipientId}`);
-
-                    // ✅ IMPROVED: Data-only push for incoming calls on Android.
-                    // This ensures EnhancedFirebaseMessagingService receives the payload
-                    // even when the app is backgrounded or killed, allowing our full-screen
-                    // incoming call UI to launch correctly.
-                    const fcmMessage = {
-                        data: {
-                            type: 'incomingCall',
-                            callId: callId,
-                            callerId: callerId,
-                            caller_id: callerId,
-                            callerName: req.user.username,
-                            caller_name: req.user.username,
-                            callerAvatar: callerAvatar || '',
-                            caller_avatar: callerAvatar || '',
-                            callType: callType,
-                            call_type: callType,
-                            offer: offer,
-                            offerSdp: offer,
-                            offer_sdp: offer,
-                            timestamp: now.toISOString()
-                        },
-                        android: {
-                            priority: 'high',
-                            ttl: 60000, // 1 minute for calls
-                            direct_boot_ok: true
-                        },
-                        apns: {
-                            headers: {
-                                'apns-priority': '10',
-                                'apns-push-type': 'alert'
-                            },
-                            payload: {
-                                aps: {
-                                    alert: {
-                                        title: `${req.user.username} is calling...`,
-                                        body: `Incoming ${callType} call`
-                                    },
-                                    sound: 'default',
-                                    badge: 1,
-                                    'content-available': 1
-                                }
-                            }
-                        }
-                    };
-                
-                    // Send to all tokens with retry logic
-                    let successCount = 0;
-                    let failureCount = 0;
-                    
-                    for (const token of tokensToSend) {
-                        try {
-                            await admin.messaging().send({
-                                ...fcmMessage,
-                                token: token
-                            });
-                            successCount++;
-                            console.log(`[✅ CALL FCM] Message sent successfully to token ${token.substring(0, 20)}...`);
-                        } catch (tokenErr) {
-                            failureCount++;
-                            console.warn(`[⚠️ CALL FCM] Send failed: ${tokenErr.message}`);
-                            
-                            // Remove invalid tokens
-                            if (tokenErr.code === 'messaging/invalid-argument' || 
-                                tokenErr.code === 'messaging/registration-token-not-registered' ||
-                                tokenErr.code === 'messaging/third-party-auth-error') {
-                                try {
-                                    await dbConnection.collection('FCMTokens').deleteOne({ fcmToken: token });
-                                    console.log(`[🗑️ CALL FCM] Removed invalid token for ${recipientId}`);
-                                } catch (delErr) {
-                                    console.warn(`Failed to delete invalid token: ${delErr.message}`);
-                                }
-                            }
-                        }
-                    }
-                    
-                    console.log(`[📊 CALL FCM] Delivery summary: ${successCount} sent, ${failureCount} failed out of ${tokensToSend.length} tokens`);
-                } else {
-                    console.log(`[ℹ️ CALL FCM] No FCM tokens found for recipient ${recipientId} - will rely on WebSocket only`);
-                }
-            } catch (fcmErr) {
-                console.warn(`[❌ CALL FCM] FCM notification error: ${fcmErr.message}`);
-                // Don't fail the call initiation if FCM fails - WebSocket fallback will handle it
-            }
-        } else {
-            console.warn(`[⚠️ CALL FCM] Firebase not initialized - will rely on WebSocket only`);
-        }
-
-        // Even if notification wasn't sent, the call record is created and will be available when recipient reconnects
-        res.status(201).json({
-            success: true,
-            callId: callId,
-            message: 'Call initiated',
-            notificationStatus: notificationSent ? 'delivered' : 'queued',
-            recipientStatus: recipientUser.isOnline ? 'online' : 'offline'
-        });
-    } catch (err) {
-        console.error('Initiate call error:', err);
-        console.error('Call record that failed:', JSON.stringify({ callId: callId, callerId, recipientId, callType }, null, 2));
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// CRITICAL FIX: Get Pending Incoming Calls (Polling fallback for calls)
-// This endpoint allows the receiver to poll for incoming calls when WebSocket is unavailable
-app.get('/api/calls/pending/incoming', verifyToken, async (req, res) => {
-    const userId = req.user.userId;
-
-    try {
-        // Get all ringing calls where user is the recipient
-        const pendingCalls = await dbConnection.collection('calls')
-            .find({
-                recipientId: userId,
-                status: 'ringing',
-                expiresAt: { $gt: new Date() }  // Only non-expired calls
-            })
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        // Get caller details for each call
-        const callsWithCallerInfo = await Promise.all(
-            pendingCalls.map(async (call) => {
-                const caller = await dbConnection.collection('users').findOne({ id: call.callerId });
-                return {
-                    callId: call.callId,
-                    callerId: call.callerId,
-                    callerUsername: caller?.username || 'Unknown',
-                    callerName: caller?.name || caller?.username || 'Unknown User',
-                    callerAvatar: caller?.profile?.profileImageUrl || null,
-                    callType: call.callType,
-                    offer: call.offer || call.offerSdp || call.offer_sdp || null,
-                    createdAt: call.createdAt,
-                    expiresAt: call.expiresAt
-                };
-            })
-        );
-
-        console.log(`[OK] Retrieved ${callsWithCallerInfo.length} pending calls for user ${userId}`);
-
-        res.json({
-            success: true,
-            pendingCalls: callsWithCallerInfo,
-            count: callsWithCallerInfo.length
-        });
-    } catch (err) {
-        console.error('Get pending calls error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Alias for legacy polling path used by Android fallback
-app.get('/api/calls/pending', verifyToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const pendingCalls = await dbConnection.collection('calls')
-            .find({
-                recipientId: userId,
-                status: 'ringing',
-                expiresAt: { $gt: new Date() }
-            })
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        const callsWithCallerInfo = await Promise.all(
-            pendingCalls.map(async (call) => {
-                const caller = await dbConnection.collection('users').findOne({ id: call.callerId });
-                return {
-                    callId: call.callId,
-                    callerId: call.callerId,
-                    callerUsername: caller?.username || 'Unknown',
-                    callerName: caller?.name || caller?.username || 'Unknown User',
-                    callerAvatar: caller?.profile?.profileImageUrl || null,
-                    callType: call.callType,
-                    offer: call.offer || call.offerSdp || call.offer_sdp || null,
-                    createdAt: call.createdAt,
-                    expiresAt: call.expiresAt
-                };
-            })
-        );
-
-        console.log(`[OK] Retrieved ${callsWithCallerInfo.length} pending calls for user ${userId} via legacy alias`);
-        res.json(callsWithCallerInfo);
-    } catch (err) {
-        console.error('Get pending calls alias error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Fetch call details by callId (fallback for missed WebSocket SDP delivery)
-app.get('/api/calls/:callId', verifyToken, async (req, res) => {
-    const { callId } = req.params;
-    const userId = req.user.userId;
-
-    try {
-        const callRecord = await dbConnection.collection('calls').findOne({ callId: callId });
-
-        if (!callRecord) {
-            return res.status(404).json({ error: 'Call not found' });
-        }
-
-        if (callRecord.recipientId !== userId && callRecord.callerId !== userId) {
-            return res.status(403).json({ error: 'Unauthorized to view this call' });
-        }
-
-        res.json({
-            callId: callRecord.callId,
-            callerId: callRecord.callerId,
-            recipientId: callRecord.recipientId,
-            callType: callRecord.callType,
-            status: callRecord.status,
-            offer: callRecord.offer || callRecord.offerSdp || callRecord.offer_sdp || null,
-            createdAt: callRecord.createdAt,
-            expiresAt: callRecord.expiresAt,
-            callerName: callRecord.callerName || null,
-            callerUsername: callRecord.callerUsername || null
-        });
-    } catch (err) {
-        console.error('Get call details error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Answer Call
-app.post('/api/calls/:callId/answer', verifyToken, async (req, res) => {
-    const { callId } = req.params;
-    const { answer } = req.body;
-    const userId = req.user.userId;
-
-    try {
-        const callRecord = await dbConnection.collection('calls').findOne({ callId: callId });
-        
-        if (!callRecord) {
-            return res.status(404).json({ error: 'Call not found' });
-        }
-
-        if (callRecord.recipientId !== userId) {
-            return res.status(403).json({ error: 'Unauthorized to answer this call' });
-        }
-
-        // Update call with answer
-        await dbConnection.collection('calls').updateOne(
-            { callId: callId },
-            {
-                $set: {
-                    answer: answer,
-                    status: 'answered',
-                    answeredAt: new Date()
-                }
-            }
-        );
-
-        // ✅ FIXED: Notify caller via Socket.IO (Primary)
-        if (global.socketIoServer) {
-            try {
-                global.socketIoServer.to(`user:${callRecord.callerId}`).emit('callAnswered', {
-                    callId: callId,
-                    answeredBy: userId,
-                    answer: answer,
-                    answeredAt: new Date().getTime()
-                });
-                console.log(`[OK] Call answered notification sent via Socket.IO to ${callRecord.callerId}`);
-            } catch (socketErr) {
-                console.warn(`[WARN] Socket.IO broadcast failed: ${socketErr.message}`);
-            }
-        }
-
-        res.json({ success: true, message: 'Call answered' });
-    } catch (err) {
-        console.error('Answer call error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Reject Call
-app.post('/api/calls/:callId/reject', verifyToken, async (req, res) => {
-    const { callId } = req.params;
-    const { reason } = req.body;
-    const userId = req.user.userId;
-
-    try {
-        const callRecord = await dbConnection.collection('calls').findOne({ callId: callId });
-        
-        if (!callRecord) {
-            return res.status(404).json({ error: 'Call not found' });
-        }
-
-        if (callRecord.recipientId !== userId) {
-            return res.status(403).json({ error: 'Unauthorized to reject this call' });
-        }
-
-        // Update call status
-        const now = new Date();
-        await dbConnection.collection('calls').updateOne(
-            { callId: callId },
-            {
-                $set: {
-                    status: 'rejected',
-                    rejectedAt: now,
-                    rejectedBy: userId,
-                    rejectionReason: reason || 'Rejected by recipient'
-                }
-            }
-        );
-
-        // ✅ ENHANCED: Track missed call in WhatsApp-style (stored separately for quick access)
-        const missedCallRecord = {
-            id: `missed_${callId}`,
-            callId: callId,
-            callerId: callRecord.callerId,
-            recipientId: userId,
-            callType: callRecord.callType,
-            missedAt: now,
-            isRead: false,
-            duration: 0,
-            // Optional caller context
-            callerUsername: (await dbConnection.collection('users').findOne({ id: callRecord.callerId }))?.username || 'Unknown'
-        };
-
-        try {
-            await dbConnection.collection('missedCalls').insertOne(missedCallRecord);
-            console.log(`[✅ MISSED CALL] Recorded missed call: ${callId} for user ${userId}`);
-        } catch (missedErr) {
-            if (missedErr.code !== 11000) {  // Ignore duplicate key errors
-                console.warn(`[⚠️ MISSED CALL] Failed to record missed call: ${missedErr.message}`);
-            }
-        }
-
-        // ✅ Send missed call notification via FCM
-        try {
-            const recipientTokens = await dbConnection.collection('FCMTokens').find({ userId: userId }).toArray();
-            if (recipientTokens && recipientTokens.length > 0) {
-                const missedCallMessage = {
-                    data: {
-                        type: 'missedCall',
-                        title: 'Missed Call',
-                        body: `${missedCallRecord.callerUsername} called you`,
-                        callId: callId,
-                        callerId: callRecord.callerId,
-                        callerName: missedCallRecord.callerUsername,
-                        callerUsername: missedCallRecord.callerUsername,
-                        callType: callRecord.callType,
-                        timestamp: now.toISOString()
-                    },
-                    android: {
-                        priority: 'high'
-                    }
-                };
-
-                for (const tokenDoc of recipientTokens) {
-                    try {
-                        await admin.messaging().send({
-                            ...missedCallMessage,
-                            token: tokenDoc.fcmToken
-                        });
-                    } catch (e) {
-                        // Log but don't fail
-                    }
-                }
-            }
-        } catch (notifErr) {
-            console.warn(`[⚠️ MISSED CALL NOTIF] Failed to send notification: ${notifErr.message}`);
-        }
-
-        // ✅ Notify caller via Socket.IO
-        if (global.socketIoServer) {
-            try {
-                global.socketIoServer.to(`user:${callRecord.callerId}`).emit('callRejected', {
-                    callId: callId,
-                    rejectedBy: userId,
-                    reason: reason || 'Rejected by recipient',
-                    rejectedAt: now.getTime()
-                });
-                console.log(`[OK] Call rejected notification sent via Socket.IO to ${callRecord.callerId}`);
-            } catch (socketErr) {
-                console.warn(`[WARN] Socket.IO broadcast failed: ${socketErr.message}`);
-            }
-        }
-
-        res.json({ success: true, message: 'Call rejected', missedCallRecorded: true });
-    } catch (err) {
-        console.error('Reject call error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ NEW: Get Missed Calls (WhatsApp-style missed call history)
-app.get('/api/calls/missed', verifyToken, async (req, res) => {
-    const userId = req.user.userId;
-    const { limit = 50, unreadOnly = false } = req.query;
-
-    try {
-        // ✅ CRITICAL: Check database connection
-        if (!dbConnection || !dbConnection.isConnected) {
-            return res.status(503).json({ 
-                error: 'Database unavailable',
-                status: 'db_unavailable'
-            });
-        }
-
-        const query = { recipientId: userId };
-        if (unreadOnly === 'true') {
-            query.isRead = false;
-        }
-
-        const missedCalls = await dbConnection.collection('missedCalls')
-            .find(query)
-            .sort({ missedAt: -1 })
-            .limit(parseInt(limit) || 50)
-            .toArray();
-
-        // Enrich with caller details
-        const enrichedCalls = await Promise.all(
-            missedCalls.map(async (call) => {
-                const caller = await dbConnection.collection('users').findOne({ id: call.callerId });
-                return {
-                    ...call,
-                    callerUsername: caller?.username || 'Unknown',
-                    callerAvatar: caller?.profile?.profileImageUrl || caller?.avatar || null
-                };
-            })
-        );
-
-        res.json({
-            success: true,
-            missedCalls: enrichedCalls,
-            count: enrichedCalls.length,
-            unreadCount: missedCalls.filter(c => !c.isRead).length
-        });
-    } catch (err) {
-        console.error('Get missed calls error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ NEW: Mark Missed Call as Read
-app.post('/api/calls/missed/:callId/read', verifyToken, async (req, res) => {
-    const { callId } = req.params;
-    const userId = req.user.userId;
-
-    try {
-        const result = await dbConnection.collection('missedCalls').updateOne(
-            { callId: callId, recipientId: userId },
-            { $set: { isRead: true, readAt: new Date() } }
-        );
-
-        if (result.matchedCount === 0) {
-            return res.status(404).json({ error: 'Missed call not found' });
-        }
-
-        res.json({ success: true, message: 'Marked as read' });
-    } catch (err) {
-        console.error('Mark missed call read error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// End Call
-app.post('/api/calls/:callId/end', verifyToken, async (req, res) => {
-    const { callId } = req.params;
-    const userId = req.user.userId;
-
-    try {
-        const callRecord = await dbConnection.collection('calls').findOne({ callId: callId });
-        
-        if (!callRecord) {
-            return res.status(404).json({ error: 'Call not found' });
-        }
-
-        const otherId = userId === callRecord.callerId ? callRecord.recipientId : callRecord.callerId;
-        const endTime = new Date();
-        const duration = Math.floor((endTime - callRecord.createdAt) / 1000);  // Duration in seconds
-
-        // ✅ ENHANCED: Calculate duration properly
-        // If call was answered, start from answeredAt; otherwise duration is 0
-        let actualDuration = 0;
-        if (callRecord.status === 'answered' && callRecord.answeredAt) {
-            actualDuration = Math.floor((endTime - new Date(callRecord.answeredAt)) / 1000);
-        }
-
-        // Update call status
-        await dbConnection.collection('calls').updateOne(
-            { callId: callId },
-            {
-                $set: {
-                    status: 'ended',
-                    endedAt: endTime,
-                    endedBy: userId,
-                    duration: actualDuration,  // Actual talk duration
-                    totalDuration: duration     // Total time from initiation to end
-                }
-            }
-        );
-
-        // ✅ NEW: Add to call history for both users (like WhatsApp)
-        const historyRecord = {
-            id: `history_${callId}`,
-            callId: callId,
-            callerId: callRecord.callerId,
-            recipientId: callRecord.recipientId,
-            callType: callRecord.callType,
-            duration: actualDuration,
-            status: callRecord.status || 'completed',
-            startedAt: callRecord.createdAt,
-            answeredAt: callRecord.answeredAt || null,
-            endedAt: endTime,
-            endedBy: userId
-        };
-
-        try {
-            await dbConnection.collection('callHistory').insertOne(historyRecord);
-            console.log(`[✅ CALL HISTORY] Recorded call history for ${callId}`);
-        } catch (histErr) {
-            if (histErr.code !== 11000) {  // Ignore duplicates
-                console.warn(`[⚠️ CALL HISTORY] Failed to record: ${histErr.message}`);
-            }
-        }
-
-        // ✅ Notify other user via Socket.IO (Primary)
-        if (global.socketIoServer) {
-            try {
-                global.socketIoServer.to(`user:${otherId}`).emit('callEnded', {
-                    callId: callId,
-                    endedBy: userId,
-                    duration: actualDuration,
-                    endedAt: endTime.getTime()
-                });
-                console.log(`[OK] Call ended notification sent via Socket.IO to ${otherId}`);
-            } catch (socketErr) {
-                console.warn(`[WARN] Socket.IO broadcast failed: ${socketErr.message}`);
-            }
-        }
-
-        res.json({ success: true, message: 'Call ended', duration: actualDuration });
-    } catch (err) {
-        console.error('End call error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ✅ NEW: Get Call History (WhatsApp-style calls list)
-app.get('/api/calls/history', verifyToken, async (req, res) => {
-    const userId = req.user.userId;
-    const { limit = 100, offset = 0 } = req.query;
-
-    try {
-        // ✅ CRITICAL: Check database connection
-        if (!dbConnection || !dbConnection.isConnected) {
-            return res.status(503).json({ 
-                error: 'Database unavailable',
-                status: 'db_unavailable'
-            });
-        }
-
-        // Get calls where user is either caller or recipient
-        const callHistory = await dbConnection.collection('callHistory')
-            .find({
-                $or: [
-                    { callerId: userId },
-                    { recipientId: userId }
-                ]
-            })
-            .sort({ endedAt: -1 })
-            .skip(parseInt(offset) || 0)
-            .limit(parseInt(limit) || 100)
-            .toArray();
-
-        // Enrich with contact details
-        const enrichedHistory = await Promise.all(
-            callHistory.map(async (call) => {
-                const otherUserId = call.callerId === userId ? call.recipientId : call.callerId;
-                const otherUser = await dbConnection.collection('users').findOne({ id: otherUserId });
-                
-                return {
-                    ...call,
-                    otherUserId: otherUserId,
-                    otherUsername: otherUser?.username || 'Unknown',
-                    otherUserAvatar: otherUser?.profile?.profileImageUrl || otherUser?.avatar || null,
-                    isMissed: call.status === 'missed' || (!call.answeredAt && call.status !== 'answered'),
-                    isOutgoing: call.callerId === userId,
-                    isIncoming: call.recipientId === userId
-                };
-            })
-        );
-
-        res.json({
-            success: true,
-            callHistory: enrichedHistory,
-            count: enrichedHistory.length
-        });
-    } catch (err) {
-        console.error('Get call history error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Send ICE Candidate
-app.post('/api/calls/:callId/ice-candidate', verifyToken, async (req, res) => {
-    const { callId } = req.params;
-    const { to, candidate } = req.body;
-    const from = req.user.userId;
-
-    try {
-        // ✅ FIXED: Notify other user via Socket.IO (Primary)
-        if (global.socketIoServer) {
-            try {
-                global.socketIoServer.to(`user:${to}`).emit('iceCandidate', {
-                    callId: callId,
-                    from: from,
-                    candidate: candidate,
-                    timestamp: new Date().getTime()
-                });
-                console.log(`[OK] ICE candidate sent via Socket.IO from ${from} to ${to}`);
-            } catch (socketErr) {
-                console.warn(`[WARN] Socket.IO broadcast failed: ${socketErr.message}`);
-            }
-        }
-
-        res.json({ success: true, message: 'ICE candidate sent' });
-    } catch (err) {
-        console.error('Send ICE candidate error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/**
- * GET /api/calls/history
- * Get call history for the current user
- */
-app.get('/api/calls/history', verifyToken, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { limit = 50, skip = 0 } = req.query;
-
-        const calls = await dbConnection.collection('calls')
-            .find({
-                $or: [
-                    { callerId: userId },
-                    { recipientId: userId }
-                ]
-            })
-            .sort({ createdAt: -1 })
-            .skip(parseInt(skip))
-            .limit(parseInt(limit))
-            .toArray();
-
-        // Populate caller and recipient info
-        const populatedCalls = await Promise.all(calls.map(async (call) => {
-            const caller = await dbConnection.collection('users').findOne(
-                { id: call.callerId },
-                { projection: { username: 1, displayName: 1, avatarUrl: 1 } }
-            );
-            const recipient = await dbConnection.collection('users').findOne(
-                { id: call.recipientId },
-                { projection: { username: 1, displayName: 1, avatarUrl: 1 } }
-            );
-
-            return {
-                ...call,
-                callerName: caller?.displayName || caller?.username || 'Unknown',
-                callerAvatar: caller?.avatarUrl || null,
-                recipientName: recipient?.displayName || recipient?.username || 'Unknown',
-                recipientAvatar: recipient?.avatarUrl || null,
-                isOutgoing: call.callerId === userId
-            };
-        }));
-
-        res.json({
-            success: true,
-            calls: populatedCalls,
-            count: populatedCalls.length
-        });
-    } catch (err) {
-        console.error('Get call history error:', err);
-        res.status(500).json({ error: 'Failed to retrieve call history' });
-    }
-});
-
-// ============ NEW: VOICE MESSAGE ENDPOINTS ============
-
-// Upload Voice Message
 app.post('/api/messages/voice', upload.single('voiceFile'), verifyToken, async (req, res) => {
     const { recipientId, duration } = req.body;
     const senderId = req.user.userId;
@@ -12112,11 +10107,9 @@ app.post('/api/messages/voice', upload.single('voiceFile'), verifyToken, async (
             return res.status(400).json({ error: 'recipientId required' });
         }
 
-        // Read file as base64
         const fileBuffer = fs.readFileSync(req.file.path);
         const base64Audio = fileBuffer.toString('base64');
 
-        // Store voice message
         const messageId = uuidv4();
         const voiceMessage = {
             id: messageId,
@@ -12133,7 +10126,6 @@ app.post('/api/messages/voice', upload.single('voiceFile'), verifyToken, async (
 
         await dbConnection.collection('messages').insertOne(voiceMessage);
 
-        // Clean up temp file
         if (fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
@@ -12152,7 +10144,6 @@ app.post('/api/messages/voice', upload.single('voiceFile'), verifyToken, async (
     }
 });
 
-// Get Voice Message
 app.get('/api/messages/:messageId/voice', verifyToken, async (req, res) => {
     const { messageId } = req.params;
     const userId = req.user.userId;
@@ -12164,7 +10155,6 @@ app.get('/api/messages/:messageId/voice', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Voice message not found' });
         }
 
-        // Verify access (sender or recipient)
         if (message.senderId !== userId && message.recipientId !== userId) {
             return res.status(403).json({ error: 'Unauthorized to access this message' });
         }
@@ -12173,14 +10163,13 @@ app.get('/api/messages/:messageId/voice', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Message is not a voice message' });
         }
 
-        // Convert base64 to buffer
         const base64Audio = message.audioBase64 || message.content?.base64Audio;
         if (!base64Audio) {
             return res.status(404).json({ error: 'Audio data not found' });
         }
 
         const audioBuffer = Buffer.from(base64Audio, 'base64');
-        
+
         res.setHeader('Content-Type', 'audio/mp4');
         res.setHeader('Content-Length', audioBuffer.length);
         res.send(audioBuffer);
@@ -12190,9 +10179,6 @@ app.get('/api/messages/:messageId/voice', verifyToken, async (req, res) => {
     }
 });
 
-// ============ NEW: GET ALL MESSAGES (Including Offline) ============
-
-// Get all messages in conversation (with pagination)
 app.get('/api/chat/:recipientId/all-messages', verifyToken, async (req, res) => {
     const { recipientId } = req.params;
     const userId = req.user.userId;
@@ -12200,7 +10186,6 @@ app.get('/api/chat/:recipientId/all-messages', verifyToken, async (req, res) => 
     const skip = parseInt(req.query.skip) || 0;
 
     try {
-        // Get all messages in conversation (both sent and received)
         const messages = await dbConnection.collection('messages')
             .find({
                 $or: [
@@ -12234,11 +10219,7 @@ app.get('/api/chat/:recipientId/all-messages', verifyToken, async (req, res) => 
     }
 });
 
-// ==================== ERROR HANDLING ====================
-
-// Handle multer errors specifically
 app.use((err, req, res, next) => {
-    // Multer errors
     if (err.name === 'MulterError') {
         console.error('[MULTER ERROR]', {
             code: err.code,
@@ -12246,26 +10227,25 @@ app.use((err, req, res, next) => {
             field: err.field,
             url: req.path
         });
-        
+
         if (err.code === 'FILE_TOO_LARGE') {
-            return res.status(413).json({ 
+            return res.status(413).json({
                 error: 'File is too large',
                 maxSize: '100MB'
             });
         } else if (err.code === 'LIMIT_FILE_COUNT') {
-            return res.status(413).json({ 
+            return res.status(413).json({
                 error: 'Too many files',
                 maxFiles: 5
             });
         } else {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: `Upload error: ${err.message}`,
                 code: err.code
             });
         }
     }
-    
-    // General error handler
+
     console.error('[ERROR]', {
         message: err.message,
         name: err.name,
@@ -12273,14 +10253,12 @@ app.use((err, req, res, next) => {
         status: err.status,
         url: req.path
     });
-    
-    res.status(err.status || 500).json({ 
+
+    res.status(err.status || 500).json({
         error: err.message || 'Internal server error',
         errorType: err.name
     });
 });
-
-// ==================== GIPHY PROXY ROUTES ====================
 
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY || '';
 
@@ -12426,19 +10404,11 @@ app.get('/api/gifs/search', (req, res) => {
     proxyGiphyRequest(`/v1/gifs/search?q=${encoded}&limit=${limit}&rating=g`, q.trim(), limit, res);
 });
 
-// ==================== ENHANCED FEATURES API INTEGRATION ====================
-
-// Load enhanced-features-api module
 const setupEnhancedFeatures = require('./enhanced-features-api.js');
-
-// ==================== SERVER STARTUP ====================
 
 let server = null;
 
 async function start() {
-    // Start listening on the configured API port.
-    // If SSL certs are available and PORT_API is 443, run HTTPS directly.
-    // Otherwise, run HTTP and assume an external reverse proxy terminates TLS.
     return new Promise((resolve, reject) => {
         try {
             const useDirectHttps = sslOptions && API_PORT === 443;
@@ -12467,7 +10437,7 @@ async function start() {
             server.listen(API_PORT, '0.0.0.0', async () => {
                 const protocol = useDirectHttps ? 'HTTPS' : 'HTTP';
                 const secureNote = useDirectHttps ? 'Secure direct HTTPS mode' : 'HTTP mode behind reverse proxy';
-                console.log(`\n[OK] FreeTime Master-Server Admin API Started\n[INFO] Protocol: ${protocol}\n[INFO] Mode: ${secureNote}\n[INFO] Listening on port ${API_PORT}\n[INFO] Domain: example.com\n[INFO] API Port: ${API_PORT} (${protocol})\n[INFO] WebSocket Port: 8080\n[INFO] Peer Port: 9080\n[INFO] Admin Port: 3001\n[INFO] Data store: ${MONGODB_URI.split('/').pop()}\n[INFO] Request timeout: ${REQUEST_TIMEOUT_MS}ms\n                `);
+                console.log(`\n[OK] FreeTime Master-Server Admin API Started\n[INFO] Protocol: ${protocol}\n[INFO] Mode: ${secureNote}\n[INFO] Listening on port ${API_PORT}\n[INFO] Domain: example.com\n[INFO] API Port: ${API_PORT} (${protocol})\n[INFO] WebSocket Port: 8080\n[INFO] Peer Port: 9080\n[INFO] Admin Port: 3001\n[INFO] Data store: ${MONGODB_URI.split('/').pop()}\n[INFO] Request timeout: ${REQUEST_TIMEOUT_MS}ms\n `);
 
                 try {
                     initializeSocketIO(server, JWT_SECRET, allowedOrigins);
@@ -12515,9 +10485,6 @@ start().catch(err => {
     process.exit(1);
 });
 
-// ==================== ADMIN QUICK CHAT & ANNOUNCEMENTS ====================
-
-// Broadcast message to users (Quick Chat feature)
 app.post('/api/admin/broadcast-message', verifyToken, async (req, res) => {
     try {
         const { recipientType, messageContent, messageType, specificUser } = req.body;
@@ -12529,7 +10496,6 @@ app.post('/api/admin/broadcast-message', verifyToken, async (req, res) => {
 
         let recipientCount = 0;
 
-        // Emit via Socket.IO if available
         if (global.io) {
             const message = {
                 id: require('uuid').v4(),
@@ -12552,7 +10518,6 @@ app.post('/api/admin/broadcast-message', verifyToken, async (req, res) => {
             console.log(`[Admin Broadcast] ${adminUsername} sent "${messageType}" message to ${recipientCount} users`);
         }
 
-        // Store broadcast message in database for history
         try {
             const broadcastResult = await dbConnection.collection('admin_broadcasts').insertOne({
                 id: require('uuid').v4(),
@@ -12583,7 +10548,6 @@ app.post('/api/admin/broadcast-message', verifyToken, async (req, res) => {
     }
 });
 
-// Get broadcast message history
 app.get('/api/admin/chat-history', verifyToken, async (req, res) => {
     try {
         const messages = await dbConnection.collection('admin_broadcasts')
@@ -12599,7 +10563,6 @@ app.get('/api/admin/chat-history', verifyToken, async (req, res) => {
     }
 });
 
-// Get count of connected users for Quick Chat
 app.get('/api/admin/connected-users-count', verifyToken, async (req, res) => {
     try {
         const count = global.io ? (global.io.engine.clientsCount || 0) : 0;
@@ -12609,11 +10572,9 @@ app.get('/api/admin/connected-users-count', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== ANNOUNCEMENT SYSTEM USER ====================
-
 const ANNOUNCEMENT_USER_ID = 'announcement_system';
 const ANNOUNCEMENT_USERNAME = 'announcement';
-const ANNOUNCEMENT_DISPLAY_NAME = '📢 Announcement';
+const ANNOUNCEMENT_DISPLAY_NAME = ' Announcement';
 
 async function ensureAnnouncementUserExists() {
     try {
@@ -12647,9 +10608,6 @@ async function ensureAnnouncementUserExists() {
     }
 }
 
-// ==================== MASS EMAIL ANNOUNCEMENTS ====================
-
-// Configure email transporter (using environment variables)
 const emailTransporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: process.env.SMTP_PORT || 587,
@@ -12660,12 +10618,6 @@ const emailTransporter = nodemailer.createTransport({
     }
 });
 
-// Send mass email announcement
-/**
- * GET /api/admin/user-lookup
- * Look up a user by ID or username
- * Query: ?q=userId_or_username
- */
 app.get('/api/admin/user-lookup', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') {
@@ -12715,19 +10667,17 @@ app.post('/api/admin/send-mass-email', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Subject and content required' });
         }
 
-        // Build recipient query
         let query = {};
-        
+
         if (recipientFilter === 'all') {
             query = { 'profile.email': { $exists: true, $ne: '' } };
         } else if (recipientFilter === 'by-tags' && filterValue) {
-            // Support both array and comma-separated string
-            const tags = Array.isArray(filterValue) 
-                ? filterValue 
+            const tags = Array.isArray(filterValue)
+                ? filterValue
                 : filterValue.split(',').map(t => t.trim()).filter(Boolean);
-            
+
             if (tags.length > 0) {
-                query = { 
+                query = {
                     'profile.tags': { $in: tags },
                     'profile.email': { $exists: true, $ne: '' }
                 };
@@ -12735,7 +10685,6 @@ app.post('/api/admin/send-mass-email', verifyToken, async (req, res) => {
                 query = { 'profile.email': { $exists: true, $ne: '' } };
             }
         } else if (recipientFilter === 'specific' && recipientId) {
-            // Look up by user ID or username
             const targetUser = await dbConnection.collection('users').findOne({
                 $or: [
                     { id: recipientId },
@@ -12762,7 +10711,6 @@ app.post('/api/admin/send-mass-email', verifyToken, async (req, res) => {
 
         const senderAddress = fromEmail || process.env.SMTP_FROM || 'noreply@freetimeapp.com';
 
-        // Send emails asynchronously
         setImmediate(async () => {
             let successCount = 0;
             let failureCount = 0;
@@ -12785,7 +10733,6 @@ app.post('/api/admin/send-mass-email', verifyToken, async (req, res) => {
                 }
             }
 
-            // Store email campaign in database
             try {
                 const campaignResult = await dbConnection.collection('email_campaigns').insertOne({
                     id: require('uuid').v4(),
@@ -12824,13 +10771,6 @@ app.post('/api/admin/send-mass-email', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== ADMIN ANNOUNCEMENT DM SYSTEM ====================
-
-/**
- * POST /api/admin/announcement/send
- * Send an announcement DM from the system announcement user to a target user
- * Body: { recipientId, message, subject? }
- */
 app.post('/api/admin/announcement/send', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') {
@@ -12842,16 +10782,13 @@ app.post('/api/admin/announcement/send', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'recipientId and message are required' });
         }
 
-        // Verify target user exists
         const targetUser = await dbConnection.collection('users').findOne({ id: recipientId });
         if (!targetUser) {
             return res.status(404).json({ error: 'Target user not found' });
         }
 
-        // Ensure announcement user exists
         await ensureAnnouncementUserExists();
 
-        // Create the message in the messages collection
         const messageId = `msg_${require('uuid').v4()}`;
         const now = new Date();
         const announcementMessage = {
@@ -12871,7 +10808,6 @@ app.post('/api/admin/announcement/send', verifyToken, async (req, res) => {
 
         await dbConnection.collection('messages').insertOne(announcementMessage);
 
-        // Emit WebSocket event to the recipient
         const io = global.io || global.socketIoServer || global.socketIoWebSocketServer;
         if (io) {
             const enrichedMessage = {
@@ -12889,11 +10825,10 @@ app.post('/api/admin/announcement/send', verifyToken, async (req, res) => {
             io.to(`user:${recipientId}`).emit('newMessage', enrichedMessage);
         }
 
-        // Send FCM push notification
         try {
             await sendPushNotification(recipientId, {
                 notification: {
-                    title: subject || '📢 System Announcement',
+                    title: subject || ' System Announcement',
                     body: message.length > 100 ? message.substring(0, 97) + '...' : message
                 },
                 data: {
@@ -12909,12 +10844,10 @@ app.post('/api/admin/announcement/send', verifyToken, async (req, res) => {
             console.warn('Failed to send push notification:', pushErr.message);
         }
 
-        // Log the action
         await logEvent('admin_announcement_sent',
             `Admin ${req.user.username} sent announcement to ${targetUser.username || recipientId}`,
             req.user.userId);
 
-        // Save to announcement history
         try {
             await dbConnection.collection('announcement_history').insertOne({
                 id: `ah_${require('uuid').v4()}`,
@@ -12944,11 +10877,6 @@ app.post('/api/admin/announcement/send', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * POST /api/admin/announcement/broadcast
- * Send an announcement DM to ALL users
- * Body: { message, subject? }
- */
 app.post('/api/admin/announcement/broadcast', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') {
@@ -12987,12 +10915,10 @@ app.post('/api/admin/announcement/broadcast', verifyToken, async (req, res) => {
             };
         });
 
-        // Batch insert
         if (announcementMessages.length > 0) {
             await dbConnection.collection('messages').insertMany(announcementMessages);
         }
 
-        // Emit WebSocket events with the SAME IDs used in DB
         if (io) {
             for (const msg of announcementMessages) {
                 io.to(`user:${msg.recipientId}`).emit('newMessage', {
@@ -13013,13 +10939,12 @@ app.post('/api/admin/announcement/broadcast', verifyToken, async (req, res) => {
             }
         }
 
-        // Send FCM push notifications asynchronously
         setImmediate(async () => {
             for (const u of allUsers) {
                 try {
                     await sendPushNotification(u.id, {
                         notification: {
-                            title: subject || '📢 System Announcement',
+                            title: subject || ' System Announcement',
                             body: message.length > 100 ? message.substring(0, 97) + '...' : message
                         },
                         data: {
@@ -13041,7 +10966,6 @@ app.post('/api/admin/announcement/broadcast', verifyToken, async (req, res) => {
             `Admin ${req.user.username} broadcast announcement to ${allUsers.length} users`,
             req.user.userId);
 
-        // Save to announcement history
         try {
             await dbConnection.collection('announcement_history').insertOne({
                 id: `ah_${require('uuid').v4()}`,
@@ -13067,7 +10991,6 @@ app.post('/api/admin/announcement/broadcast', verifyToken, async (req, res) => {
     }
 });
 
-// Get announcement history
 app.get('/api/admin/announcement/history', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') {
@@ -13085,7 +11008,6 @@ app.get('/api/admin/announcement/history', verifyToken, async (req, res) => {
     }
 });
 
-// Clear announcement history
 app.delete('/api/admin/announcement/history', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') {
@@ -13102,7 +11024,6 @@ app.delete('/api/admin/announcement/history', verifyToken, async (req, res) => {
     }
 });
 
-// Get email campaign history
 app.get('/api/admin/email-campaigns', verifyToken, async (req, res) => {
     try {
         const campaigns = await dbConnection.collection('email_campaigns')
@@ -13118,7 +11039,6 @@ app.get('/api/admin/email-campaigns', verifyToken, async (req, res) => {
     }
 });
 
-// Clear email campaign history
 app.delete('/api/admin/email-campaigns', verifyToken, async (req, res) => {
     try {
         if (req.user?.role !== 'ADMIN') {
@@ -13135,7 +11055,6 @@ app.delete('/api/admin/email-campaigns', verifyToken, async (req, res) => {
     }
 });
 
-// Test email configuration
 app.post('/api/admin/test-email', verifyToken, async (req, res) => {
     try {
         const testEmail = req.body.email || req.user.email;
@@ -13161,14 +11080,97 @@ app.post('/api/admin/test-email', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== GRACEFUL SHUTDOWN ====================
+async function broadcastShutdownNotification() {
+    if (!firebaseInitialized || !admin) {
+        console.warn('[ BROADCAST] Firebase not initialized — cannot send shutdown notifications');
+        return;
+    }
 
-function gracefulShutdown(signal) {
+    try {
+        const tokens = await dbConnection.collection('FCMTokens').find({}).toArray();
+        if (!tokens || tokens.length === 0) {
+            console.log('[BROADCAST] No FCM tokens found — nothing to send');
+            return;
+        }
+
+        console.log(`[BROADCAST] Sending server shutdown notification to ${tokens.length} device(s)...`);
+
+        const uniqueTokens = [...new Set(tokens.map(t => t.fcmToken))];
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const token of uniqueTokens) {
+            try {
+                await admin.messaging().send({
+                    token,
+                    data: {
+                        type: 'server_shutdown',
+                        title: 'FreeTime servers are offline',
+                        body: 'Only private text messages are available. Group chats and media are temporarily disabled.'
+                    },
+                    android: {
+                        priority: 'high',
+                        ttl: 300000
+                    }
+                });
+                successCount++;
+            } catch (err) {
+                failCount++;
+                if (err.code === 'messaging/invalid-registration-token' ||
+                    err.code === 'messaging/registration-token-not-registered') {
+                    await dbConnection.collection('FCMTokens').deleteOne({ fcmToken: token });
+                } else {
+                    console.warn(`[BROADCAST] Failed to send to token: ${err.message}`);
+                }
+            }
+        }
+
+        console.log(`[BROADCAST] Shutdown notifications sent: ${successCount} ok, ${failCount} failed`);
+    } catch (err) {
+        console.error('[BROADCAST] Error broadcasting shutdown notification:', err.message);
+    }
+}
+
+app.post('/api/admin/broadcast-shutdown', verifyToken, async (req, res) => {
+    try {
+        if (req.user?.role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        await broadcastShutdownNotification();
+        res.json({ success: true, message: 'Shutdown notification sent to all users' });
+    } catch (err) {
+        console.error('Broadcast shutdown error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/internal/broadcast-shutdown', async (req, res) => {
+    const clientIp = req.ip || req.connection?.remoteAddress || '';
+    const isLocal = clientIp.includes('127.0.0.1') || clientIp.includes('::1') || clientIp.includes('::ffff:127.0.0.1');
+    if (!isLocal) {
+        return res.status(403).json({ error: 'Internal endpoint — localhost only' });
+    }
+
+    try {
+        await broadcastShutdownNotification();
+        res.json({ success: true, message: 'Shutdown notification sent to all users' });
+    } catch (err) {
+        console.error('Internal broadcast shutdown error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+async function gracefulShutdown(signal) {
     console.log(`\n${signal} signal received: Gracefully shutting down...`);
-    
-    // Stop accepting new requests
+
+    try {
+        await broadcastShutdownNotification();
+    } catch (err) {
+        console.error('[WARN] Failed to broadcast shutdown notification:', err.message);
+    }
+
     if (server) {
-        // Close Socket.IO gracefully
         if (global.socketIoServer) {
             console.log('[OK] Closing Socket.IO server...');
             global.socketIoServer.close();
@@ -13176,8 +11178,7 @@ function gracefulShutdown(signal) {
 
         server.close(async () => {
             console.log('[OK] HTTP server closed');
-            
-            // Close database connection via manager
+
             try {
                 if (dbManager && typeof dbManager.shutdown === 'function') {
                     await dbManager.shutdown();
@@ -13186,12 +11187,11 @@ function gracefulShutdown(signal) {
             } catch (err) {
                 console.error('Error closing database:', err);
             }
-            
+
             console.log('[OK] Graceful shutdown completed');
             process.exit(0);
         });
-        
-        // Force shutdown after 10 seconds
+
         setTimeout(() => {
             console.error('[ERROR] Forced shutdown after timeout');
             process.exit(1);
@@ -13201,123 +11201,6 @@ function gracefulShutdown(signal) {
     }
 }
 
-// ==================== ADMIN CALL MANAGEMENT ====================
-
-/**
- * GET /api/admin/calls
- * Get all calls (admin only)
- */
-app.get('/api/admin/calls', verifyToken, async (req, res) => {
-    try {
-        // Check admin role
-        if (req.user?.role !== 'ADMIN') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
-        const { status, limit = 100, skip = 0 } = req.query;
-        const filter = status ? { status } : {};
-
-        const calls = await dbConnection.collection('calls')
-            .find(filter)
-            .sort({ createdAt: -1 })
-            .skip(parseInt(skip))
-            .limit(parseInt(limit))
-            .toArray();
-
-        const total = await dbConnection.collection('calls').countDocuments(filter);
-
-        res.json({
-            calls,
-            total,
-            limit: parseInt(limit),
-            skip: parseInt(skip)
-        });
-    } catch (err) {
-        console.error('Admin get calls error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/**
- * GET /api/admin/calls/stats
- * Get call statistics (admin only)
- */
-app.get('/api/admin/calls/stats', verifyToken, async (req, res) => {
-    try {
-        // Check admin role
-        if (req.user?.role !== 'ADMIN') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
-        const now = new Date();
-        const oneHourAgo = new Date(now - 3600000);
-        const oneDayAgo = new Date(now - 86400000);
-
-        const stats = {
-            totalCalls: await dbConnection.collection('calls').countDocuments({}),
-            activeCalls: await dbConnection.collection('calls').countDocuments({ status: 'active' }),
-            completedToday: await dbConnection.collection('calls').countDocuments({
-                endedAt: { $gte: oneDayAgo }
-            }),
-            completedLastHour: await dbConnection.collection('calls').countDocuments({
-                endedAt: { $gte: oneHourAgo }
-            }),
-            rejectedCalls: await dbConnection.collection('calls').countDocuments({ status: 'rejected' }),
-            failedCalls: await dbConnection.collection('calls').countDocuments({ status: 'failed' })
-        };
-
-        res.json(stats);
-    } catch (err) {
-        console.error('Admin get call stats error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/**
- * POST /api/admin/calls/:callId/terminate
- * Force terminate a call (admin only)
- */
-app.post('/api/admin/calls/:callId/terminate', verifyToken, async (req, res) => {
-    try {
-        // Check admin role
-        if (req.user?.role !== 'ADMIN') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
-        const { callId } = req.params;
-        const call = await dbConnection.collection('calls').findOne({ id: callId });
-
-        if (!call) {
-            return res.status(404).json({ error: 'Call not found' });
-        }
-
-        const now = new Date();
-        await dbConnection.collection('calls').updateOne(
-            { id: callId },
-            {
-                $set: {
-                    status: 'terminated',
-                    endedAt: now,
-                    terminatedBy: req.user.userId,
-                    updatedAt: now
-                }
-            }
-        );
-
-        await logEvent('call_terminated_by_admin', `Call ${callId} terminated by admin`, req.user.userId);
-
-        res.json({ success: true, message: 'Call terminated' });
-    } catch (err) {
-        console.error('Admin terminate call error:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ===== GROUP/CHANNEL MANAGEMENT APIs =====
-
-/**
- * POST /api/groups - Create a new group
- */
 app.post('/api/groups', verifyToken, async (req, res) => {
     const { name, description, members } = req.body;
     const createdBy = req.user.userId;
@@ -13330,10 +11213,8 @@ app.post('/api/groups', verifyToken, async (req, res) => {
         const groupId = uuidv4();
         const now = new Date();
 
-        // Get creator user details
         const creator = await dbConnection.collection('users').findOne({ id: createdBy });
 
-        // Build members array with full user details (consistent with invite endpoint)
         const memberIds = [createdBy, ...(members || [])];
         const uniqueMemberIds = [...new Set(memberIds)];
 
@@ -13345,7 +11226,6 @@ app.post('/api/groups', verifyToken, async (req, res) => {
                     userId: memberId,
                     username: user.username || 'Unknown',
                     displayName: user.displayName || '',
-                    // ✅ FIX: Use proper profile picture URL from user's profile
                     avatar: user.profile?.profileImageUrl || user.profile?.profileImage || user.avatar || null,
                     role: user.role || 'USER',
                     tags: user.tags || [],
@@ -13356,11 +11236,10 @@ app.post('/api/groups', verifyToken, async (req, res) => {
             }
         }
 
-        // Generate invite link with both deep link and web link formats
         const inviteCode = groupId.substring(0, 8).toUpperCase();
         const deepLink = `freetime://group/invite/${groupId}`;
         const webLink = `https://example.com/group/invite/${inviteCode}`;
-        
+
         const group = {
             id: groupId,
             groupId: groupId,
@@ -13370,14 +11249,14 @@ app.post('/api/groups', verifyToken, async (req, res) => {
             createdAt: now,
             updatedAt: now,
             members: groupMembers,
-            admins: [createdBy],  // Keep admins for backward compatibility
+            admins: [createdBy],
             adminIds: [createdBy],
             messageCount: 0,
             memberCount: groupMembers.length,
-            inviteLink: deepLink,  // Original deep link format
+            inviteLink: deepLink,
             inviteCode: inviteCode,
-            webInviteLink: webLink,  // NEW: Web-shareable link
-            webInviteCode: inviteCode,  // NEW: Web invitation code
+            webInviteLink: webLink,
+            webInviteCode: inviteCode,
             isActive: true
         };
 
@@ -13385,13 +11264,11 @@ app.post('/api/groups', verifyToken, async (req, res) => {
         if (!insertResult.insertedId) {
             return res.status(500).json({ error: 'Failed to create group in database' });
         }
-        
+
         await logEvent('group_created', `Group ${name} created by ${createdBy}`, createdBy);
 
-        // Broadcast group creation via Socket.IO or broadcast-utils
         let broadcastSent = false;
-        
-        // Try Socket.IO first (preferred method)
+
         if (global.io || global.socketIoServer) {
             try {
                 const io = global.io || global.socketIoServer;
@@ -13407,7 +11284,6 @@ app.post('/api/groups', verifyToken, async (req, res) => {
             }
         }
 
-        // Fallback: Broadcast to each group member via broadcastToUser
         if (!broadcastSent) {
             try {
                 const { broadcastToUsers } = require('../websocket/broadcast-utils.js');
@@ -13430,7 +11306,7 @@ app.post('/api/groups', verifyToken, async (req, res) => {
             success: true,
             groupId: groupId,
             inviteLink: deepLink,
-            inviteCode: inviteCode,  // ✅ FIX: Return inviteCode for share button
+            inviteCode: inviteCode,
             group: group,
             broadcastStatus: broadcastSent ? 'delivered' : 'queued'
         });
@@ -13440,14 +11316,10 @@ app.post('/api/groups', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * GET /api/groups - Get user's groups
- */
 app.get('/api/groups', verifyToken, async (req, res) => {
     try {
         const userId = req.user.userId;
 
-        // ✅ FIX: Query for groups where the user is a member, whether membership is stored as a string or object
         const groups = await dbConnection.collection('groups')
             .find({
                 $or: [
@@ -13460,7 +11332,6 @@ app.get('/api/groups', verifyToken, async (req, res) => {
             })
             .toArray();
 
-        // Collect all member userIds to batch-check which still exist
         const allMemberIds = new Set();
         groups.forEach(group => {
             (group.members || []).forEach(m => {
@@ -13468,7 +11339,6 @@ app.get('/api/groups', verifyToken, async (req, res) => {
                 if (mid) allMemberIds.add(mid);
             });
         });
-        // Check existence in users collection
         const existingUsers = await dbConnection.collection('users').find(
             { id: { $in: [...allMemberIds] } },
             { projection: { id: 1 } }
@@ -13509,9 +11379,6 @@ app.get('/api/groups', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * GET /api/groups/:groupId - Get group details with members
- */
 app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
@@ -13523,12 +11390,10 @@ app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if user is a member (members stored as array of objects or strings)
-        const isMember = group.members && Array.isArray(group.members) && 
+        const isMember = group.members && Array.isArray(group.members) &&
                          group.members.some(m => m && (typeof m === 'object' ? (m.userId || m.id) : m) === userId);
-        
+
         if (!isMember) {
-            // Also check admin lists as fallback
             const inAdmins = (Array.isArray(group.adminIds) && group.adminIds.includes(userId)) ||
                              (Array.isArray(group.admins) && group.admins.includes(userId));
             if (!inAdmins) {
@@ -13536,12 +11401,11 @@ app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
             }
         }
 
-        // ✅ FIX: Ensure members have fresh profile picture URLs; filter out deleted users
         const membersWithFreshAvatars = (await Promise.all(
             (group.members || []).filter(m => m !== null).map(async (member) => {
                 const mUserId = typeof member === 'object' ? (member.userId || member.id) : member;
                 const latestUser = await dbConnection.collection('users').findOne({ id: mUserId });
-                if (!latestUser) return null; // User was deleted — filter out
+                if (!latestUser) return null;
                 return {
                     ...(typeof member === 'object' ? member : { userId: member }),
                     avatar: latestUser?.profile?.profileImageUrl || latestUser?.profile?.profileImage || (typeof member === 'object' ? member.avatar : null) || null,
@@ -13551,11 +11415,10 @@ app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
                 };
             })
         )).filter(m => m !== null);
-        
-        // ✅ FIX: Always generate valid inviteCode - don't return empty strings
+
         const actualGroupId = group.id || group.groupId;
         const generatedInviteCode = group.inviteCode || actualGroupId.substring(0, 8).toUpperCase();
-        
+
         res.json({
             success: true,
             group: {
@@ -13565,12 +11428,12 @@ app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
                 createdBy: group.createdBy,
                 creatorId: group.createdBy || group.creatorId,
                 avatar: group.avatar,
-                members: membersWithFreshAvatars,  // ✅ Use members with fresh avatars
+                members: membersWithFreshAvatars,
                 adminIds: group.adminIds || [],
                 admins: group.admins || [group.createdBy],
                 inviteLink: group.inviteLink || `freetime://group/invite/${groupId}`,
                 webInviteLink: `https://example.com/group/invite/${generatedInviteCode}`,
-                inviteCode: generatedInviteCode,  // ✅ CRITICAL FIX: Always generate, never empty
+                inviteCode: generatedInviteCode,
                 webInviteCode: generatedInviteCode,
                 createdAt: group.createdAt,
                 memberCount: membersWithFreshAvatars.length,
@@ -13587,21 +11450,16 @@ app.get('/api/groups/:groupId', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * POST /api/groups/:groupId/invite - Invite users to group
- * ✅ UPDATED: If inviter is FreeTime moderator/admin: add directly
- *             If inviter is regular user: send pending invite for consent
- */
 app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const { userIds } = req.body;
         const userId = req.user.userId;
 
-        console.log('🔴 [INVITE] POST /api/groups/:groupId/invite');
-        console.log('🔴 [INVITE] groupId:', groupId, 'type:', typeof groupId);
-        console.log('🔴 [INVITE] userIds:', userIds);
-        console.log('🔴 [INVITE] userId from token:', userId, 'type:', typeof userId);
+        console.log(' [INVITE] POST /api/groups/:groupId/invite');
+        console.log(' [INVITE] groupId:', groupId, 'type:', typeof groupId);
+        console.log(' [INVITE] userIds:', userIds);
+        console.log(' [INVITE] userId from token:', userId, 'type:', typeof userId);
 
         if (!Array.isArray(userIds) || userIds.length === 0) {
             return res.status(400).json({ error: 'User IDs array is required' });
@@ -13609,34 +11467,32 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
 
         const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId }] });
         if (!group) {
-            console.log('🔴 [INVITE] Group not found for groupId:', groupId);
+            console.log(' [INVITE] Group not found for groupId:', groupId);
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        console.log('🔴 [INVITE] Found group:', group.name);
-        console.log('🔴 [INVITE] group.admins:', group.admins, 'type:', Array.isArray(group.admins) ? 'array' : typeof group.admins);
-        console.log('🔴 [INVITE] group.admins entries:', group.admins?.map(a => `${a} (type: ${typeof a})`));
-        console.log('🔴 [INVITE] Is userId in admins?', group.admins?.includes(userId));
+        console.log(' [INVITE] Found group:', group.name);
+        console.log(' [INVITE] group.admins:', group.admins, 'type:', Array.isArray(group.admins) ? 'array' : typeof group.admins);
+        console.log(' [INVITE] group.admins entries:', group.admins?.map(a => `${a} (type: ${typeof a})`));
+        console.log(' [INVITE] Is userId in admins?', group.admins?.includes(userId));
 
-        // Check if requester is admin - FIX: Check both arrays independently (empty array is truthy in JS)
         const isRequesterAdmin =
             (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             group.createdBy === userId;
         if (!isRequesterAdmin) {
-            console.log('🔴 [INVITE] ❌ FORBIDDEN: User', userId, 'not in admins. group.admins:', group.admins, 'group.adminIds:', group.adminIds);
+            console.log(' [INVITE] FORBIDDEN: User', userId, 'not in admins. group.admins:', group.admins, 'group.adminIds:', group.adminIds);
             return res.status(403).json({ error: 'Only admins can invite members' });
         }
 
-        console.log('🔴 [INVITE] ✅ User is admin, proceeding with invite');
+        console.log(' [INVITE] User is admin, proceeding with invite');
 
-        // ✅ NEW: Check if inviter is FreeTime system moderator or admin
         const inviterUser = await dbConnection.collection('users').findOne({ id: userId });
         const isInviterModerator = inviterUser?.role === 'MODERATOR' || inviterUser?.role === 'moderator';
         const isInviterAdmin = inviterUser?.role === 'ADMIN' || inviterUser?.role === 'admin';
         const isInviterSystemAdmin = isInviterModerator || isInviterAdmin;
-        
-        console.log(`🔴 [INVITE] Inviter ${userId}: moderator=${isInviterModerator}, admin=${isInviterAdmin}, systemAdmin=${isInviterSystemAdmin}`);
+
+        console.log(` [INVITE] Inviter ${userId}: moderator=${isInviterModerator}, admin=${isInviterAdmin}, systemAdmin=${isInviterSystemAdmin}`);
 
         const invitedUsers = [];
         const pendingInvites = [];
@@ -13644,19 +11500,18 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
 
         for (const inviteUserId of userIds) {
             if (existingMembers.includes(inviteUserId)) {
-                continue; // Already a member
+                continue;
             }
 
             const invitedUser = await dbConnection.collection('users').findOne({ id: inviteUserId });
             if (!invitedUser) {
-                continue; // User not found
+                continue;
             }
 
             const newMember = {
                 userId: inviteUserId,
                 username: invitedUser.username || 'Unknown',
                 displayName: invitedUser.displayName || '',
-                // ✅ FIX: Use proper profile picture URL from user's profile
                 avatar: invitedUser.profile?.profileImageUrl || invitedUser.profile?.profileImage || invitedUser.avatar || null,
                 role: invitedUser.role || 'USER',
                 tags: invitedUser.tags || [],
@@ -13666,10 +11521,8 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
             };
 
             if (isInviterSystemAdmin) {
-                // ✅ SYSTEM MODERATORS/ADMINS: Add directly (old behavior)
                 invitedUsers.push(newMember);
             } else {
-                // ✅ REGULAR ADMINS: Create pending invite for user consent
                 pendingInvites.push({
                     inviteId: uuidv4(),
                     groupId: group.id || groupId,
@@ -13681,14 +11534,13 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
                     inviterUserId: userId,
                     inviterUsername: inviterUser.username,
                     inviterDisplayName: inviterUser.displayName || inviterUser.username,
-                    status: 'pending', // pending, accepted, declined
+                    status: 'pending',
                     createdAt: new Date().toISOString(),
-                    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7-day expiry
+                    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
                 });
             }
         }
 
-        // ✅ Add directly invited users to group
         if (invitedUsers.length > 0) {
             await dbConnection.collection('groups').updateOne(
                 { groupId },
@@ -13698,7 +11550,6 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
                 }
             );
 
-            // Add group reference to invited users
             for (const invitedUser of invitedUsers) {
                 await dbConnection.collection('users').updateOne(
                     { id: invitedUser.userId },
@@ -13706,16 +11557,64 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
                 );
             }
 
-            await logEvent('group_members_invited_direct', 
-                `${invitedUsers.length} members directly added to group ${group.name} (inviter is system moderator/admin)`, 
+            const io = global.io || global.socketIoServer || global.socketIoWebSocketServer;
+            for (const invitedUser of invitedUsers) {
+                if (io) {
+                    io.to(`user:${invitedUser.userId}`).emit('group_invite', {
+                        inviteId: '',
+                        groupId: groupId,
+                        groupName: group.name,
+                        groupIcon: group.icon || null,
+                        inviterId: userId,
+                        inviterName: inviterUser.displayName || inviterUser.username,
+                        inviterUsername: inviterUser.username,
+                        inviterDisplayName: inviterUser.displayName || inviterUser.username,
+                        status: 'accepted',
+                        createdAt: new Date().toISOString()
+                    });
+                    io.to(`group:${groupId}`).emit('groupUpdated', {
+                        ...group,
+                        members: [...(group.members || []), ...invitedUsers]
+                    });
+                }
+
+                try {
+                    if (pushNotificationManager) {
+                        await pushNotificationManager.sendGroupInviteNotification(
+                            invitedUser.userId,
+                            { userId: userId, username: inviterUser.displayName || inviterUser.username },
+                            { groupId: groupId, groupName: group.name },
+                            ''
+                        );
+                    } else {
+                        await sendPushNotification(invitedUser.userId, {
+                            notification: {
+                                title: 'Added to Group',
+                                body: `${inviterUser.displayName || inviterUser.username} added you to ${group.name}`,
+                                sound: 'default'
+                            },
+                            data: {
+                                type: 'groupInvite',
+                                groupId: groupId,
+                                groupName: group.name,
+                                inviterName: inviterUser.displayName || inviterUser.username,
+                                inviteId: ''
+                            }
+                        });
+                    }
+                } catch (fcmErr) {
+                    console.warn('Direct add FCM failed:', fcmErr.message);
+                }
+            }
+
+            await logEvent('group_members_invited_direct',
+                `${invitedUsers.length} members directly added to group ${group.name} (inviter is system moderator/admin)`,
                 userId);
         }
 
-        // ✅ Create pending invitations for users to accept/decline
         if (pendingInvites.length > 0) {
             await dbConnection.collection('groupInvitations').insertMany(pendingInvites);
 
-            // Send WebSocket event to notify invited users of pending invite
             const io = global.io || global.socketIoServer || global.socketIoWebSocketServer;
             if (io) {
                 for (const invite of pendingInvites) {
@@ -13736,7 +11635,6 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
                 }
             }
 
-            // Send FCM push notification to invited users
             for (const invite of pendingInvites) {
                 try {
                     if (pushNotificationManager) {
@@ -13767,8 +11665,8 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
                 }
             }
 
-            await logEvent('group_invites_pending', 
-                `${pendingInvites.length} pending invitations sent to group ${group.name} (awaiting user consent)`, 
+            await logEvent('group_invites_pending',
+                `${pendingInvites.length} pending invitations sent to group ${group.name} (awaiting user consent)`,
                 userId);
         }
 
@@ -13776,10 +11674,10 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
             success: true,
             message: `${invitedUsers.length} members added directly, ${pendingInvites.length} pending invitations sent`,
             directlyAdded: invitedUsers,
-            pendingInvites: pendingInvites.map(i => ({ 
+            pendingInvites: pendingInvites.map(i => ({
                 inviteId: i.inviteId,
                 invitedUsername: i.invitedUsername,
-                status: i.status 
+                status: i.status
             }))
         });
     } catch (err) {
@@ -13788,52 +11686,85 @@ app.post('/api/groups/:groupId/invite', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: POST /api/groups/:groupId/join-by-invite
- * Allow non-friends to join group via invitation link/code
- * Requirements: Valid groupId, no special friend requirement
- */
+app.post('/api/groups/:groupId/invite-link', verifyToken, async (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const { expiresIn } = req.body || {};
+        const userId = req.user.userId;
+
+        const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId: groupId }] });
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
+        const isAdmin =
+            (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
+            (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
+            group.createdBy === userId;
+        if (!isAdmin) {
+            return res.status(403).json({ error: 'Only admins can generate invite links' });
+        }
+
+        const duration = Math.min(Number(expiresIn) || 3600000, 86400000);
+        const expiresAt = Date.now() + duration;
+        const timeSlot = Math.floor(Date.now() / 3600000);
+        const code = `FT${Buffer.from(groupId).toString('base64url').substring(0, 8).toUpperCase()}${timeSlot.toString(36).toUpperCase()}`;
+
+        await dbConnection.collection('groups').updateOne(
+            { $or: [{ id: groupId }, { groupId: groupId }] },
+            { $set: { inviteCode: code, webInviteCode: code, updatedAt: new Date().toISOString() } }
+        );
+
+        const baseServerUrl = (process.env.MAIN_SERVER_URL || 'https://freetime.app').trimEnd('/');
+        const shareLink = `${baseServerUrl}/api/groups/web/invite/${code}`;
+
+        res.json({
+            success: true,
+            inviteCode: code,
+            shareLink: shareLink,
+            expiresAt: expiresAt
+        });
+    } catch (err) {
+        console.error('Generate invite link error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/groups/:groupId/join-by-invite', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const userId = req.user.userId;
-        
-        // Find group
+
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
-        
+
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
-        
-        // Check if user is already a member
+
         const isMember = Array.isArray(group.members) && (
             group.members.some(m => (typeof m === 'object' && m.userId === userId) || m === userId)
         );
-        
+
         if (isMember) {
             return res.status(409).json({ error: 'You are already a member of this group' });
         }
-        
-        // Check if group is at capacity (if there's a limit)
+
         const maxMembers = group.maxMembers || 500;
         if (group.members && group.members.length >= maxMembers) {
             return res.status(400).json({ error: 'Group is at maximum capacity' });
         }
-        
-        // Get user details
+
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
-        // Create new member object
+
         const newMember = {
             userId: userId,
             username: user.username || 'Unknown',
             displayName: user.displayName || '',
-            // ✅ FIX: Use proper profile picture URL from user's profile
             avatar: user.profile?.profileImageUrl || user.profile?.profileImage || user.avatar || null,
             role: user.role || 'USER',
             tags: user.tags || [],
@@ -13841,38 +11772,35 @@ app.post('/api/groups/:groupId/join-by-invite', verifyToken, async (req, res) =>
             isAdmin: false,
             joinedAt: new Date().toISOString()
         };
-        
-        // Add user to group members
+
         const updateResult = await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             {
                 $push: { members: newMember },
-                $set: { 
+                $set: {
                     updatedAt: new Date().toISOString(),
                     memberCount: (group.members?.length || 0) + 1
                 }
             }
         );
-        
+
         if (updateResult.modifiedCount === 0) {
             return res.status(500).json({ error: 'Failed to add member to group' });
         }
-        
-        // Add group to user's list of groups
+
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
-                $push: { 
-                    userGroups: { 
-                        groupId: group.id || groupId, 
+            {
+                $push: {
+                    userGroups: {
+                        groupId: group.id || groupId,
                         groupName: group.name,
                         joinedAt: new Date().toISOString()
-                    } 
-                } 
+                    }
+                }
             }
         );
-        
-        // Broadcast member joined event via WebSocket
+
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.to(`group:${groupId}`).emit('group.member.joined', {
@@ -13884,12 +11812,41 @@ app.post('/api/groups/:groupId/join-by-invite', verifyToken, async (req, res) =>
                 timestamp: new Date().toISOString()
             });
         }
-        
+
+        try {
+            const existingMemberIds = (group.members || [])
+                .filter(m => m != null)
+                .map(m => typeof m === 'object' ? (m.userId || m.id) : m)
+                .filter(Boolean)
+                .filter(id => id !== userId);
+
+            const joinerName = user.displayName || user.username || 'Someone';
+
+            for (const memberId of existingMemberIds) {
+                await sendPushNotification(memberId, {
+                    notification: {
+                        title: group.name || 'Group',
+                        body: `${joinerName} joined the group`,
+                        sound: 'default'
+                    },
+                    data: {
+                        type: 'group.member.joined',
+                        groupId: groupId,
+                        groupName: group.name,
+                        userId: userId,
+                        username: joinerName
+                    }
+                });
+            }
+        } catch (fcmErr) {
+            console.error(`[FCM] Group member joined notification error: ${fcmErr.message}`);
+        }
+
         await logEvent('group_member_joined_via_invite', `${user.username} joined group ${group.name} via invite link`, userId, {
             groupId: groupId,
             groupName: group.name
         });
-        
+
         res.json({
             success: true,
             message: `Successfully joined ${group.name}`,
@@ -13906,9 +11863,6 @@ app.post('/api/groups/:groupId/join-by-invite', verifyToken, async (req, res) =>
     }
 });
 
-/**
- * ✅ NEW: GET /api/group-invitations - Get pending group invitations for current user
- */
 app.get('/api/group-invitations', verifyToken, async (req, res) => {
     try {
         const userId = req.user.userId;
@@ -13916,7 +11870,7 @@ app.get('/api/group-invitations', verifyToken, async (req, res) => {
         const invitations = await dbConnection.collection('groupInvitations').find({
             invitedUserId: userId,
             status: 'pending',
-            expiresAt: { $gt: new Date().toISOString() } // Only non-expired
+            expiresAt: { $gt: new Date().toISOString() }
         }).toArray();
 
         res.json({
@@ -13929,53 +11883,42 @@ app.get('/api/group-invitations', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: POST /api/group-invitations/:inviteId/accept - Accept group invitation
- */
 app.post('/api/group-invitations/:inviteId/accept', verifyToken, async (req, res) => {
     try {
         const { inviteId } = req.params;
         const userId = req.user.userId;
 
-        // Find the invitation
         const invitation = await dbConnection.collection('groupInvitations').findOne({ inviteId });
         if (!invitation) {
             return res.status(404).json({ error: 'Invitation not found' });
         }
 
-        // Check if it's for this user
         if (invitation.invitedUserId !== userId) {
             return res.status(403).json({ error: 'This invitation is not for you' });
         }
 
-        // Check if already accepted/declined
         if (invitation.status !== 'pending') {
             return res.status(400).json({ error: `Invitation already ${invitation.status}` });
         }
 
-        // Check if expired
         if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
             return res.status(400).json({ error: 'Invitation has expired' });
         }
 
-        // Find the group
-        const group = await dbConnection.collection('groups').findOne({ 
-            $or: [{ id: invitation.groupId }, { groupId: invitation.groupId }] 
+        const group = await dbConnection.collection('groups').findOne({
+            $or: [{ id: invitation.groupId }, { groupId: invitation.groupId }]
         });
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if already a member
         const isMember = group.members.some(m => m.userId === userId);
         if (isMember) {
             return res.status(409).json({ error: 'You are already a member of this group' });
         }
 
-        // Get user details
         const user = await dbConnection.collection('users').findOne({ id: userId });
-        
-        // Add user to group
+
         const newMember = {
             userId: userId,
             username: user?.username || 'Unknown',
@@ -13996,24 +11939,21 @@ app.post('/api/group-invitations/:inviteId/accept', verifyToken, async (req, res
             }
         );
 
-        // Add group to user's groups
         await dbConnection.collection('users').updateOne(
             { id: userId },
             { $push: { userGroups: { groupId: invitation.groupId, groupName: invitation.groupName } } }
         );
 
-        // Update invitation status
         await dbConnection.collection('groupInvitations').updateOne(
             { inviteId },
-            { 
-                $set: { 
+            {
+                $set: {
                     status: 'accepted',
                     acceptedAt: new Date().toISOString()
-                } 
+                }
             }
         );
 
-        // Notify group members via WebSocket
         io.to(`group:${invitation.groupId}`).emit('group.member.joined', {
             groupId: invitation.groupId,
             userId: userId,
@@ -14021,6 +11961,35 @@ app.post('/api/group-invitations/:inviteId/accept', verifyToken, async (req, res
             displayName: user?.displayName,
             joinedAt: newMember.joinedAt
         });
+
+        try {
+            const existingMemberIds = (group.members || [])
+                .filter(m => m != null)
+                .map(m => typeof m === 'object' ? (m.userId || m.id) : m)
+                .filter(Boolean)
+                .filter(id => id !== userId);
+
+            const joinerName = user?.displayName || user?.username || 'Someone';
+
+            for (const memberId of existingMemberIds) {
+                await sendPushNotification(memberId, {
+                    notification: {
+                        title: invitation.groupName || 'Group',
+                        body: `${joinerName} joined the group`,
+                        sound: 'default'
+                    },
+                    data: {
+                        type: 'group.member.joined',
+                        groupId: invitation.groupId,
+                        groupName: invitation.groupName,
+                        userId: userId,
+                        username: joinerName
+                    }
+                });
+            }
+        } catch (fcmErr) {
+            console.error(`[FCM] Group member joined notification error: ${fcmErr.message}`);
+        }
 
         await logEvent('group_invite_accepted', `${user?.username} accepted invitation to group ${invitation.groupName}`, userId);
 
@@ -14038,38 +12007,31 @@ app.post('/api/group-invitations/:inviteId/accept', verifyToken, async (req, res
     }
 });
 
-/**
- * ✅ NEW: POST /api/group-invitations/:inviteId/decline - Decline group invitation
- */
 app.post('/api/group-invitations/:inviteId/decline', verifyToken, async (req, res) => {
     try {
         const { inviteId } = req.params;
         const userId = req.user.userId;
 
-        // Find the invitation
         const invitation = await dbConnection.collection('groupInvitations').findOne({ inviteId });
         if (!invitation) {
             return res.status(404).json({ error: 'Invitation not found' });
         }
 
-        // Check if it's for this user
         if (invitation.invitedUserId !== userId) {
             return res.status(403).json({ error: 'This invitation is not for you' });
         }
 
-        // Check if already handled
         if (invitation.status !== 'pending') {
             return res.status(400).json({ error: `Invitation already ${invitation.status}` });
         }
 
-        // Update invitation status
         await dbConnection.collection('groupInvitations').updateOne(
             { inviteId },
-            { 
-                $set: { 
+            {
+                $set: {
                     status: 'declined',
                     declinedAt: new Date().toISOString()
-                } 
+                }
             }
         );
 
@@ -14085,33 +12047,24 @@ app.post('/api/group-invitations/:inviteId/decline', verifyToken, async (req, re
     }
 });
 
-/**
- * ✅ AUTO-PROMOTE OLDEST MEMBER TO ADMIN
- * When last admin leaves/is removed, auto-promote oldest member by joinDate
- */
 async function autoPromoteOldestMember(group, dbConnection, io, userId) {
     try {
         const adminIds = Array.isArray(group.adminIds) ? group.adminIds : (Array.isArray(group.admins) ? group.admins : []);
         const members = Array.isArray(group.members) ? group.members : [];
 
-        // Filter out nulls and invalid members
         const validMembers = members.filter(m => m !== null);
 
-        // Filter out the user who just left to find remaining members
         const otherMembers = validMembers.filter(m => {
             const mid = (m && typeof m === 'object') ? (m.userId || m.id) : m;
             return mid && mid !== userId;
         });
 
         if (otherMembers.length > 0) {
-            // Get oldest member (by joinDate)
             const oldestMember = otherMembers.sort((a, b) => {
                 const aDate = (a && typeof a === 'object' ? a.joinDate : null) || 0;
                 const bDate = (b && typeof b === 'object' ? b.joinDate : null) || 0;
 
-                // If both have dates, compare them
                 if (aDate && bDate) return new Date(aDate) - new Date(bDate);
-                // If only one has a date, it's older
                 if (aDate) return -1;
                 if (bDate) return 1;
                 return 0;
@@ -14121,7 +12074,6 @@ async function autoPromoteOldestMember(group, dbConnection, io, userId) {
                 const oldestMemberId = (oldestMember && typeof oldestMember === 'object') ? (oldestMember.userId || oldestMember.id) : oldestMember;
                 if (!oldestMemberId) return;
 
-                // Promote to admin
                 await dbConnection.collection('groups').updateOne(
                     { $or: [{ id: group.id }, { groupId: group.id }, { id: group.groupId }, { groupId: group.groupId }] },
                     {
@@ -14129,15 +12081,13 @@ async function autoPromoteOldestMember(group, dbConnection, io, userId) {
                         $set: { updatedAt: new Date() }
                     }
                 );
-                
-                // Get promoted member's username for notification
+
                 const promotedUser = await dbConnection.collection('users').findOne(
                     { id: oldestMemberId },
                     { projection: { username: 1 } }
                 );
                 const promotedUsername = promotedUser?.username || 'Member';
-                
-                // Broadcast auto-promotion event to group
+
                 if (io) {
                     io.to(`group:${group.id || group.groupId}`).emit('group.member.promoted', {
                         groupId: group.id || group.groupId,
@@ -14148,14 +12098,35 @@ async function autoPromoteOldestMember(group, dbConnection, io, userId) {
                         timestamp: new Date().toISOString()
                     });
                 }
-                
+
+                try {
+                    const grpName = group.name || 'Group';
+                    await sendPushNotification(oldestMemberId, {
+                        notification: {
+                            title: 'Auto-Promoted to Admin',
+                            body: `You were auto-promoted to admin in "${grpName}" (last admin left)`,
+                            sound: 'default'
+                        },
+                        data: {
+                            type: 'group.member.promoted',
+                            groupId: group.id || group.groupId,
+                            groupName: grpName,
+                            userId: oldestMemberId,
+                            username: promotedUsername,
+                            isAutoPromotion: 'true'
+                        }
+                    });
+                } catch (fcmErr) {
+                    console.error(`[FCM] Group auto-promote notification error: ${fcmErr.message}`);
+                }
+
                 console.log(`[AUTO-PROMOTE] ${promotedUsername} auto-promoted to admin in group ${group.name} (oldest member, last admin left)`);
                 await logEvent('group_auto_promote', `${promotedUsername} auto-promoted to admin as oldest member`, oldestMemberId, {
                     groupId: group.id || group.groupId,
                     groupName: group.name,
                     reason: 'last_admin_left'
                 });
-                
+
                 return oldestMemberId;
             }
         }
@@ -14165,9 +12136,6 @@ async function autoPromoteOldestMember(group, dbConnection, io, userId) {
     return null;
 }
 
-/**
- * DELETE /api/groups/:groupId/members/:memberId - Remove member from group
- */
 app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, res) => {
     try {
         const { groupId, memberId } = req.params;
@@ -14178,7 +12146,6 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if requester is admin or the member themselves
         const isRemoveAdmin =
             (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
@@ -14187,7 +12154,10 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
             return res.status(403).json({ error: 'Not authorized' });
         }
 
-        // Prevent last admin from leaving
+        if (memberId === group.createdBy && userId !== group.createdBy) {
+            return res.status(403).json({ error: 'Cannot remove the group creator' });
+        }
+
         const allAdmins = new Set([
             ...(Array.isArray(group.adminIds) ? group.adminIds.filter(a => typeof a === 'string') : []),
             ...(Array.isArray(group.admins) ? group.admins.filter(a => typeof a === 'string') : []),
@@ -14199,14 +12169,12 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
             return res.status(400).json({ error: 'Cannot remove last administrator' });
         }
 
-        // ✅ FIX: Check if this is the last admin BEFORE removal
         const wasLastAdmin = allAdmins.size === 1 && allAdmins.has(memberId);
 
-        // Try object format first (members stored as { userId: "...", ... })
         let removeMemberResult = await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             {
-                $pull: { 
+                $pull: {
                     members: { userId: memberId },
                     admins: memberId,
                     adminIds: memberId
@@ -14214,12 +12182,11 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
                 $set: { updatedAt: new Date().toISOString() }
             }
         );
-        // If no match, try string format (members stored as plain userId strings)
         if (removeMemberResult.modifiedCount === 0) {
             removeMemberResult = await dbConnection.collection('groups').updateOne(
                 { $or: [{ id: groupId }, { groupId: groupId }] },
                 {
-                    $pull: { 
+                    $pull: {
                         members: memberId,
                         admins: memberId,
                         adminIds: memberId
@@ -14228,34 +12195,29 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
                 }
             );
         }
-        // Also try pulling object-format admins
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             {
-                $pull: { 
+                $pull: {
                     admins: { userId: memberId },
                     adminIds: { userId: memberId }
                 }
             }
         );
-        
+
         if (removeMemberResult.matchedCount === 0) {
             return res.status(500).json({ error: 'Failed to find group for member removal' });
         }
-        
+
         if (removeMemberResult.modifiedCount === 0) {
             return res.status(404).json({ error: 'Member not found in group' });
         }
 
-        // Remove group reference from user
         const removeGroupRefResult = await dbConnection.collection('users').updateOne(
             { id: memberId },
             { $pull: { userGroups: { groupId } } }
         );
-        // Note: modifiedCount can be 0 if user doesn't have group reference - this is OK
 
-        // ✅ AUTO-PROMOTE: If last admin was removed, promote oldest remaining member
-        // CRITICAL: Fetch updated group after removal
         if (wasLastAdmin) {
             const updatedGroup = await dbConnection.collection('groups').findOne({
                 $or: [{ id: groupId }, { groupId: groupId }]
@@ -14278,9 +12240,6 @@ app.delete('/api/groups/:groupId/members/:memberId', verifyToken, async (req, re
     }
 });
 
-/**
- * GET /api/groups/:groupId/members - Get group members
- */
 app.get('/api/groups/:groupId/members', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
@@ -14291,7 +12250,6 @@ app.get('/api/groups/:groupId/members', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if user is a member
         const isMember = Array.isArray(group.members) && (
             group.members.includes(userId) ||
             group.members.some(m => (typeof m === 'object' && m.userId === userId))
@@ -14310,7 +12268,6 @@ app.get('/api/groups/:groupId/members', verifyToken, async (req, res) => {
             ...(Array.isArray(group.adminIds) ? group.adminIds.filter(a => a && typeof a === 'object') : [])
         ];
 
-        // Batch lookup system roles for all members
         const memberIds = group.members.filter(m => m != null).map(m => (typeof m === 'object' ? (m.userId || m.id) : m)).filter(Boolean);
         const memberUsers = memberIds.length > 0 ? await dbConnection.collection('users').find(
             { id: { $in: memberIds } },
@@ -14339,15 +12296,11 @@ app.get('/api/groups/:groupId/members', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ POST /api/groups/:groupId/leave - Leave a group
- */
 app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const userId = req.user.userId;
 
-        // Find group by both id and groupId fields
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -14355,13 +12308,11 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if user is a member (defensive against nulls and checks all possible fields)
         const isMember = Array.isArray(group.members) && (
             group.members.includes(userId) ||
             group.members.some(m => m && typeof m === 'object' && (m.userId === userId || m.id === userId))
         );
-        
-        // Also check if they are in admin lists, even if not in members (for cleanup)
+
         const inAdmins = (Array.isArray(group.adminIds) && group.adminIds.includes(userId)) ||
                          (Array.isArray(group.admins) && group.admins.includes(userId));
 
@@ -14369,37 +12320,27 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
             return res.status(403).json({ error: 'Not a member of this group' });
         }
 
-        // Check if user is an admin
         const adminIds = Array.isArray(group.adminIds) ? group.adminIds : (Array.isArray(group.admins) ? group.admins : []);
         const isAdmin = inAdmins || adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId));
-        
-        // Count actual admins among current members
+
         const adminCount = (Array.isArray(group.members) ? group.members : []).filter(m => {
             if (!m) return false;
             const mid = typeof m === 'object' ? (m.userId || m.id) : m;
-            return (Array.isArray(group.adminIds) && group.adminIds.includes(mid)) || 
+            return (Array.isArray(group.adminIds) && group.adminIds.includes(mid)) ||
                    (Array.isArray(group.admins) && group.admins.includes(mid));
         }).length;
 
-        // ✅ FIX: Allow last admin to leave - they must specify an action
-        // If last admin and no adminTransferId provided, offer options
         let transferAdminToUserId = req.body?.transferAdminToUserId || null;
         let deleteGroup = req.body?.deleteGroup || false;
 
         if (isAdmin && adminCount === 1) {
-            // Last admin has 3 options:
-            // 1. Transfer admin to another member (if one exists)
-            // 2. Delete the group
-            // 3. Just leave (group gets orphaned - other members can't manage it)
-            
             if (!transferAdminToUserId && !deleteGroup) {
-                // Get remaining members (excluding the admin who's leaving)
                 const otherMembers = (Array.isArray(group.members) ? group.members : []).filter(m => {
                     if (!m) return false;
                     const mid = typeof m === 'object' ? (m.userId || m.id) : m;
                     return mid !== userId;
                 });
-                
+
                 return res.status(400).json({
                     error: 'Last admin must transfer admin role or delete group',
                     code: 'LAST_ADMIN_ACTION_REQUIRED',
@@ -14411,19 +12352,17 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
                 });
             }
 
-            // If transferring admin to another member
             if (transferAdminToUserId) {
                 const targetMember = (Array.isArray(group.members) ? group.members : []).find(m => {
                     if (!m) return false;
                     const mid = typeof m === 'object' ? (m.userId || m.id) : m;
                     return mid === transferAdminToUserId;
                 });
-                
+
                 if (!targetMember) {
                     return res.status(400).json({ error: 'Target member not found in group' });
                 }
 
-                // Add transferAdminToUserId as admin
                 const newAdminIds = [...adminIds, transferAdminToUserId];
                 await dbConnection.collection('groups').updateOne(
                     { $or: [{ id: groupId }, { groupId: groupId }] },
@@ -14435,17 +12374,15 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
                         }
                     }
                 );
-                
+
                 console.log(`[OK] Admin transferred from ${userId} to ${transferAdminToUserId} in group ${groupId}`);
             }
 
-            // If deleteGroup is true, delete the entire group
             if (deleteGroup) {
                 await dbConnection.collection('groups').deleteOne({
                     $or: [{ id: groupId }, { groupId: groupId }]
                 });
-                
-                // Broadcast group deletion
+
                 if (global.socketIoServer) {
                     global.socketIoServer.emit('groupDeleted', {
                         groupId: groupId,
@@ -14453,9 +12390,9 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
                         timestamp: new Date().getTime()
                     });
                 }
-                
+
                 console.log(`[OK] Group ${groupId} deleted by last admin ${userId}`);
-                
+
                 return res.json({
                     success: true,
                     message: 'Group deleted successfully',
@@ -14464,32 +12401,26 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
             }
         }
 
-        // Remove user from group members
-        // ✅ FIX: Remove both string IDs and member objects by matching userId field
-        // MongoDB $pull doesn't support $or, so we do two separate pulls
         const updateOps = {
             $pull: {
-                members: userId  // Remove string IDs
+                members: userId
             },
             $set: {
                 updatedAt: new Date(),
                 memberCount: Math.max(0, (Array.isArray(group.members) ? group.members.length : 0) - 1)
             }
         };
-        
-        // Also remove from admins if applicable - handle both string and object formats
+
         if (isAdmin) {
             updateOps.$pull.admins = userId;
             updateOps.$pull.adminIds = userId;
         }
-        
-        // First update: remove string format userId
+
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             updateOps
         );
-        
-        // Second update: remove object format { userId: userId }
+
         const pullObjectCondition = { userId: userId };
         const updateOpsObject = {
             $pull: {
@@ -14505,16 +12436,12 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
             updateOpsObject
         );
 
-        // ✅ AUTO-PROMOTE: If last admin left, promote oldest remaining member
-        // CRITICAL: Fetch updated group after removal, then check if there are any admins left
         const groupAfterRemoval = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
         const io = global.io || global.socketIoServer || global.socketIoWebSocketServer;
         if (groupAfterRemoval && isAdmin && adminCount === 1) {
-            // This was the last admin - trigger auto-promotion
             const remainingAdmins = (groupAfterRemoval.adminIds || groupAfterRemoval.admins || []);
-            // If no admins remain after removal, promote oldest member
             if (remainingAdmins.length === 0 && io) {
                 await autoPromoteOldestMember(groupAfterRemoval, dbConnection, io, userId);
             }
@@ -14522,7 +12449,6 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
 
         await logEvent('group_member_left', `User ${userId} left group ${group.name}`, userId);
 
-        // ✅ Broadcast to all remaining members via Socket.IO
         if (global.socketIoServer) {
             global.socketIoServer.emit('groupMemberLeft', {
                 groupId: groupId,
@@ -14543,16 +12469,10 @@ app.post('/api/groups/:groupId/leave', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: GET /api/groups/web/invite/:inviteCode
- * Public endpoint: Get group info by invitation code (for web links)
- * No authentication required - allows anyone to see group info before joining
- */
 app.get('/api/groups/web/invite/:inviteCode', async (req, res) => {
     try {
         const { inviteCode } = req.params;
-        
-        // Robust lookup: check webInviteCode, inviteCode, or direct ID (important for deep links)
+
         const group = await dbConnection.collection('groups').findOne({
             $or: [
                 { webInviteCode: inviteCode.toUpperCase() },
@@ -14561,16 +12481,15 @@ app.get('/api/groups/web/invite/:inviteCode', async (req, res) => {
                 { groupId: inviteCode }
             ]
         });
-        
+
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
-        
+
         const groupId = group.id || group.groupId;
         const groupName = group.name || 'Secure Group';
         const groupAvatar = group.avatar || '';
 
-        // If request accepts HTML (from a browser/social platform), return the landing page
         if (req.headers.accept && req.headers.accept.includes('text/html')) {
             const html = `
 <!DOCTYPE html>
@@ -14634,7 +12553,6 @@ app.get('/api/groups/web/invite/:inviteCode', async (req, res) => {
             return res.send(html);
         }
 
-        // Return public group info (no sensitive data) for API callers
         res.json({
             success: true,
             group: {
@@ -14655,22 +12573,15 @@ app.get('/api/groups/web/invite/:inviteCode', async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: POST /api/groups/web/join
- * Web-based group joining: Allow users to join via web link
- * Body: { inviteCode }
- * Requires authentication via JWT token
- */
 app.post('/api/groups/web/join', verifyToken, async (req, res) => {
     try {
         const { inviteCode } = req.body;
         if (!inviteCode) {
             return res.status(400).json({ error: 'Invite code is required' });
         }
-        
+
         const userId = req.user.userId;
-        
-        // Robust lookup: check webInviteCode, inviteCode, or direct ID (important for deep links)
+
         const group = await dbConnection.collection('groups').findOne({
             $or: [
                 { webInviteCode: inviteCode.toUpperCase() },
@@ -14679,27 +12590,24 @@ app.post('/api/groups/web/join', verifyToken, async (req, res) => {
                 { groupId: inviteCode }
             ]
         });
-        
+
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
-        
-        // Check if user is already a member
+
         const isMember = Array.isArray(group.members) && (
             group.members.some(m => (typeof m === 'object' && m.userId === userId) || m === userId)
         );
-        
+
         if (isMember) {
             return res.status(409).json({ error: 'You are already a member of this group' });
         }
-        
-        // Get user details
+
         const user = await dbConnection.collection('users').findOne({ id: userId });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
-        // Create new member object
+
         const newMember = {
             userId: userId,
             username: user.username || 'Unknown',
@@ -14711,38 +12619,35 @@ app.post('/api/groups/web/join', verifyToken, async (req, res) => {
             isAdmin: false,
             joinedAt: new Date().toISOString()
         };
-        
-        // Add user to group
+
         const updateResult = await dbConnection.collection('groups').updateOne(
             { $or: [{ id: group.id }, { groupId: group.id }] },
             {
                 $push: { members: newMember },
-                $set: { 
+                $set: {
                     updatedAt: new Date().toISOString(),
                     memberCount: (group.members?.length || 0) + 1
                 }
             }
         );
-        
+
         if (updateResult.modifiedCount === 0) {
             return res.status(500).json({ error: 'Failed to join group' });
         }
-        
-        // Add group to user's list
+
         await dbConnection.collection('users').updateOne(
             { id: userId },
-            { 
-                $push: { 
-                    userGroups: { 
+            {
+                $push: {
+                    userGroups: {
                         groupId: group.id || group.groupId,
                         groupName: group.name,
                         joinedAt: new Date().toISOString()
-                    } 
-                } 
+                    }
+                }
             }
         );
-        
-        // Broadcast member joined via web link
+
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.to(`group:${group.id || group.groupId}`).emit('group.member.joined', {
@@ -14750,18 +12655,47 @@ app.post('/api/groups/web/join', verifyToken, async (req, res) => {
                 userId: userId,
                 username: user.username,
                 displayName: user.displayName,
-                joinedVia: 'web',  // NEW: Track web joins
+                joinedVia: 'web',
                 memberCount: (group.members?.length || 0) + 1,
                 timestamp: new Date().toISOString()
             });
         }
-        
+
+        try {
+            const existingMemberIds = (group.members || [])
+                .filter(m => m != null)
+                .map(m => typeof m === 'object' ? (m.userId || m.id) : m)
+                .filter(Boolean)
+                .filter(id => id !== userId);
+
+            const joinerName = user.displayName || user.username || 'Someone';
+
+            for (const memberId of existingMemberIds) {
+                await sendPushNotification(memberId, {
+                    notification: {
+                        title: group.name || 'Group',
+                        body: `${joinerName} joined the group`,
+                        sound: 'default'
+                    },
+                    data: {
+                        type: 'group.member.joined',
+                        groupId: group.id || group.groupId,
+                        groupName: group.name,
+                        userId: userId,
+                        username: joinerName
+                    }
+                });
+            }
+        } catch (fcmErr) {
+            console.error(`[FCM] Group member joined notification error: ${fcmErr.message}`);
+        }
+
         await logEvent('group_joined_via_web', `${user.username} joined group ${group.name} via web link`, userId, {
             groupId: group.id || group.groupId,
             groupName: group.name,
             inviteCode: inviteCode
         });
-        
+
         res.json({
             success: true,
             message: `Successfully joined ${group.name}!`,
@@ -14779,15 +12713,69 @@ app.post('/api/groups/web/join', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ DELETE /api/groups/:groupId - Delete a group (Admins only)
- */
+app.post('/api/groups/join/:code', verifyToken, async (req, res) => {
+    try {
+        const { code } = req.params;
+        const userId = req.user.userId;
+
+        const group = await dbConnection.collection('groups').findOne({
+            $or: [{ inviteCode: code }, { webInviteCode: code }]
+        });
+        if (!group) {
+            return res.status(404).json({ error: 'Invalid invite code. Group not found.' });
+        }
+
+        const groupId = group.id || group.groupId;
+
+        const isMember = (group.members || []).some(m => {
+            if (typeof m === 'string') return m === userId;
+            return (m.userId || m.id) === userId;
+        });
+        if (isMember) {
+            return res.json({ success: true, groupId: groupId, message: 'Already a member' });
+        }
+
+        const user = await dbConnection.collection('users').findOne({ id: userId });
+        const displayName = user?.displayName || user?.username || 'Unknown';
+        const username = user?.username || 'unknown';
+        const profilePic = user?.profilePic || user?.profilePicture || null;
+
+        const newMember = {
+            userId: userId,
+            username: username,
+            displayName: displayName,
+            profilePic: profilePic,
+            role: 'member',
+            isAdmin: false,
+            joinedAt: new Date().toISOString()
+        };
+
+        await dbConnection.collection('groups').updateOne(
+            { $or: [{ id: groupId }, { groupId: groupId }] },
+            {
+                $push: { members: newMember },
+                $set: { updatedAt: new Date().toISOString() }
+            }
+        );
+
+        if (typeof io !== 'undefined') {
+            const updatedGroup = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId: groupId }] });
+            io.to(`group:${groupId}`).emit('groupUpdated', updatedGroup);
+            io.to(`user:${userId}`).emit('memberJoined', { groupId, userId, displayName, username, timestamp: new Date().toISOString() });
+        }
+
+        res.json({ success: true, groupId: groupId, groupName: group.name });
+    } catch (err) {
+        console.error('Join by code error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete('/api/groups/:groupId', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const userId = req.user.userId;
 
-        // Find group
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -14796,33 +12784,28 @@ app.delete('/api/groups/:groupId', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if user is an admin of this group
-        const isDeleteAdmin =
-            (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
-            (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
-            group.createdBy === userId;
-        if (!isDeleteAdmin && req.user.role !== 'ADMIN') {
-            return res.status(403).json({ error: 'Only group admins can delete this group' });
+        const isCreator = group.createdBy === userId;
+        const members = group.members || [];
+        const isLastMember = members.length <= 1 && members.some(m => {
+            const memberId = typeof m === 'object' ? (m.userId || m.id) : m;
+            return memberId === userId;
+        });
+
+        if (!isCreator && !isLastMember && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Only the group creator or the last member can delete this group' });
         }
 
-        // Get members before deleting to notify them
-        const members = group.members || [];
         const memberIds = members.map(m => typeof m === 'object' ? m.userId : m);
 
-        // Delete group from database
         await dbConnection.collection('groups').deleteOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
-
-        // Delete associated messages (optional, based on your retention policy)
-        // await dbConnection.collection('messages').deleteMany({ groupId: groupId });
 
         await logEvent('group_deleted', `Group ${group.name} was deleted by ${userId}`, userId, {
             groupId: groupId,
             groupName: group.name
         });
 
-        // ✅ Broadcast to all members via Socket.IO
         try {
             const io = global.socketIoServer || global.io || global.socketIoWebSocketServer;
             if (io) {
@@ -14833,7 +12816,6 @@ app.delete('/api/groups/:groupId', verifyToken, async (req, res) => {
                 });
             }
 
-            // Also use broadcast-utils if available
             const { broadcastToUsers } = require('../websocket/broadcast-utils.js');
             broadcastToUsers(global.wsClients, memberIds, 'groupDeleted', {
                 groupId: groupId,
@@ -14854,13 +12836,10 @@ app.delete('/api/groups/:groupId', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * POST /api/groups/:groupId/messages - Send message to group (feature parity with private chat)
- */
 app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
-        const { message, content, messageId: clientMessageId, timestamp: clientTimestamp, replyToMessageId, replyToUsername, replyToText, mediaShareMode } = req.body;  // Accept both 'message' and 'content', plus reply fields and mediaShareMode
+        const { message, content, messageId: clientMessageId, timestamp: clientTimestamp, replyToMessageId, replyToUsername, replyToText, mediaShareMode } = req.body;
         const userId = req.user.userId;
 
         const messageContent = (message || content || '').trim();
@@ -14868,7 +12847,6 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Message cannot be empty' });
         }
 
-        // Fix: Look up group with both id and groupId fields (same as GET /api/groups)
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -14876,10 +12854,9 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Fix: Check members as plain userId strings OR as objects with userId property
         const isMember = Array.isArray(group.members) && (
-            group.members.includes(userId) ||  // Members stored as plain strings
-            group.members.some(m => (typeof m === 'object' && m.userId === userId))  // Or as objects
+            group.members.includes(userId) ||
+            group.members.some(m => (typeof m === 'object' && m.userId === userId))
         );
         if (!isMember) {
             return res.status(403).json({ error: 'Not a member of this group' });
@@ -14889,7 +12866,6 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
         const dbMessageId = clientMessageId || `msg_${uuidv4()}`;
         const msgTimestamp = clientTimestamp || Date.now();
 
-        // ✅ NEW: If this is a reply, look up the original message to populate reply metadata
         let finalReplyUsername = replyToUsername || null;
         let finalReplyText = replyToText || null;
         if (replyToMessageId && (!replyToUsername || !replyToText)) {
@@ -14906,9 +12882,9 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             if (originalMsg) {
                 finalReplyUsername = replyToUsername || originalMsg.senderUsername || originalMsg.senderId || null;
                 finalReplyText = replyToText || originalMsg.content || originalMsg.message || null;
-                console.log(`[REPLY STORE] ✅ Populated reply metadata: user=${finalReplyUsername}`);
+                console.log(`[REPLY STORE] Populated reply metadata: user=${finalReplyUsername}`);
             } else {
-                console.warn(`[REPLY STORE] ⚠️ Could not find original message: ${replyToMessageId}`);
+                console.warn(`[REPLY STORE] Could not find original message: ${replyToMessageId}`);
             }
         }
 
@@ -14920,7 +12896,7 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             senderUsername: user?.username || 'Unknown',
             senderAvatar: user?.avatar || null,
             content: messageContent,
-            message: messageContent,  // Include both fields for compatibility
+            message: messageContent,
             status: 'delivered',
             timestamp: msgTimestamp,
             createdAt: new Date(msgTimestamp),
@@ -14928,22 +12904,17 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             replyToMessageId: replyToMessageId || null,
             replyToUsername: finalReplyUsername,
             replyToText: finalReplyText,
-            // ✅ NEW: Two-tier media fields
-            mediaShareMode: mediaShareMode || "protected",  // Default to protected
-            mediaId: null,  // Will be extracted from message content if present
+            mediaShareMode: mediaShareMode || "protected",
+            mediaId: null,
             mediaType: null,
             mediaName: null
         };
 
-        // ✅ CRITICAL FIX: Extract mediaId from message content if present
-        // Format: "[Media: UUID|key] filename.ext" or "[Media: UUID] filename.ext"
         const mediaRegex = /\[Media:\s*([^\|\]\s]+)/;
         const mediaMatch = messageContent.match(mediaRegex);
         if (mediaMatch && mediaMatch[1]) {
-            groupMessage.mediaId = mediaMatch[1];  // Extract and store the UUID
+            groupMessage.mediaId = mediaMatch[1];
             console.log(`[GROUP MESSAGE] Extracted mediaId from content: ${groupMessage.mediaId}`);
-            // Also extract mediaName and mediaType from the content
-            // Content format: "[Media: UUID|key] filename.ext"
             const fileNamePart = messageContent.split('] ').slice(1).join('] ').trim();
             if (fileNamePart) {
                 groupMessage.mediaName = fileNamePart;
@@ -14961,13 +12932,11 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             }
         }
 
-        // Validate group message insertion
         const msgInsertResult = await dbConnection.collection('groupMessages').insertOne(groupMessage);
         if (!msgInsertResult.insertedId) {
             return res.status(500).json({ error: 'Failed to send group message' });
         }
-        
-        // Update message count
+
         const updateResult = await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             { $inc: { messageCount: 1 }, $set: { updatedAt: new Date() } }
@@ -14976,7 +12945,6 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             console.warn(`Group ${groupId} not found for message count update`);
         }
 
-        // Broadcast via WebSocket to all group members (using broadcastToUser pattern like channels)
         const messageEventData = {
             messageId: dbMessageId,
             groupId: group.id || groupId,
@@ -14994,53 +12962,44 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
 
         if (global.wsClients) {
             const { broadcastToUser } = require('../websocket/broadcast-utils.js');
-            // Get all group members and broadcast to them (except sender)
             const members = (group.members || []).filter(m => m).map(m => typeof m === 'object' ? (m.userId || m.id) : m);
             members.forEach(memberId => {
-                if (memberId !== userId) { // Don't notify sender
+                if (memberId !== userId) {
                     broadcastToUser(global.wsClients, memberId, 'group.message.received', messageEventData);
                 }
             });
         }
 
-        // ✅ Send notifications to all group members (except sender)
-        // This ensures group chat messages are delivered via WebSocket when members are online
         try {
             const members = (group.members || []).filter(m => m).map(m => typeof m === 'object' ? (m.userId || m.id) : m);
             const groupName = group.name || 'Group';
-            const recipientCount = members.length - 1; // Exclude sender
-            
-            console.log(`[📢 GROUP MESSAGE] Sending notifications to ${recipientCount} member(s)...`);
-            
-            for (const memberId of members) {
-                if (memberId !== userId) { // Don't notify sender
-                    const truncatedBody = messageContent.length > 100 ? messageContent.substring(0, 97) + '...' : messageContent;
-                    await sendPushNotification(memberId, {
-                        notification: {
-                            title: `${user?.username || 'User'} in ${groupName}`,
-                            body: truncatedBody,
-                            sound: 'default'
-                        },
-                        data: {
-                            type: 'groupMessage',
+            const recipientCount = members.length - 1;
+
+            console.log(`[ GROUP MESSAGE] Sending notifications to ${recipientCount} member(s)...`);
+
+            if (pushNotificationManager) {
+                for (const memberId of members) {
+                    if (memberId !== userId) {
+                        pushNotificationManager.sendGroupMessageNotification(memberId, {
+                            userId: userId,
+                            username: user?.username || 'Unknown',
+                            displayName: user?.displayName || user?.username || 'Unknown'
+                        }, {
+                            id: group.id || groupId,
                             groupId: group.id || groupId,
-                            groupName: groupName,
-                            senderId: userId,
-                            senderName: user?.username || 'Unknown',
-                            messageContent: messageContent,
-                            messageId: dbMessageId,
-                            timestamp: msgTimestamp.toString(),
-                            senderAvatar: user?.avatar || null
-                        }
-                    }).catch(err => console.warn(`[⚠️ GROUP MESSAGE] Failed to send to ${memberId}: ${err.message}`));
+                            name: groupName,
+                            groupName: groupName
+                        }, messageContent).catch(err =>
+                            console.warn(`[ GROUP MESSAGE] Failed to send to ${memberId}: ${err.message}`)
+                        );
+                    }
                 }
             }
-            console.log(`[✅ GROUP MESSAGE] Notification dispatch complete for ${recipientCount} member(s)`);
+            console.log(`[ GROUP MESSAGE] Notification dispatch complete for ${recipientCount} member(s)`);
         } catch (fcmErr) {
-            console.error(`[❌ GROUP MESSAGE] Notification error: ${fcmErr.message}`);
+            console.error(`[ GROUP MESSAGE] Notification error: ${fcmErr.message}`);
         }
 
-        // Return format matching private chat (with content field and reply fields)
         res.status(201).json({
             _id: dbMessageId,
             id: dbMessageId,
@@ -15070,16 +13029,12 @@ app.post('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * GET /api/groups/:groupId/messages - Get group messages (feature parity with private chat)
- */
 app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const { limit = 50 } = req.query;
         const userId = req.user.userId;
 
-        // Fix: Look up group with both id and groupId fields
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -15087,16 +13042,14 @@ app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Fix: Check members as plain userId strings OR as objects with userId property
         const isMember = Array.isArray(group.members) && (
-            group.members.includes(userId) ||  // Members stored as plain strings
-            group.members.some(m => (typeof m === 'object' && m.userId === userId))  // Or as objects
+            group.members.includes(userId) ||
+            group.members.some(m => (typeof m === 'object' && m.userId === userId))
         );
         if (!isMember) {
             return res.status(403).json({ error: 'Not a member of this group' });
         }
 
-        // Find messages by both id and groupId field variations
         const messages = await dbConnection.collection('groupMessages')
             .find({
                 $or: [
@@ -15108,29 +13061,24 @@ app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             .limit(parseInt(limit) || 50)
             .toArray();
 
-        // Return in format matching private chat (with content field and proper field names)
         res.json({
             success: true,
             messages: await Promise.all(messages.reverse().map(async (msg) => {
-                // Try to get sender's profile picture if not in message
                 let senderAvatar = msg.senderAvatar;
                 if (!senderAvatar && msg.senderId) {
                     const sender = await dbConnection.collection('users').findOne({ id: msg.senderId }, { projection: { profile: 1, avatar: 1 } });
                     senderAvatar = sender?.profile?.profileImageUrl || sender?.avatar || null;
                 }
-                
-                // ✅ FIXED: Fetch reply message details if replyToMessageId is present
+
                 let replyUser = msg.replyToUsername || null;
                 let replyText = msg.replyToText || null;
                 if (msg.replyToMessageId) {
                     const replyId = msg.replyToMessageId;
                     const cleanReplyId = replyId.replace(/^msg_/, '');
                     const msgIdWithPrefix = `msg_${cleanReplyId}`;
-                    
-                    // Log the search attempt for debugging
+
                     console.log(`[REPLY LOOKUP] Searching for reply in group ${msg.groupId}: replyId=${replyId}, cleanId=${cleanReplyId}, withPrefix=${msgIdWithPrefix}`);
-                    
-                    // Look up the actual reply message - try all possible ID formats
+
                     let replyMsg = await dbConnection.collection('groupMessages').findOne({
                         groupId: msg.groupId || group.id || groupId,
                         $or: [
@@ -15142,9 +13090,8 @@ app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
                             { messageId: msgIdWithPrefix }
                         ]
                     });
-                    
+
                     if (!replyMsg) {
-                        // Fallback: search without groupId filter (in case groupId doesn't match)
                         console.warn(`[REPLY NOT FOUND] Trying without groupId filter. Searching for: ${replyId}`);
                         replyMsg = await dbConnection.collection('groupMessages').findOne({
                             $or: [
@@ -15157,38 +13104,36 @@ app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
                             ]
                         });
                     }
-                    
+
                     if (replyMsg) {
                         replyUser = replyMsg.senderUsername || replyMsg.senderId || null;
                         replyText = replyMsg.content || replyMsg.message || null;
-                        console.log(`[REPLY FOUND] ✅ Found reply message: user=${replyUser}, text=${replyText?.substring(0, 50)}`);
+                        console.log(`[REPLY FOUND] Found reply message: user=${replyUser}, text=${replyText?.substring(0, 50)}`);
                     } else {
-                        console.error(`[REPLY NOT FOUND] ❌ Could not find message with id: ${replyId} in group ${msg.groupId}`);
+                        console.error(`[REPLY NOT FOUND] Could not find message with id: ${replyId} in group ${msg.groupId}`);
                     }
                 }
-                
-                // ✅ NEW: Fetch sender's profile for color-coding fields (tags, role, admin/moderator status)
+
                 let senderTags = [];
                 let senderIsAdmin = false;
                 let senderIsModerator = false;
                 let senderRole = 'User';
                 let senderDisplayName = msg.senderUsername || 'User';
-                
+
                 if (msg.senderId) {
                     const sender = await dbConnection.collection('users').findOne(
                         { id: msg.senderId },
                         { projection: { profile: 1, tags: 1, role: 1, username: 1 } }
                     );
                     if (sender) {
-                        senderTags = (sender.profile?.tags || sender.tags || []).slice(0, 5); // Limit to 5 tags
+                        senderTags = (sender.profile?.tags || sender.tags || []).slice(0, 5);
                         senderRole = sender.role || 'User';
                         senderIsAdmin = senderRole === 'ADMIN';
                         senderIsModerator = senderRole === 'MODERATOR';
-                        // ✅ FIXED: Use username as fallback if displayName is empty
                         senderDisplayName = sender.profile?.displayName || sender.displayName || sender.username || msg.senderUsername || 'User';
                     }
                 }
-                
+
                 return {
                     _id: msg._id?.toString() || msg.id || msg.messageId,
                     id: msg.id || msg.messageId,
@@ -15210,12 +13155,10 @@ app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
                     replyToMessageId: msg.replyToMessageId || null,
                     replyToUsername: msg.replyToUsername || null,
                     replyToText: msg.replyToText || null,
-                    // ✅ NEW: Two-tier media fields
                     mediaId: msg.mediaId || null,
                     mediaType: msg.mediaType || null,
                     mediaName: msg.mediaName || null,
-                    mediaShareMode: msg.mediaShareMode || "protected",  // Default to protected for backward compatibility
-                    // ✅ NEW: Color-coding fields for username display
+                    mediaShareMode: msg.mediaShareMode || "protected",
                     senderTags: senderTags,
                     senderIsAdmin: senderIsAdmin,
                     senderIsModerator: senderIsModerator,
@@ -15231,10 +13174,6 @@ app.get('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ POST /api/groups/:groupId/clear-history-vote - Initiate democratic vote to clear history
- * Requires 2+ votes from members (minimum even for 3-person groups)
- */
 app.post('/api/groups/:groupId/clear-history-vote', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
@@ -15248,7 +13187,6 @@ app.post('/api/groups/:groupId/clear-history-vote', verifyToken, async (req, res
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if user is member
         const isMember = Array.isArray(group.members) && (
             group.members.includes(userId) ||
             group.members.some(m => (typeof m === 'object' && m.userId === userId))
@@ -15257,20 +13195,18 @@ app.post('/api/groups/:groupId/clear-history-vote', verifyToken, async (req, res
             return res.status(403).json({ error: 'Only group members can vote' });
         }
 
-        // Check if vote already exists and is active
         const existingVote = await dbConnection.collection('clearHistoryVotes').findOne({
             groupId: groupId,
             status: { $in: ['active', 'pending'] }
         });
 
         if (existingVote) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'A clear history vote is already in progress',
                 voteId: existingVote.id
             });
         }
 
-        // Create new vote
         const voteId = uuidv4();
         const vote = {
             id: voteId,
@@ -15279,17 +13215,16 @@ app.post('/api/groups/:groupId/clear-history-vote', verifyToken, async (req, res
             initiatorId: userId,
             initiatorUsername: (await dbConnection.collection('users').findOne({ id: userId }, { projection: { username: 1 } }))?.username || 'Member',
             status: 'active',
-            votes: { [userId]: 'yes' },  // Initiator votes yes
+            votes: { [userId]: 'yes' },
             voteCount: { yes: 1, no: 0 },
             memberCount: group.members.length,
-            requiredVotes: Math.max(1, Math.floor(group.members.length / 2)), // floor(50%) with minimum 1
+            requiredVotes: Math.max(1, Math.floor(group.members.length / 2)),
             createdAt: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hour expiry
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         };
 
         await dbConnection.collection('clearHistoryVotes').insertOne(vote);
 
-        // Broadcast vote initiation to group
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.to(`group:${groupId}`).emit('group.clearHistory.voteStarted', {
@@ -15318,20 +13253,16 @@ app.post('/api/groups/:groupId/clear-history-vote', verifyToken, async (req, res
     }
 });
 
-/**
- * ✅ POST /api/groups/:groupId/clear-history-vote/:voteId/vote - Cast vote on clear history
- */
 app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, async (req, res) => {
     try {
         const { groupId, voteId } = req.params;
-        const { vote: voteChoice } = req.body; // 'yes' or 'no'
+        const { vote: voteChoice } = req.body;
         const userId = req.user.userId;
 
         if (!['yes', 'no'].includes(voteChoice)) {
             return res.status(400).json({ error: 'Vote must be "yes" or "no"' });
         }
 
-        // Get vote document
         const vote = await dbConnection.collection('clearHistoryVotes').findOne({ id: voteId });
         if (!vote) {
             return res.status(404).json({ error: 'Vote not found' });
@@ -15341,18 +13272,15 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
             return res.status(400).json({ error: 'This vote is no longer active' });
         }
 
-        // Check if vote has expired
         if (new Date() > new Date(vote.expiresAt)) {
             await dbConnection.collection('clearHistoryVotes').updateOne({ id: voteId }, { $set: { status: 'expired' } });
             return res.status(400).json({ error: 'This vote has expired' });
         }
 
-        // Check if already voted
         if (vote.votes[userId]) {
             return res.status(400).json({ error: 'You have already voted on this issue' });
         }
 
-        // Check if member of group
         const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId: groupId }] });
         const isMember = Array.isArray(group.members) && (
             group.members.includes(userId) ||
@@ -15362,7 +13290,6 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
             return res.status(403).json({ error: 'Only group members can vote' });
         }
 
-        // Record vote
         const memberUsername = (await dbConnection.collection('users').findOne({ id: userId }, { projection: { username: 1 } }))?.username || 'Member';
         const newVotes = { ...vote.votes, [userId]: voteChoice };
         const newVoteCount = {
@@ -15370,7 +13297,6 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
             no: Object.values(newVotes).filter(v => v === 'no').length
         };
 
-        // Update vote document
         await dbConnection.collection('clearHistoryVotes').updateOne(
             { id: voteId },
             {
@@ -15381,23 +13307,18 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
             }
         );
 
-        // Check if threshold reached
         let voteResult = null;
         if (newVoteCount.yes >= vote.requiredVotes) {
-            // Threshold reached - clear history!
             voteResult = 'passed';
             await dbConnection.collection('clearHistoryVotes').updateOne({ id: voteId }, { $set: { status: 'passed' } });
-            
-            // Clear the messages
+
             const deleteResult = await dbConnection.collection('groupMessages').deleteMany({ groupId: groupId });
-            
-            // ✅ Store historyClearedAt timestamp so offline members can detect on next connect
+
             await dbConnection.collection('groups').updateOne(
                 { $or: [{ id: groupId }, { groupId: groupId }] },
                 { $set: { historyClearedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
             );
-            
-            // Notify group
+
             const io = require('../websocket/socket-io-server').io;
             if (io) {
                 io.to(`group:${groupId}`).emit('group.clearHistory.passed', {
@@ -15409,14 +13330,13 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
                     timestamp: new Date().toISOString()
                 });
             }
-            
+
             console.log(`[OK] Clear history vote PASSED: ${voteId} - cleared ${deleteResult.deletedCount} messages`);
             await logEvent('group_history_voted_clear', `Group ${groupId} cleared chat history via democratic vote (${newVoteCount.yes}/${vote.memberCount} votes)`, userId);
         } else if (newVoteCount.no >= vote.requiredVotes || (newVoteCount.no + newVoteCount.yes >= vote.memberCount && newVoteCount.yes < vote.requiredVotes)) {
-            // Either enough "no" votes OR all members voted without reaching threshold
             voteResult = 'failed';
             await dbConnection.collection('clearHistoryVotes').updateOne({ id: voteId }, { $set: { status: 'failed' } });
-            
+
             const io = require('../websocket/socket-io-server').io;
             if (io) {
                 io.to(`group:${groupId}`).emit('group.clearHistory.failed', {
@@ -15428,10 +13348,9 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
                     timestamp: new Date().toISOString()
                 });
             }
-            
+
             console.log(`[INFO] Clear history vote FAILED: ${voteId} - insufficient votes`);
         } else {
-            // Vote still in progress
             const io = require('../websocket/socket-io-server').io;
             if (io) {
                 io.to(`group:${groupId}`).emit('group.clearHistory.voteUpdated', {
@@ -15463,15 +13382,11 @@ app.post('/api/groups/:groupId/clear-history-vote/:voteId/vote', verifyToken, as
     }
 });
 
-/**
- * ✅ DELETE /api/groups/:groupId/messages - Clear group chat history (Admins only)
- */
 app.delete('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const userId = req.user.userId;
 
-        // Find group to check admin status
         const group = await dbConnection.collection('groups').findOne({
             $or: [{ id: groupId }, { groupId: groupId }]
         });
@@ -15480,7 +13395,6 @@ app.delete('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Only group admins or system admins can clear history
         const isClearAdmin =
             (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
@@ -15493,7 +13407,6 @@ app.delete('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
             groupId: groupId
         });
 
-        // ✅ Store historyClearedAt timestamp so offline members can detect on next connect
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             { $set: { historyClearedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
@@ -15501,7 +13414,6 @@ app.delete('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
 
         await logEvent('group_history_deleted', `Group history for ${groupId} cleared by ${userId}`, userId);
 
-        // Notify all members via Socket.IO
         if (global.socketIoServer) {
             global.socketIoServer.emit('groupHistoryDeleted', {
                 groupId: groupId,
@@ -15521,23 +13433,16 @@ app.delete('/api/groups/:groupId/messages', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * PUT /api/groups/:groupId/admins/:memberId - Promote member to GROUP admin (NOT system admin)
- * ⚠️ CRITICAL: This gives admin privileges ONLY in this specific group chat
- * System-wide admin role is managed exclusively by master server admin console
- */
 app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) => {
     try {
         const { groupId, memberId } = req.params;
         const userId = req.user.userId;
 
-        // Use flexible query for both id and groupId fields
         const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId: groupId }] });
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if requester is a GROUP admin (not system admin)
         const isPromoteAdmin =
             (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
@@ -15546,13 +13451,11 @@ app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) =
             return res.status(403).json({ error: 'Only group admins can manage group admins' });
         }
 
-        // Check if member exists in group
         const member = group.members.find(m => m.userId === memberId);
         if (!member) {
             return res.status(404).json({ error: 'Member not found in group' });
         }
 
-        // Check if already admin
         const allAdminIds = new Set([
             ...(Array.isArray(group.adminIds) ? group.adminIds.filter(a => typeof a === 'string') : []),
             ...(Array.isArray(group.admins) ? group.admins.filter(a => typeof a === 'string') : []),
@@ -15562,16 +13465,14 @@ app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) =
             return res.status(409).json({ error: 'Member is already a group admin' });
         }
 
-        // ⚠️ CRITICAL: ONLY update group's adminIds, NEVER modify user's system role/tags/role field
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
-            { 
-                $addToSet: { adminIds: memberId, admins: memberId },  // Add to both fields for backward compatibility
-                $set: { updatedAt: new Date().toISOString() } 
+            {
+                $addToSet: { adminIds: memberId, admins: memberId },
+                $set: { updatedAt: new Date().toISOString() }
             }
         );
 
-        // Also update member object in group to reflect admin status in chat UI
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }], 'members.userId': memberId },
             { $set: { 'members.$.isAdmin': true } }
@@ -15579,9 +13480,9 @@ app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) =
 
         await logEvent('group_admin_promoted', `Member ${memberId} promoted to admin in group ${group.name} (GROUP-ONLY, not system admin)`, userId);
 
-        // ✅ Broadcast promote event to all group members via Socket.IO
-        const promotedUser = await dbConnection.collection('users').findOne({ id: memberId }, { projection: { username: 1 } });
+        const promotedUser = await dbConnection.collection('users').findOne({ id: memberId }, { projection: { username: 1, displayName: 1 } });
         const promotedUsername = promotedUser?.username || 'Member';
+        const promotedDisplayName = promotedUser?.displayName || promotedUsername;
         if (global.socketIoServer) {
             global.socketIoServer.to(`group:${groupId}`).emit('group.member.promoted', {
                 groupId: groupId,
@@ -15590,6 +13491,27 @@ app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) =
                 promotedBy: userId,
                 timestamp: new Date().toISOString()
             });
+        }
+
+        try {
+            const groupName = group.name || 'Group';
+            await sendPushNotification(memberId, {
+                notification: {
+                    title: 'Promoted to Admin',
+                    body: `You were promoted to admin in "${groupName}"`,
+                    sound: 'default'
+                },
+                data: {
+                    type: 'group.member.promoted',
+                    groupId: groupId,
+                    groupName: groupName,
+                    userId: memberId,
+                    username: promotedDisplayName,
+                    promotedBy: userId
+                }
+            });
+        } catch (fcmErr) {
+            console.error(`[FCM] Group member promoted notification error: ${fcmErr.message}`);
         }
 
         res.json({
@@ -15606,29 +13528,16 @@ app.put('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) =
     }
 });
 
-/**
- * DELETE /api/groups/:groupId/admins/:memberId - Demote GROUP admin back to member
- * ⚠️ CRITICAL: This removes admin privileges ONLY in this specific group chat
- * System-wide admin role is managed exclusively by master server admin console
- * 
- * ✅ UPDATED PERMISSIONS:
- * - Group creator and other group admins can demote other admins
- * - Cannot demote the group creator to member
- * - Cannot demote yourself
- * - Cannot demote the last remaining admin
- */
 app.delete('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res) => {
     try {
         const { groupId, memberId } = req.params;
         const userId = req.user.userId;
 
-        // Use flexible query for both id and groupId fields
         const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId: groupId }] });
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if requester is a GROUP admin (not system admin)
         const isDemoteAdmin =
             (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
@@ -15637,7 +13546,6 @@ app.delete('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res
             return res.status(403).json({ error: 'Only group admins can manage group admins' });
         }
 
-        // Check if target exists and is an admin
         const allAdminIds = new Set([
             ...(Array.isArray(group.adminIds) ? group.adminIds.filter(a => typeof a === 'string') : []),
             ...(Array.isArray(group.admins) ? group.admins.filter(a => typeof a === 'string') : []),
@@ -15652,42 +13560,34 @@ app.delete('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res
             return res.status(400).json({ error: 'Target member is not a group admin' });
         }
 
-        // ✅ UPDATED: Check permissions - allow creator or any admin to demote
         const isRequesterCreator = group.createdBy === userId;
         const isDemotingCreator = group.createdBy === memberId;
         const isDemotingSelf = userId === memberId;
 
-        // Prevent self-demotion
         if (isDemotingSelf) {
             return res.status(400).json({ error: 'Cannot demote yourself' });
         }
 
-        // Prevent demoting the group creator (only the creator can demote themselves, but that's caught above)
         if (isDemotingCreator) {
             return res.status(403).json({ error: 'Cannot demote the group creator' });
         }
 
-        // Prevent removing last admin
         const adminCount = allAdminIds.size;
         if (adminCount <= 1 && isTargetAdmin) {
             return res.status(400).json({ error: 'Cannot remove last group admin' });
         }
 
-        // ⚠️ CRITICAL: ONLY remove from group's adminIds, NEVER modify user's system role/tags/role field
-        // Also need to update both adminIds AND admins arrays for backward compatibility
-        // ✅ FIX: Use $in to handle both string and object formats
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
-            { 
-                $pull: { 
-                    adminIds: { $in: [memberId, { userId: memberId }] },  // Remove both string and object formats
-                    admins: { $in: [memberId, { userId: memberId }] }     // Also remove from admins array for backward compatibility
+            {
+                $pull: {
+                    adminIds: { $in: [memberId, { userId: memberId }] },
+                    admins: { $in: [memberId, { userId: memberId }] }
                 },
-                $set: { updatedAt: new Date().toISOString() } 
+                $set: { updatedAt: new Date().toISOString() }
             }
         );
 
-        // Also update member object in group to reflect admin status change in chat UI
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }], 'members.userId': memberId },
             { $set: { 'members.$.isAdmin': false } }
@@ -15695,7 +13595,6 @@ app.delete('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res
 
         await logEvent('group_admin_demoted', `Member ${memberId} demoted by admin ${userId} in group ${group.name}`, userId);
 
-        // ✅ Broadcast demote event to all group members via Socket.IO
         const demotedUser = await dbConnection.collection('users').findOne({ id: memberId }, { projection: { username: 1 } });
         const demotedUsername = demotedUser?.username || 'Member';
         if (global.socketIoServer) {
@@ -15722,11 +13621,6 @@ app.delete('/api/groups/:groupId/admins/:memberId', verifyToken, async (req, res
     }
 });
 
-// ✅ ===== GROUP CUSTOM PICTURE ENDPOINTS =====
-
-/**
- * POST /api/groups/:groupId/picture - Upload group custom profile picture (Admin only)
- */
 app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), async (req, res) => {
     try {
         const { groupId } = req.params;
@@ -15734,25 +13628,22 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
 
         console.log(`[DEBUG] Picture upload request: groupId=${groupId}, userId=${userId}, hasFile=${!!req.file}`);
 
-        // Verify group exists and user is admin
         const group = await dbConnection.collection('groups').findOne({ $or: [{ id: groupId }, { groupId: groupId }] });
         if (!group) {
             console.error(`[ERROR] Group not found: ${groupId}`);
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check admin permission - handle both string array and object array formats
         const isPictureUploadAdmin =
             (Array.isArray(group.adminIds) && (group.adminIds.includes(userId) || group.adminIds.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             (Array.isArray(group.admins) && (group.admins.includes(userId) || group.admins.some(a => a && typeof a === 'object' && (a.userId === userId || a.id === userId)))) ||
             group.createdBy === userId;
-        
+
         if (!isPictureUploadAdmin) {
             console.error(`[ERROR] User ${userId} is not admin of group ${groupId}. group.adminIds:`, group.adminIds, 'group.admins:', group.admins);
             return res.status(403).json({ error: 'Only group admins can upload group pictures' });
         }
 
-        // Verify file exists
         if (!req.file) {
             console.error(`[ERROR] No file provided in picture upload for group ${groupId}`);
             return res.status(400).json({ error: 'No image file provided' });
@@ -15760,7 +13651,6 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
 
         console.log(`[DEBUG] Uploading file: ${req.file.originalname} (${req.file.size} bytes)`);
 
-        // ✅ FIX: Multer with 'dest' doesn't provide buffer. Read from path if buffer is missing.
         let fileBuffer = req.file.buffer;
         if (!fileBuffer && req.file.path) {
             console.log(`[GROUP PICTURE] Reading file from disk: ${req.file.path}`);
@@ -15772,12 +13662,11 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
             return res.status(500).json({ error: 'File data not available' });
         }
 
-        // Initialize GridFS and upload file
         const gridfs = initializeGridFSHandler();
         const fileInfo = await gridfs.uploadFile(
             fileBuffer,
             `group_${groupId}_${Date.now()}`,
-            { 
+            {
                 groupId: groupId,
                 uploadedBy: userId,
                 originalName: req.file.originalname
@@ -15786,7 +13675,6 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
 
         console.log(`[DEBUG] File uploaded to GridFS: ${fileInfo.fileId}`);
 
-        // Delete old picture if exists
         if (group.profilePictureFileId) {
             try {
                 await gridfs.deleteFile(group.profilePictureFileId);
@@ -15796,7 +13684,6 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
             }
         }
 
-        // Update group with new picture info
         const updateResult = await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             {
@@ -15811,7 +13698,6 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
 
         console.log(`[DEBUG] Group updated. Matched: ${updateResult.matchedCount}, Modified: ${updateResult.modifiedCount}`);
 
-        // Broadcast update to group members
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.to(`group:${groupId}`).emit('group:pictureUpdated', {
@@ -15837,9 +13723,6 @@ app.post('/api/groups/:groupId/picture', verifyToken, upload.single('picture'), 
     }
 });
 
-/**
- * GET /api/groups/:groupId/picture - Download group profile picture with cache headers
- */
 app.get('/api/groups/:groupId/picture', async (req, res) => {
     try {
         const { groupId } = req.params;
@@ -15849,11 +13732,9 @@ app.get('/api/groups/:groupId/picture', async (req, res) => {
             return res.status(404).json({ error: 'Group picture not found' });
         }
 
-        // Initialize GridFS and download file
         const gridfs = initializeGridFSHandler();
         const fileBuffer = await gridfs.downloadFile(group.profilePictureFileId);
 
-        // Set cache headers for 1 week
         res.setHeader('Cache-Control', 'public, max-age=604800');
         res.setHeader('Content-Type', 'image/jpeg');
         res.send(fileBuffer);
@@ -15866,16 +13747,12 @@ app.get('/api/groups/:groupId/picture', async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: PUT /api/groups/:groupId/name - Update group name (Admin only)
- */
 app.put('/api/groups/:groupId/name', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const { name } = req.body;
         const userId = req.user.userId;
 
-        // Validate input
         if (!name || name.trim().length === 0) {
             return res.status(400).json({ error: 'Group name cannot be empty' });
         }
@@ -15883,9 +13760,8 @@ app.put('/api/groups/:groupId/name', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'Group name too long (max 100 characters)' });
         }
 
-        // Verify group exists and user is admin
-        const group = await dbConnection.collection('groups').findOne({ 
-            $or: [{ id: groupId }, { groupId: groupId }] 
+        const group = await dbConnection.collection('groups').findOne({
+            $or: [{ id: groupId }, { groupId: groupId }]
         });
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
@@ -15899,7 +13775,6 @@ app.put('/api/groups/:groupId/name', verifyToken, async (req, res) => {
             return res.status(403).json({ error: 'Only group admins can change group name' });
         }
 
-        // Update group name
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             {
@@ -15912,7 +13787,6 @@ app.put('/api/groups/:groupId/name', verifyToken, async (req, res) => {
             }
         );
 
-        // Broadcast update to group members
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.to(`group:${groupId}`).emit('group:nameUpdated', {
@@ -15937,28 +13811,22 @@ app.put('/api/groups/:groupId/name', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * ✅ NEW: PUT /api/groups/:groupId - Comprehensive group update (name, description) (Admin only)
- */
 app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
         const { name, description, isPrivate } = req.body;
         const userId = req.user.userId;
 
-        // Verify group exists
-        const group = await dbConnection.collection('groups').findOne({ 
-            $or: [{ id: groupId }, { groupId: groupId }] 
+        const group = await dbConnection.collection('groups').findOne({
+            $or: [{ id: groupId }, { groupId: groupId }]
         });
         if (!group) {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Check if user is a member
         const members = Array.isArray(group.members) ? group.members : [];
         const isMember = members.some(m => m && (typeof m === 'object' ? (m.userId || m.id) : m) === userId);
-        
-        // Check if user is an admin (defensive against nulls) or the owner
+
         const adminIds = Array.isArray(group.adminIds) ? group.adminIds : (Array.isArray(group.admins) ? group.admins : []);
         const isAdmin = adminIds.some(a => a && (typeof a === 'object' ? (a.userId || a.id) : a) === userId);
         const isOwner = group.createdBy === userId || group.ownerId === userId;
@@ -15967,14 +13835,11 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
             return res.status(403).json({ error: 'Not a member of this group' });
         }
 
-        // Promote admin/owner to full admin rights for update purposes
         const hasAdminRights = isAdmin || isOwner;
 
-        // Prepare update object
         const updateObj = { updatedAt: new Date() };
         const eventObj = { groupId: groupId, updatedBy: userId, updatedAt: new Date().getTime() };
 
-        // Validate and add name (Only admins can change name)
         if (name !== undefined && name !== group.name && name !== group.groupName) {
             if (!hasAdminRights) {
                 return res.status(403).json({ error: 'Only group admins can change the group name' });
@@ -15990,7 +13855,6 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
             eventObj.name = name.trim();
         }
 
-        // Validate and add description (Both admins and members can change description)
         if (description !== undefined && description !== group.description) {
             if (description && description.length > 500) {
                 return res.status(400).json({ error: 'Group description too long (max 500 characters)' });
@@ -15999,7 +13863,6 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
             eventObj.description = updateObj.description;
         }
 
-        // Validate and add isPrivate (Only admins can change privacy)
         if (isPrivate !== undefined && isPrivate !== group.isPrivate) {
             if (!hasAdminRights) {
                 return res.status(403).json({ error: 'Only group admins can change group privacy settings' });
@@ -16008,7 +13871,6 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
             eventObj.isPrivate = !!isPrivate;
         }
 
-        // Ensure there is something to update
         if (Object.keys(updateObj).length <= 1) {
             return res.json({
                 success: true,
@@ -16017,7 +13879,6 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
             });
         }
 
-        // Execute update in database
         const updateResult = await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             { $set: updateObj }
@@ -16027,10 +13888,8 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Group not found' });
         }
 
-        // Broadcast update to group members
         const io = require('../websocket/socket-io-server').io;
         if (io) {
-            // Send full update object in broadcast
             const broadcastObj = {
                 groupId: groupId,
                 id: groupId,
@@ -16042,8 +13901,38 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
                 ...eventObj
             };
             io.to(`group:${groupId}`).emit('group:updated', broadcastObj);
-            // Also emit with dot notation for compatibility
             io.to(`group:${groupId}`).emit('group.updated', broadcastObj);
+        }
+
+        try {
+            const memberIds = (group.members || [])
+                .filter(m => m != null)
+                .map(m => typeof m === 'object' ? (m.userId || m.id) : m)
+                .filter(Boolean)
+                .filter(id => id !== userId);
+
+            const updater = await dbConnection.collection('users').findOne({ id: userId }, { projection: { username: 1, displayName: 1 } });
+            const updaterName = updater?.displayName || updater?.username || 'Someone';
+            const groupNameFinal = broadcastObj.name || group.name;
+
+            for (const memberId of memberIds) {
+                await sendPushNotification(memberId, {
+                    notification: {
+                        title: 'Group Updated',
+                        body: `${updaterName} updated "${groupNameFinal}"`,
+                        sound: 'default'
+                    },
+                    data: {
+                        type: 'groupUpdated',
+                        groupId: groupId,
+                        groupName: groupNameFinal,
+                        updatedBy: userId,
+                        updatedByName: updaterName
+                    }
+                });
+            }
+        } catch (fcmErr) {
+            console.error(`[FCM] Group update notification error: ${fcmErr.message}`);
         }
 
         console.log(`[OK] Group updated: ${groupId}`, updateObj);
@@ -16060,9 +13949,6 @@ app.put('/api/groups/:groupId', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * DELETE /api/groups/:groupId/picture - Delete group picture and reset to default (Admin only)
- */
 app.delete('/api/groups/:groupId/picture', verifyToken, async (req, res) => {
     try {
         const { groupId } = req.params;
@@ -16081,14 +13967,12 @@ app.delete('/api/groups/:groupId/picture', verifyToken, async (req, res) => {
             return res.status(403).json({ error: 'Only group admins can delete group pictures' });
         }
 
-        // Delete from GridFS
         if (group.profilePictureFileId) {
             const gridfs = initializeGridFSHandler();
             await gridfs.deleteFile(group.profilePictureFileId);
             console.log(`[OK] Group picture deleted from GridFS: ${group.profilePictureFileId}`);
         }
 
-        // Remove picture info from group
         await dbConnection.collection('groups').updateOne(
             { $or: [{ id: groupId }, { groupId: groupId }] },
             {
@@ -16101,7 +13985,6 @@ app.delete('/api/groups/:groupId/picture', verifyToken, async (req, res) => {
             }
         );
 
-        // Broadcast removal to group members
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.to(`group:${groupId}`).emit('group:pictureRemoved', {
@@ -16123,9 +14006,6 @@ app.delete('/api/groups/:groupId/picture', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== VERSION CHECK / IN-APP UPDATE ROUTES ====================
-// The APK file name is version-agnostic so future releases can be published by
-// simply dropping a new FreeTimeApp.apk into the /update directory (no renaming).
 const APK_FILE_NAME = 'FreeTimeApp.apk';
 const APP_VERSION = {
     minimumVersion: '1.0'
@@ -16154,8 +14034,6 @@ async function getActiveUpdate() {
     }
 }
 
-// An update is offered ONLY when an admin has actively launched it AND the APK
-// file is present. Without an admin launch, clients are told there is no update.
 async function getEffectiveVersion() {
     const adminUpdate = await getActiveUpdate();
     if (adminUpdate && apkExists()) {
@@ -16183,18 +14061,50 @@ function buildDownloadUrl(req) {
 }
 
 app.get('/api/app/version-info', async (req, res) => {
-    const effective = await getEffectiveVersion();
-    const adminUpdate = effective.latestVersionCode > 0 ? await getActiveUpdate() : null;
-    res.json({
-        latestVersion: effective.latestVersion,
-        latestVersionCode: effective.latestVersionCode,
-        minimumVersion: effective.minimumVersion,
-        forceUpdate: effective.forceUpdate,
-        releaseNotes: effective.releaseNotes,
-        downloadUrl: apkExists() ? buildDownloadUrl(req) : '',
-        updateId: adminUpdate ? adminUpdate.id : null,
-        launchedAt: adminUpdate ? adminUpdate.launchedAt : null
-    });
+    try {
+        const adminUpdate = await getActiveUpdate();
+        const hasApk = apkExists();
+        let effective;
+        if (adminUpdate && hasApk) {
+            effective = {
+                latestVersion: adminUpdate.version,
+                latestVersionCode: adminUpdate.versionCode,
+                minimumVersion: APP_VERSION.minimumVersion,
+                forceUpdate: adminUpdate.forceUpdate,
+                releaseNotes: adminUpdate.releaseNotes
+            };
+        } else {
+            effective = {
+                latestVersion: APP_VERSION.minimumVersion,
+                latestVersionCode: 0,
+                minimumVersion: APP_VERSION.minimumVersion,
+                forceUpdate: false,
+                releaseNotes: ''
+            };
+        }
+        res.json({
+            latestVersion: effective.latestVersion,
+            latestVersionCode: effective.latestVersionCode,
+            minimumVersion: effective.minimumVersion,
+            forceUpdate: effective.forceUpdate,
+            releaseNotes: effective.releaseNotes,
+            downloadUrl: hasApk ? buildDownloadUrl(req) : '',
+            updateId: adminUpdate ? adminUpdate.id : null,
+            launchedAt: adminUpdate ? adminUpdate.launchedAt : null
+        });
+    } catch (e) {
+        console.error('[VERSION_INFO_ERROR]', e.message);
+        res.json({
+            latestVersion: APP_VERSION.minimumVersion,
+            latestVersionCode: 0,
+            minimumVersion: APP_VERSION.minimumVersion,
+            forceUpdate: false,
+            releaseNotes: '',
+            downloadUrl: '',
+            updateId: null,
+            launchedAt: null
+        });
+    }
 });
 
 app.post('/api/app/version-check', verifyToken, async (req, res) => {
@@ -16223,12 +14133,6 @@ app.post('/api/app/version-check', verifyToken, async (req, res) => {
     }
 });
 
-// ==================== APP UPDATE MANAGEMENT (Admin-Triggered) ====================
-
-/**
- * POST /api/admin/update/launch - Admin launches an app update to all users
- * Creates an update record and broadcasts via WebSocket
- */
 app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
     try {
         if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -16237,14 +14141,17 @@ app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
             return res.status(400).json({ error: 'version and releaseNotes are required' });
         }
 
-        // The APK must already be dropped into the /update directory.
+        const parsedVersionCode = parseInt(versionCode);
+        if (!versionCode || isNaN(parsedVersionCode) || parsedVersionCode < 1) {
+            return res.status(400).json({ error: 'versionCode must be a positive integer' });
+        }
+
         if (!apkExists()) {
             return res.status(400).json({
                 error: `No APK found in update/. Drop the file as "${APK_FILE_NAME}" first, then launch the update.`
             });
         }
 
-        // Deactivate any previous active updates
         await dbConnection.collection('appUpdates').updateMany(
             { isActive: true },
             { $set: { isActive: false, deactivatedAt: new Date().toISOString() } }
@@ -16264,7 +14171,6 @@ app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
 
         await dbConnection.collection('appUpdates').insertOne(updateRecord);
 
-        // Broadcast to all connected users via WebSocket
         const io = require('../websocket/socket-io-server').io;
         if (io) {
             io.emit('app.update.launched', {
@@ -16287,9 +14193,6 @@ app.post('/api/admin/update/launch', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * GET /api/admin/update/info - Get current active update info
- */
 app.get('/api/admin/update/info', verifyToken, async (req, res) => {
     try {
         if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -16303,13 +14206,14 @@ app.get('/api/admin/update/info', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * PUT /api/admin/update/:id - Edit update release notes
- */
 app.put('/api/admin/update/:id', verifyToken, async (req, res) => {
     try {
         if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
         const { releaseNotes, forceUpdate } = req.body;
+        const existing = await dbConnection.collection('appUpdates').findOne({ id: req.params.id });
+        if (!existing) {
+            return res.status(404).json({ error: 'Update not found' });
+        }
         await dbConnection.collection('appUpdates').updateOne(
             { id: req.params.id },
             { $set: { releaseNotes, forceUpdate: !!forceUpdate, updatedAt: new Date().toISOString() } }
@@ -16320,9 +14224,6 @@ app.put('/api/admin/update/:id', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * DELETE /api/admin/update/:id - Deactivate an update
- */
 app.delete('/api/admin/update/:id', verifyToken, async (req, res) => {
     try {
         if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -16336,9 +14237,6 @@ app.delete('/api/admin/update/:id', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * GET /api/admin/update/stats - Get update adoption statistics
- */
 app.get('/api/admin/update/stats', verifyToken, async (req, res) => {
     try {
         if (!req.user || req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
@@ -16350,19 +14248,22 @@ app.get('/api/admin/update/stats', verifyToken, async (req, res) => {
             return res.json({ update: null, totalUsers: 0, updatedCount: 0, notUpdatedCount: 0, users: [] });
         }
 
-        const allUsers = await dbConnection.collection('users').find({}, { projection: { id: 1, username: 1, lastAppVersionCode: 1, lastActiveAt: 1 } }).toArray();
+        const allUsers = await dbConnection.collection('users').find({}, { projection: { _id: 1, userId: 1, username: 1, lastAppVersionCode: 1, lastActiveAt: 1 } }).toArray();
         const totalUsers = allUsers.length;
         const updatedUsers = update.acknowledgedBy || [];
         const updatedCount = updatedUsers.length;
         const notUpdatedCount = totalUsers - updatedCount;
 
-        const users = allUsers.map(u => ({
-            id: u.id,
-            username: u.username,
-            hasUpdated: updatedUsers.includes(u.id),
-            lastVersionCode: u.lastAppVersionCode || 0,
-            lastActive: u.lastActiveAt || null
-        }));
+        const users = allUsers.map(u => {
+            const uid = u.userId || u._id?.toString() || '';
+            return {
+                id: uid,
+                username: u.username,
+                hasUpdated: updatedUsers.includes(uid),
+                lastVersionCode: u.lastAppVersionCode || 0,
+                lastActive: u.lastActiveAt || null
+            };
+        });
 
         res.json({ update, totalUsers, updatedCount, notUpdatedCount, users });
     } catch (err) {
@@ -16370,9 +14271,6 @@ app.get('/api/admin/update/stats', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * POST /api/app/update/acknowledge - User acknowledges they've seen/installed the update
- */
 app.post('/api/app/update/acknowledge', verifyToken, async (req, res) => {
     try {
         const userId = req.user.userId;
@@ -16385,7 +14283,6 @@ app.post('/api/app/update/acknowledge', verifyToken, async (req, res) => {
             );
         }
 
-        // Store the user's current app version
         if (versionCode) {
             await dbConnection.collection('users').updateOne(
                 { $or: [{ id: userId }, { userId: userId }] },
@@ -16399,33 +14296,32 @@ app.post('/api/app/update/acknowledge', verifyToken, async (req, res) => {
     }
 });
 
-/**
- * GET /api/app/latest-update - Get latest active update for clients
- */
 app.get('/api/app/latest-update', async (req, res) => {
     try {
         const update = await dbConnection.collection('appUpdates').findOne(
             { isActive: true },
             { sort: { launchedAt: -1 } }
         );
-        res.json({ update: update || null });
+        if (update) {
+            const { acknowledgedBy, ...safeUpdate } = update;
+            res.json({ update: safeUpdate });
+        } else {
+            res.json({ update: null });
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Graceful shutdown handlers
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
     console.error('[ERROR] Uncaught Exception:', err);
     logEvent('error', `Uncaught exception: ${err.message}`);
     gracefulShutdown('uncaughtException');
 });
 
-// Handle unhandled rejections
 process.on('unhandledRejection', (reason, promise) => {
     console.error('[ERROR] Unhandled Rejection at:', promise, 'reason:', reason);
     logEvent('error', `Unhandled rejection: ${reason}`);

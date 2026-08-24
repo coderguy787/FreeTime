@@ -25,16 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
-/**
- * Enhanced user profile card with all features:
- * - Profile banner
- * - Avatar
- * - User info (name, username, bio)
- * - Badges
- * - Tags
- * - Status
- * - Action buttons (block, report, message)
- */
 @Composable
 fun EnhancedProfileCard(
     username: String,
@@ -59,7 +49,6 @@ fun EnhancedProfileCard(
             .verticalScroll(rememberScrollState())
             .background(CyberpunkTheme.Black)
     ) {
-        // Profile Banner
         if (!bannerUrl.isNullOrEmpty()) {
             AsyncImage(
                 model = bannerUrl,
@@ -72,7 +61,6 @@ fun EnhancedProfileCard(
                 contentScale = ContentScale.Crop
             )
         } else {
-            // Gradient banner fallback
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -89,7 +77,6 @@ fun EnhancedProfileCard(
             )
         }
 
-        // Avatar and basic info
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -99,9 +86,9 @@ fun EnhancedProfileCard(
         ) {
             val context = androidx.compose.ui.platform.LocalContext.current
             val apiService = remember { com.freetime.app.api.FreeTimeApiService(context) }
+            // avatar urls need the server prefix
             val resolvedAvatarUrl = apiService.resolveAvatarUrl(avatarUrl)
-            
-            // Avatar (positioned over banner with overlap)
+
             AsyncImage(
                 model = resolvedAvatarUrl,
                 contentDescription = "Avatar",
@@ -113,7 +100,6 @@ fun EnhancedProfileCard(
                 contentScale = ContentScale.Crop
             )
 
-            // Display name and username
             Text(
                 displayName,
                 color = CyberpunkTheme.White,
@@ -131,7 +117,6 @@ fun EnhancedProfileCard(
                     fontSize = 13.sp
                 )
 
-                // Status indicator
                 Box(
                     modifier = Modifier
                         .size(8.dp)
@@ -152,7 +137,6 @@ fun EnhancedProfileCard(
                 )
             }
 
-            // Bio
             if (bio.isNotEmpty()) {
                 Text(
                     bio,
@@ -175,7 +159,6 @@ fun EnhancedProfileCard(
             color = CyberpunkTheme.DarkGray
         )
 
-        // Badges section
         if (badges.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -194,7 +177,6 @@ fun EnhancedProfileCard(
             )
         }
 
-        // Tags section
         if (tags.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -247,7 +229,6 @@ fun EnhancedProfileCard(
             )
         }
 
-        // Action buttons
         if (!isCurrentUser) {
             Row(
                 modifier = Modifier
@@ -255,7 +236,6 @@ fun EnhancedProfileCard(
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Message button
                 if (onSendMessage != null) {
                     ElevatedButton(
                         onClick = onSendMessage,
@@ -272,7 +252,6 @@ fun EnhancedProfileCard(
                     }
                 }
 
-                // Add friend button
                 if (onAddFriend != null) {
                     ElevatedButton(
                         onClick = onAddFriend,
@@ -289,7 +268,6 @@ fun EnhancedProfileCard(
                     }
                 }
 
-                // Block button
                 if (onBlockUser != null) {
                     IconButton(
                         onClick = { showBlockDialog = true },
@@ -312,7 +290,6 @@ fun EnhancedProfileCard(
         Spacer(modifier = Modifier.height(16.dp))
     }
 
-    // Block confirmation dialog
     if (showBlockDialog) {
         AlertDialog(
             onDismissRequest = { showBlockDialog = false },

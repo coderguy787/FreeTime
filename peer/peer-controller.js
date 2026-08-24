@@ -1,17 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * FreeTime Peer Server Control Panel
- * Terminal-based monitoring and management interface
- * 
- * Features:
- * - Real-time connection monitoring
- * - Performance metrics visualization
- * - Message queue status
- * - Call activity tracking
- * - Master server synchronization status
- */
-
 const axios = require('axios');
 const readline = require('readline');
 const os = require('os');
@@ -28,8 +16,6 @@ const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
-
-// ==================== COLOR CODES ====================
 
 const colors = {
     reset: '\x1b[0m',
@@ -48,8 +34,6 @@ const colors = {
 
 const c = (color) => colors[color];
 const reset = c('reset');
-
-// ==================== UTILITIES ====================
 
 async function fetchStats() {
     try {
@@ -86,7 +70,7 @@ function formatTime(seconds) {
     const h = Math.floor((seconds % 86400) / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    
+
     if (d > 0) return `${d}d ${h}h ${m}m`;
     if (h > 0) return `${h}h ${m}m ${s}s`;
     if (m > 0) return `${m}m ${s}s`;
@@ -103,107 +87,98 @@ function clearScreen() {
     console.clear();
 }
 
-// ==================== DASHBOARD ====================
-
 async function showDashboard() {
     clearScreen();
-    
+
     const stats = await fetchStats();
     const health = await fetchHealth();
 
     console.log(c('cyan') + c('bright') + '╔════════════════════════════════════════════════════════════╗' + reset);
-    console.log(c('cyan') + c('bright') + '║         FreeTime Peer Server Control Panel                   ║' + reset);
+    console.log(c('cyan') + c('bright') + '║ FreeTime Peer Server Control Panel ║' + reset);
     console.log(c('cyan') + c('bright') + '╚════════════════════════════════════════════════════════════╝' + reset);
     console.log('');
 
     if (!stats || !health) {
-        console.log(c('red') + '❌ ERROR: Cannot connect to peer server' + reset);
-        console.log(`   Make sure peer server is running on port ${config.PEER_PORT}`);
+        console.log(c('red') + ' ERROR: Cannot connect to peer server' + reset);
+        console.log(` Make sure peer server is running on port ${config.PEER_PORT}`);
         console.log('');
-        console.log('   Start with: node peer-server.js');
+        console.log(' Start with: node peer-server.js');
         console.log('');
         return;
     }
 
-    // ==================== CONNECTION STATUS ====================
-    console.log(c('green') + '✓ Peer Server Status: ONLINE' + reset);
-    console.log(`  Region: ${stats.region} | Peer ID: ${stats.peerId}`);
-    console.log(`  Uptime: ${formatTime(stats.uptime)}`);
+    console.log(c('green') + ' Peer Server Status: ONLINE' + reset);
+    console.log(` Region: ${stats.region} | Peer ID: ${stats.peerId}`);
+    console.log(` Uptime: ${formatTime(stats.uptime)}`);
     console.log('');
 
-    // ==================== CONNECTION METRICS ====================
     console.log(c('blue') + c('bright') + '━━ Connection Metrics ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' + reset);
-    
+
     const util = stats.utilizationPercent;
     const utilColor = getHealthColor(util);
-    
+
     console.log(`Active Connections: ${utilColor}${stats.activeConnections}${reset} / ${stats.maxCapacity} (${utilColor}${util}%${reset})`);
     console.log('');
 
-    // Connection bar chart
     const barLength = 40;
     const filledLength = Math.round((util / 100) * barLength);
     const emptyLength = barLength - filledLength;
-    const bar = c('bgGreen') + ' '.repeat(filledLength) + reset + 
+    const bar = c('bgGreen') + ' '.repeat(filledLength) + reset +
                 c('bgBlack') + ' '.repeat(emptyLength) + reset;
-    console.log(`  [${bar}] ${util}%`);
+    console.log(` [${bar}] ${util}%`);
     console.log('');
 
-    // ==================== MEMORY USAGE ====================
     console.log(c('blue') + c('bright') + '━━ Memory Usage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' + reset);
-    
+
     const memory = stats.memoryUsage;
     const heapUsedPercent = Math.round((memory.heapUsed / memory.heapTotal) * 100);
-    
+
     console.log(`Heap: ${formatBytes(memory.heapUsed)} / ${formatBytes(memory.heapTotal)} (${heapUsedPercent}%)`);
-    console.log(`RSS:  ${formatBytes(memory.rss)}`);
+    console.log(`RSS: ${formatBytes(memory.rss)}`);
     console.log('');
 
-    // ==================== WORKER INFO ====================
     console.log(c('blue') + c('bright') + '━━ Worker Information ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' + reset);
     console.log(`Worker ID: ${health.peer}`);
     console.log(`Process ID: ${health.memory ? '[Multiple workers]' : process.pid}`);
     console.log(`Per-Worker Capacity: ${Math.floor(stats.maxCapacity / (os.cpus().length))}`);
     console.log('');
 
-    // ==================== SYSTEM INFO ====================
     console.log(c('blue') + c('bright') + '━━ System Information ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' + reset);
     console.log(`CPU Cores: ${os.cpus().length}`);
     console.log(`Platform: ${os.platform()} ${os.release()}`);
     console.log(`Free Memory: ${formatBytes(os.freemem())} / ${formatBytes(os.totalmem())}`);
     console.log('');
 
-    // ==================== ALERTS ====================
     console.log(c('blue') + c('bright') + '━━ Alerts ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' + reset);
-    
+
     if (util > 90) {
-        console.log(c('red') + '⚠️  HIGH LOAD: Utilization above 90%' + reset);
+        console.log(c('red') + ' HIGH LOAD: Utilization above 90%' + reset);
     } else if (util > 70) {
-        console.log(c('yellow') + '⚡ MODERATE LOAD: Utilization above 70%' + reset);
+        console.log(c('yellow') + ' MODERATE LOAD: Utilization above 70%' + reset);
     } else {
-        console.log(c('green') + '✓ NORMAL: System operating within safe parameters' + reset);
+        console.log(c('green') + ' NORMAL: System operating within safe parameters' + reset);
     }
-    
+
     if (heapUsedPercent > 85) {
-        console.log(c('red') + '⚠️  HIGH MEMORY: Heap utilization above 85%' + reset);
+        console.log(c('red') + ' HIGH MEMORY: Heap utilization above 85%' + reset);
     }
-    
+
     console.log('');
 }
 
 async function showDetailedMetrics() {
     const stats = await fetchStats();
-    
+
     if (!stats) {
         console.log(c('red') + 'Cannot connect to peer server' + reset);
         return;
     }
 
     clearScreen();
-    
+
     console.log(c('cyan') + c('bright') + 'Detailed Metrics' + reset);
     console.log('');
-    
+
     console.log(c('bright') + 'Connection Details:' + reset);
     console.log(JSON.stringify(stats, null, 2));
 }
@@ -217,7 +192,7 @@ async function showConnections() {
 
     while (true) {
         const stats = await fetchStats();
-        
+
         if (!stats) {
             console.log(c('red') + 'Cannot connect to peer server' + reset);
             break;
@@ -233,28 +208,26 @@ async function showConnections() {
     }
 }
 
-// ==================== INTERACTIVE MENU ====================
-
 function showMenu() {
     console.log('');
     console.log(c('cyan') + 'Commands:' + reset);
-    console.log('  1. Dashboard          - View main dashboard');
-    console.log('  2. Detailed Metrics   - JSON metrics export');
-    console.log('  3. Connection Monitor - Live connection tracking');
-    console.log('  4. Help              - Show help information');
-    console.log('  5. Exit              - Exit control panel');
+    console.log(' 1. Dashboard - View main dashboard');
+    console.log(' 2. Detailed Metrics - JSON metrics export');
+    console.log(' 3. Connection Monitor - Live connection tracking');
+    console.log(' 4. Help - Show help information');
+    console.log(' 5. Exit - Exit control panel');
     console.log('');
 }
 
 async function main() {
     clearScreen();
-    
+
     console.log(c('cyan') + c('bright'));
-    console.log('  ___                 ___');
-    console.log(' | __| _ _  __  __  _|_ |');
-    console.log(' | |  | \\/ _)/ _ \\/ | |  ');
-    console.log(' |____|__/___\\___/__| |  ');
-    console.log('                        ');
+    console.log(' ___ ___');
+    console.log(' | __| _ _ __ __ _|_ |');
+    console.log(' | | | \\/ _)/ _ \\/ | | ');
+    console.log(' |____|__/___\\___/__| | ');
+    console.log(' ');
     console.log(' Peer Server Control Panel');
     console.log(reset);
 
@@ -299,7 +272,7 @@ async function main() {
                     break;
 
                 case '5':
-                    console.log(c('yellow') + '👋 Goodbye!' + reset);
+                    console.log(c('yellow') + ' Goodbye!' + reset);
                     process.exit(0);
                     break;
 
@@ -311,11 +284,9 @@ async function main() {
         });
     };
 
-    // Show initial menu
     showMenu();
     askQuestion();
 
-    // Graceful shutdown
     process.on('SIGINT', () => {
         console.log('');
         console.log(c('yellow') + 'Control panel shutting down...' + reset);

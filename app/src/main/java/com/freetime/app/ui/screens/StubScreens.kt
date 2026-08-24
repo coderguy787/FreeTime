@@ -4,12 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
-/**
- * Stub Screen Implementations
- * These are placeholder composables to allow compilation
- * Replace with actual implementations as needed
- */
-
+// empty placeholder screens
 @Composable
 fun HomeScreen(
     _onLogoutClick: () -> Unit = {},
@@ -18,7 +13,6 @@ fun HomeScreen(
     _onNavigateToContacts: () -> Unit = {},
     _onNavigateToSettings: () -> Unit = {}
 ) {
-    // Placeholder
 }
 
 @Composable
@@ -28,7 +22,6 @@ fun ChatScreen(
     _onBackClick: () -> Unit = {},
     _recipientName: String = ""
 ) {
-    // Placeholder
 }
 
 @Composable
@@ -37,7 +30,6 @@ fun ContactsScreen(
     _onNavigateToChat: (String) -> Unit = {},
     _onContactClick: (String) -> Unit = {}
 ) {
-    // Placeholder
 }
 
 @Composable
@@ -46,7 +38,6 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     _onBackClick: () -> Unit = {}
 ) {
-    // Placeholder
 }
 
 @Composable
@@ -55,7 +46,6 @@ fun FriendRequestsScreen(
     _onFriendRequestsClick: (String) -> Unit = {},
     _onBackClick: () -> Unit = {}
 ) {
-    // Placeholder
 }
 
 @Composable
@@ -63,14 +53,11 @@ fun TwoFactorSetupScreen(
     _onSetupComplete: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // Placeholder
 }
 
 @Composable
 fun ChannelAdminPanel(
     modifier: Modifier = Modifier
 ) {
-    // Placeholder
 }
-
 

@@ -1,15 +1,3 @@
-/**
- * FreeTime Secure Admin-Master Server Communication
- * Handles authenticated communication between Admin Panel and Main API
- * 
- * Security Features:
- * - HMAC-SHA256 request signing
- * - Timestamp validation (prevents replay attacks)
- * - Admin authentication token
- * - Rate limiting per admin
- * - Comprehensive audit logging
- */
-
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
@@ -21,21 +9,18 @@ class AdminComPort {
         this.adminToken = process.env.ADMIN_TOKEN || config.adminToken || this.generateToken();
         this.jwtSecret = process.env.JWT_SECRET || config.jwtSecret || null;
         this.adminId = config.adminId || 'default-admin';
-        this.timestampWindowSeconds = config.timestampWindowSeconds || 300; // 5 min
-        this.rateLimitWindow = config.rateLimitWindow || 60000; // 1 minute
+        this.timestampWindowSeconds = config.timestampWindowSeconds || 300;
+        this.rateLimitWindow = config.rateLimitWindow || 60000;
         this.rateLimitRequests = config.rateLimitRequests || 100;
-        
-        // Rate limiting storage
-        this.adminRequests = new Map(); // adminId -> [ { timestamp, count } ]
-        
-        // Audit logging
+
+        this.adminRequests = new Map();
+
         this.auditLog = [];
         this.maxAuditLogs = config.maxAuditLogs || 10000;
         this.auditLogPath = config.auditLogPath || path.join(__dirname, '../logs/admin-communication.log');
-        
-        // Load audit logs from disk if exists
+
         this.loadAuditLogs();
-        
+
         console.log('[ADMIN-COM] Admin Communication Port initialized');
         console.log(`[ADMIN-COM] Admin ID: ${this.adminId}`);
         console.log(`[ADMIN-COM] Timestamp window: ${this.timestampWindowSeconds}s`);
@@ -44,38 +29,26 @@ class AdminComPort {
         console.log(`[ADMIN-COM] Admin Secret: ${this.adminSecret.substring(0, 20)}...`);
     }
 
-    /**
-     * Generate secure random secret
-     */
     generateSecret() {
         return crypto.randomBytes(32).toString('base64');
     }
 
-    /**
-     * Generate admin token
-     */
     generateToken() {
         return crypto.randomBytes(24).toString('hex');
     }
 
-    /**
-     * Create request signature
-     */
     signRequest(method, endpoint, body = '', timestamp = Date.now()) {
         const data = `${method}:${endpoint}:${body}:${timestamp}`;
         const sig = crypto
             .createHmac('sha256', this.adminSecret)
             .update(data)
             .digest('hex');
-        
+
         return { signature: sig, timestamp };
     }
 
-    /**
-     * Verify request signature
-     */
     verifySignature(method, endpoint, body, signature, timestamp) {
-        // Validate timestamp (prevent replay attacks)
+        // reject signatures reused outside this window
         const now = Date.now();
         const timeDiff = Math.abs(now - timestamp);
         const timeDiffSeconds = timeDiff / 1000;
@@ -87,7 +60,6 @@ class AdminComPort {
             };
         }
 
-        // Verify signature
         const expectedData = `${method}:${endpoint}:${body}:${timestamp}`;
         const expectedSignature = crypto
             .createHmac('sha256', this.adminSecret)
@@ -95,7 +67,6 @@ class AdminComPort {
             .digest('hex');
         const isValid = signature === expectedSignature;
 
-        // DEBUG: Log every verification attempt
         if (!isValid) {
             console.log(`[ADMIN-COM] Signature mismatch:
     Received: ${signature}
@@ -110,19 +81,15 @@ class AdminComPort {
         };
     }
 
-    /**
-     * Check rate limits
-     */
     checkRateLimit(adminId) {
         const now = Date.now();
-        
+
         if (!this.adminRequests.has(adminId)) {
             this.adminRequests.set(adminId, []);
         }
 
         const requests = this.adminRequests.get(adminId);
-        
-        // Remove old requests outside the window
+
         const validRequests = requests.filter(req => now - req.timestamp < this.rateLimitWindow);
         this.adminRequests.set(adminId, validRequests);
 
@@ -134,9 +101,8 @@ class AdminComPort {
             };
         }
 
-        // Add current request
         validRequests.push({ timestamp: now });
-        
+
         return {
             allowed: true,
             remaining: this.rateLimitRequests - validRequests.length,
@@ -144,9 +110,6 @@ class AdminComPort {
         };
     }
 
-    /**
-     * Log admin action
-     */
     logAdminAction(action, details, status = 'success', error = null) {
         const logEntry = {
             timestamp: new Date().toISOString(),
@@ -160,22 +123,17 @@ class AdminComPort {
 
         this.auditLog.push(logEntry);
 
-        // Keep only recent logs in memory
         if (this.auditLog.length > this.maxAuditLogs) {
             this.auditLog = this.auditLog.slice(-this.maxAuditLogs);
         }
 
-        // Write to file
         this.writeAuditLog(logEntry);
 
         console.log(`[AUDIT] ${action}: ${status}`, logEntry.requestId);
-        
+
         return logEntry.requestId;
     }
 
-    /**
-     * Write audit log to file
-     */
     writeAuditLog(entry) {
         try {
             const logDir = path.dirname(this.auditLogPath);
@@ -190,9 +148,6 @@ class AdminComPort {
         }
     }
 
-    /**
-     * Load audit logs from file
-     */
     loadAuditLogs() {
         try {
             if (fs.existsSync(this.auditLogPath)) {
@@ -211,13 +166,9 @@ class AdminComPort {
         }
     }
 
-    /**
-     * Get recent audit logs
-     */
     getAuditLogs(limit = 100, filter = {}) {
         let logs = [...this.auditLog];
 
-        // Apply filters
         if (filter.status) {
             logs = logs.filter(l => l.status === filter.status);
         }
@@ -229,34 +180,27 @@ class AdminComPort {
             logs = logs.filter(l => new Date(l.timestamp) >= start);
         }
 
-        // Return latest first
         return logs.reverse().slice(0, limit);
     }
 
-    /**
-     * Create middleware for Express
-     */
     middleware() {
         return (req, res, next) => {
-            // Extract admin credentials from headers
             const authHeader = req.headers['x-admin-token'];
             const signature = req.headers['x-admin-signature'];
             const timestamp = parseInt(req.headers['x-admin-timestamp']);
             const bearerToken = req.headers['authorization']?.replace('Bearer ', '') || null;
 
-            // Try JWT authentication first if Bearer token is provided
             if (bearerToken) {
                 try {
                     if (!this.jwtSecret) {
                         this.logAdminAction('auth_check', { endpoint: req.path }, 'failed', 'JWT_SECRET not configured');
                         return res.status(500).json({ error: 'JWT authentication not configured on server' });
                     }
-                    
+
                     const decoded = jwt.verify(bearerToken, this.jwtSecret);
-                    
-                    // JWT is valid - allow request
+
                     this.logAdminAction('auth_check', { endpoint: req.path, user: decoded.userId }, 'success', 'JWT verified');
-                    res.set('X-RateLimit-Remaining', '100'); // No rate limiting for JWT
+                    res.set('X-RateLimit-Remaining', '100');
                     next();
                     return;
                 } catch (error) {
@@ -265,7 +209,6 @@ class AdminComPort {
                 }
             }
 
-            // Fall back to HMAC authentication
             if (!authHeader || !signature || !timestamp) {
                 this.logAdminAction('auth_check', { endpoint: req.path }, 'failed', 'Missing credentials');
                 return res.status(401).json({
@@ -274,13 +217,11 @@ class AdminComPort {
                 });
             }
 
-            // Verify token
             if (authHeader !== this.adminToken) {
                 this.logAdminAction('auth_check', { endpoint: req.path }, 'failed', 'Invalid token');
                 return res.status(401).json({ error: 'Invalid admin token' });
             }
 
-            // Check rate limit
             const rateLimit = this.checkRateLimit(this.adminId);
             if (!rateLimit.allowed) {
                 this.logAdminAction('rate_limit', { endpoint: req.path }, 'failed', 'Rate limit exceeded');
@@ -290,12 +231,10 @@ class AdminComPort {
                 });
             }
 
-            // Verify signature
-            // For GET requests, req.body is {} (empty object), so treat as empty string
-            const body = (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) 
-                ? JSON.stringify(req.body) 
+            const body = (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0)
+                ? JSON.stringify(req.body)
                 : '';
-            
+
             const verify = this.verifySignature(
                 req.method,
                 req.path,
@@ -305,7 +244,6 @@ class AdminComPort {
             );
 
             if (!verify.valid) {
-                // Debug: Log signature mismatch details
                 console.log(`[ADMIN-COM] FAILED VERIFICATION at ${req.path}`);
                 this.logAdminAction('signature_verify', { endpoint: req.path }, 'failed', verify.reason);
                 return res.status(401).json({
@@ -314,15 +252,11 @@ class AdminComPort {
                 });
             }
 
-            // All checks passed
             res.set('X-RateLimit-Remaining', rateLimit.remaining);
             next();
         };
     }
 
-    /**
-     * Create test request with proper signing
-     */
     createTestRequest(method, endpoint, body = null) {
         const bodyStr = body ? JSON.stringify(body) : '';
         const { signature, timestamp } = this.signRequest(method, endpoint, bodyStr);
@@ -340,9 +274,6 @@ class AdminComPort {
         };
     }
 
-    /**
-     * Get communication statistics
-     */
     getStats() {
         return {
             totalAuditLogs: this.auditLog.length,

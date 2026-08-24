@@ -28,11 +28,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Group Deletion Voting Screen
- * Shows active deletion votes for a group and allows members to approve or reject.
- * Admins can also start a new deletion vote from here.
- */
 @Composable
 fun GroupVotingScreen(
     groupId: String,
@@ -75,7 +70,6 @@ fun GroupVotingScreen(
             .background(CyberpunkTheme.Black)
             .systemBarsPadding()
     ) {
-        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -98,7 +92,6 @@ fun GroupVotingScreen(
             }
         }
 
-        // Status messages
         if (successMessage.isNotEmpty()) {
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -210,15 +203,14 @@ private fun DeletionVoteCard(
     val rejectPercent = if (vote.totalMembers > 0)
         ((vote.rejectingVotes.toFloat() / vote.totalMembers) * 100).toInt().coerceIn(0, 100)
     else 0
-    
-    // Dynamic timer that updates every minute
+
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    // voting screen with countdown timer
     LaunchedEffect(vote.expiresAt) {
         while (true) {
             currentTime = System.currentTimeMillis()
             val remaining = vote.expiresAt - currentTime
             if (remaining <= 0) break
-            // Update every minute, or every second if under 5 minutes
             val delayMs = if (remaining < 300_000) 1_000L else 60_000L
             kotlinx.coroutines.delay(delayMs)
         }
@@ -240,7 +232,6 @@ private fun DeletionVoteCard(
         color = Color(0xFF0F0F23)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Header
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Warning, null, tint = Color(0xFFFF6B35), modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
@@ -256,7 +247,6 @@ private fun DeletionVoteCard(
 
             Divider(color = accentColor.copy(alpha = 0.2f))
 
-            // Stats
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 VoteStat("Total Members", vote.totalMembers.toString(), CyberpunkTheme.LightGray)
                 VoteStat("Approved", vote.approvingVotes.toString(), Color(0xFF4CAF50))
@@ -264,7 +254,6 @@ private fun DeletionVoteCard(
                 VoteStat("Approval", "${approvePercent}%", accentColor)
             }
 
-            // Progress bar
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Progress to 50% threshold", fontSize = 11.sp, color = CyberpunkTheme.LightGray)
@@ -273,12 +262,10 @@ private fun DeletionVoteCard(
                 Box(modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF1A1A2E))) {
                     Box(modifier = Modifier.fillMaxWidth(approvePercent / 100f).fillMaxHeight()
                         .background(if (approvePercent > 50) Color(0xFF4CAF50) else accentColor))
-                    // 50% threshold line
                     Box(modifier = Modifier.offset(x = 0.dp).fillMaxWidth(0.5f).fillMaxHeight())
                 }
             }
 
-            // Voting buttons
             if (vote.hasUserVoted) {
                 Surface(modifier = Modifier.fillMaxWidth(), color = Color(0xFF1A1A2E), shape = RoundedCornerShape(8.dp)) {
                     Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -334,8 +321,6 @@ fun GroupVotingScreenEnhanced(
     onBackClick: () -> Unit = {},
     onVoteClick: (optionId: String) -> Unit = {}
 ) {
-    // Legacy composable — kept for reference.
-    // The live implementation is GroupVotingScreen(groupId, onBackClick)
     GroupVotingScreen(groupId = "", onBackClick = onBackClick)
 }
 

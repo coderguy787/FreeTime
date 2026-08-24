@@ -15,16 +15,13 @@ import androidx.navigation.compose.composable
 import com.freetime.app.services.ServerStatusManager
 import com.freetime.app.ui.screens.*
 
-/**
- * Navigation Graph for FreeTime App
- */
-
+// all app routes are defined here
 sealed class Route(val path: String) {
     object Login : Route("login")
     object Home : Route("home")
-    object Chat : Route("chat/{chatId}?acceptCall={acceptCall}&callId={callId}") {
-        fun createRoute(chatId: String, acceptCall: Boolean = false, callId: String = "") =
-            "chat/$chatId?acceptCall=$acceptCall&callId=$callId"
+    object Chat : Route("chat/{chatId}") {
+        fun createRoute(chatId: String) =
+            "chat/$chatId"
     }
     object Profile : Route("profile")
     object Settings : Route("settings")
@@ -69,15 +66,15 @@ fun AppNavGraph(
     startDestination: String = if (isLoggedIn) Route.Home.path else Route.Login.path
 ) {
     val navContext = LocalContext.current
+    val displaySettings = com.freetime.app.ui.theme.rememberDisplaySettings()
     NavHost(
         navController = navController,
         startDestination = startDestination,
-        enterTransition = { telegramPushEnter },
-        exitTransition = { telegramPushExit },
-        popEnterTransition = { telegramPopEnter },
-        popExitTransition = { telegramPopExit }
+        enterTransition = { telegramPushEnter(displaySettings) },
+        exitTransition = { telegramPushExit(displaySettings) },
+        popEnterTransition = { telegramPopEnter(displaySettings) },
+        popExitTransition = { telegramPopExit(displaySettings) }
     ) {
-        // Auth Routes
         composable(Route.Login.path) {
             ModernLoginScreen(
                 onLoginSuccess = {
@@ -88,8 +85,7 @@ fun AppNavGraph(
                 }
             )
         }
-        
-        // Main App Routes
+
         composable(Route.Home.path) {
             ModernHomeScreen(
                 onNavigateToChat = { chatId ->
@@ -116,21 +112,15 @@ fun AppNavGraph(
                 onNavigateToProfile = { navController.navigate(Route.Profile.path) }
             )
         }
-        
+
         composable(Route.Chat.path, arguments = listOf(
-            androidx.navigation.navArgument("chatId") { type = androidx.navigation.NavType.StringType },
-            androidx.navigation.navArgument("acceptCall") { type = androidx.navigation.NavType.BoolType; defaultValue = false },
-            androidx.navigation.navArgument("callId") { type = androidx.navigation.NavType.StringType; defaultValue = "" }
+            androidx.navigation.navArgument("chatId") { type = androidx.navigation.NavType.StringType }
         )) { backStackEntry ->
             val chatId = backStackEntry.arguments?.getString("chatId") ?: ""
-            val acceptCall = backStackEntry.arguments?.getBoolean("acceptCall") ?: false
-            val callIdArg = backStackEntry.arguments?.getString("callId") ?: ""
-            
+
             ModernChatScreen(
                 recipientId = chatId,
                 chatName = "",
-                acceptCallOnOpen = acceptCall,
-                pendingCallId = callIdArg,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToHome = {
                     navController.navigate(Route.Home.path) {
@@ -140,7 +130,7 @@ fun AppNavGraph(
                 onViewProfile = { userId -> navController.navigateToUserProfile(userId) }
             )
         }
-        
+
         composable(Route.Profile.path) {
             ProfileScreen(
                 onLogoutClick = {
@@ -162,11 +152,11 @@ fun AppNavGraph(
                 onBackClick = { navController.popBackStack() }
             )
         }
-        
+
         composable(Route.FriendRequests.path) {
             FriendRequestsScreen(onBackClick = { navController.popBackStack() })
         }
-        
+
         composable(Route.SearchFriends.path) {
             SearchFriendsScreen(
                 onNavigateBack = { navController.popBackStack() },
@@ -174,7 +164,7 @@ fun AppNavGraph(
                 onNavigateToFriendRequests = { navController.navigate(Route.FriendRequests.path) }
             )
         }
-        
+
         composable(Route.CreateGroup.path) {
             CreateGroupScreen(
                 onGroupCreated = { groupId ->
@@ -185,12 +175,11 @@ fun AppNavGraph(
             )
         }
 
-        // Optimized Group Chat route - Screen handles its own loading
         composable(Route.GroupChat.path, arguments = listOf(
             androidx.navigation.navArgument("groupId") { type = androidx.navigation.NavType.StringType }
         )) { backStackEntry ->
             val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
-            
+
             GroupChatScreen(
                 groupId = groupId,
                 onNavigateBack = { navController.popBackStack() },
@@ -206,7 +195,7 @@ fun AppNavGraph(
                 onCancel = { navController.popBackStack() }
             )
         }
-        
+
         composable(Route.GroupVoting.path) { backStackEntry ->
             val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
             GroupVotingScreen(groupId = groupId, onBackClick = { navController.popBackStack() })
@@ -217,13 +206,13 @@ fun AppNavGraph(
             GroupSettingsScreen(
                 groupId = groupId,
                 onBackClick = { navController.popBackStack() },
-                onGroupUpdated = { /* GroupChatScreen will refresh via its own WebSocket/Effect logic */ },
+                onGroupUpdated = {  },
                 onGroupDeleted = { navController.popBackStack(Route.Home.path, inclusive = false) },
                 onGroupLeft = { navController.popBackStack(Route.Home.path, inclusive = false) },
                 onNavigateToVoting = { navController.navigateToGroupVoting(groupId) }
             )
         }
-        
+
         composable(Route.UserProfile.path, arguments = listOf(
             androidx.navigation.navArgument("userId") { type = androidx.navigation.NavType.StringType }
         )) { backStackEntry ->
@@ -298,9 +287,6 @@ fun AppNavGraph(
     }
 }
 
-/**
- * Navigation Helper Extensions
- */
 fun NavHostController.navigateToUserProfile(userId: String) {
     navigate(Route.UserProfile.createRoute(userId))
 }

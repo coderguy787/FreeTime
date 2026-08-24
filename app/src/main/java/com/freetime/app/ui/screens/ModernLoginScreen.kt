@@ -33,50 +33,37 @@ import kotlinx.coroutines.launch
 import com.freetime.app.R
 import com.freetime.app.ui.components.CyberpunkTheme
 
-/**
- * MODERN DISCORD/TELEGRAM-LIKE LOGIN SCREEN
- * Complete redesign with:
- * - Mascot (Cody) with animations
- * - Modern card-based layout
- * - Smooth transitions between login/signup
- * - Professional color scheme (Magenta + Black)
- * - Proper animations and interactions
- */
-
 @Composable
 fun ModernLoginScreen(
     onLoginSuccess: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    
+
     var isLoginMode by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var showMascot by remember { mutableStateOf(true) }
-    
-    // 2FA state
+
+    // login with 2fa support
     var show2FAScreen by remember { mutableStateOf(false) }
     var twoFATempToken by remember { mutableStateOf("") }
     var twoFASetupRequired by remember { mutableStateOf(false) }
     var isSignUpFlow by remember { mutableStateOf(false) }
-    
-    // Mascot animation state
+
     val mascotScale by animateFloatAsState(
         targetValue = if (showMascot) 1f else 0.85f,
         animationSpec = spring(dampingRatio = 0.65f, stiffness = 300f)
     )
-    
+
     val mascotAlpha by animateFloatAsState(
         targetValue = if (showMascot) 1f else 0.6f,
         animationSpec = tween(300)
     )
-    
-    // Show 2FA screen if required
+
     if (show2FAScreen) {
         android.util.Log.d("FREETIME_LOGIN", "ModernLoginScreen: Showing 2FA screen, isSignUpFlow=$isSignUpFlow, setupRequired=$twoFASetupRequired")
         if (isSignUpFlow) {
-            // During registration, show the authenticator setup screen
             TwoFactorSetupDuringRegistrationScreen(
                 tempToken = twoFATempToken,
                 onSetupComplete = {
@@ -95,7 +82,6 @@ fun ModernLoginScreen(
                 }
             )
         } else {
-            // During login, show the verification screen
             TwoFactorLoginVerificationScreen(
                 tempToken = twoFATempToken,
                 setupRequired = twoFASetupRequired,
@@ -115,7 +101,7 @@ fun ModernLoginScreen(
         }
         return
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -139,8 +125,7 @@ fun ModernLoginScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             Spacer(modifier = Modifier.height(20.dp))
-            
-            // FreeTime Logo Section with Animation
+
             AnimatedVisibility(
                 visible = showMascot,
                 enter = fadeIn(animationSpec = tween(600)) + slideInVertically(initialOffsetY = { -100 }),
@@ -165,8 +150,7 @@ fun ModernLoginScreen(
                     )
                 }
             }
-            
-            // Brand & Welcome Text
+
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -180,26 +164,25 @@ fun ModernLoginScreen(
                     fontSize = 32.sp,
                     letterSpacing = 1.5.sp
                 )
-                
+
                 Text(
                     text = if (isLoginMode) "Welcome Back!" else "Join Us!",
                     style = MaterialTheme.typography.titleMedium,
                     color = CyberpunkTheme.White,
                     fontSize = 18.sp
                 )
-                
+
                 Text(
-                    text = if (isLoginMode) 
-                        "Connect with friends instantly" 
-                    else 
+                    text = if (isLoginMode)
+                        "Connect with friends instantly"
+                    else
                         "Start messaging securely now",
                     style = MaterialTheme.typography.bodyMedium,
                     color = CyberpunkTheme.LightGray,
                     fontSize = 14.sp
                 )
             }
-            
-            // Info Box: Auto-Login Feature (Only visible on login tab)
+
             if (isLoginMode) {
                 Box(
                     modifier = Modifier
@@ -225,7 +208,7 @@ fun ModernLoginScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                "🔑",
+                                "",
                                 fontSize = 18.sp,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
@@ -249,15 +232,14 @@ fun ModernLoginScreen(
                     }
                 }
             }
-            
-            // Main Auth Card
+
             AnimatedContent(
                 targetState = isLoginMode,
                 transitionSpec = {
-                    (fadeIn(animationSpec = tween(300)) + 
+                    (fadeIn(animationSpec = tween(300)) +
                      slideInHorizontally { width -> if (targetState) -width else width })
                         .togetherWith(
-                            fadeOut(animationSpec = tween(300)) + 
+                            fadeOut(animationSpec = tween(300)) +
                             slideOutHorizontally { width -> if (targetState) width else -width }
                         )
                 },
@@ -274,15 +256,14 @@ fun ModernLoginScreen(
                             showMascot = false
                             isLoading = true
                             scope.launch {
-                                // Call performLogin - auto-login is always enabled
                                 performLogin(
                                     username = username,
                                     password = password,
                                     context = context,
                                     force = force,
-                                    onSuccess = { 
+                                    onSuccess = {
                                         android.util.Log.d("FREETIME_LOGIN", "ModernLoginScreen: Login successful, calling onLoginSuccess")
-                                        onLoginSuccess() 
+                                        onLoginSuccess()
                                     },
                                     on2FARequired = { tempToken, setupRequired ->
                                         android.util.Log.d("FREETIME_LOGIN", "ModernLoginScreen: 2FA required, transitioning to 2FA screen")
@@ -308,16 +289,14 @@ fun ModernLoginScreen(
                         errorMessage = errorMessage,
                         onErrorClear = { errorMessage = "" },
                         onSignUpClick = { username, email, displayName, password ->
-                            // Handle validation errors from the card
                             if (username == "__ERROR__") {
-                                errorMessage = email // email field carries the error message  
+                                errorMessage = email
                                 return@ModernSignUpCard
                             }
                             showMascot = false
                             isLoading = true
                             errorMessage = ""
                             scope.launch {
-                                // Call existing performSignUp from LoginScreen.kt
                                 performSignUp(
                                     username = username,
                                     email = email,
@@ -345,8 +324,7 @@ fun ModernLoginScreen(
                     )
                 }
             }
-            
-            // Toggle Login/SignUp
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -355,14 +333,14 @@ fun ModernLoginScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isLoginMode) 
-                        "Don't have an account? " 
-                    else 
+                    text = if (isLoginMode)
+                        "Don't have an account? "
+                    else
                         "Already have an account? ",
                     color = CyberpunkTheme.LightGray,
                     fontSize = 14.sp
                 )
-                
+
                 Text(
                     text = if (isLoginMode) "Sign Up" else "Log In",
                     color = CyberpunkTheme.PrimaryPurple,
@@ -374,7 +352,7 @@ fun ModernLoginScreen(
                     }
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
@@ -390,7 +368,7 @@ fun ModernLoginCard(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -409,7 +387,7 @@ fun ModernLoginCard(
         if (errorMessage.isNotEmpty()) {
             ModernErrorBox(message = errorMessage, onDismiss = onErrorClear)
         }
-        
+
         ModernTextInput(
             value = username,
             onValueChange = { username = it },
@@ -418,7 +396,7 @@ fun ModernLoginCard(
             icon = Icons.Default.Person,
             enabled = !isLoading
         )
-        
+
         ModernTextInput(
             value = password,
             onValueChange = { password = it },
@@ -430,9 +408,7 @@ fun ModernLoginCard(
             onShowPasswordToggle = { showPassword = !showPassword },
             enabled = !isLoading
         )
-        
 
-        
         ModernActionButton(
             text = "LOG IN",
             isLoading = isLoading,
@@ -456,7 +432,7 @@ fun ModernSignUpCard(
     var confirmPassword by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var acceptedTerms by remember { mutableStateOf(false) }
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -475,7 +451,7 @@ fun ModernSignUpCard(
         if (errorMessage.isNotEmpty()) {
             ModernErrorBox(message = errorMessage, onDismiss = onErrorClear)
         }
-        
+
         ModernTextInput(
             value = username,
             onValueChange = { username = it },
@@ -484,7 +460,7 @@ fun ModernSignUpCard(
             icon = Icons.Default.Person,
             enabled = !isLoading
         )
-        
+
         ModernTextInput(
             value = email,
             onValueChange = { email = it },
@@ -493,7 +469,7 @@ fun ModernSignUpCard(
             icon = Icons.Default.Email,
             enabled = !isLoading
         )
-        
+
         ModernTextInput(
             value = displayName,
             onValueChange = { displayName = it },
@@ -502,7 +478,7 @@ fun ModernSignUpCard(
             icon = Icons.Default.Person,
             enabled = !isLoading
         )
-        
+
         ModernTextInput(
             value = password,
             onValueChange = { password = it },
@@ -514,7 +490,7 @@ fun ModernSignUpCard(
             onShowPasswordToggle = { showPassword = !showPassword },
             enabled = !isLoading
         )
-        
+
         ModernTextInput(
             value = confirmPassword,
             onValueChange = { confirmPassword = it },
@@ -526,7 +502,7 @@ fun ModernSignUpCard(
             onShowPasswordToggle = { showPassword = !showPassword },
             enabled = !isLoading
         )
-        
+
         val context = LocalContext.current
         Row(
             modifier = Modifier
@@ -545,11 +521,11 @@ fun ModernSignUpCard(
             )
             ClickableTermsText(context = context)
         }
-        
+
         ModernActionButton(
             text = "CREATE ACCOUNT",
             isLoading = isLoading,
-            onClick = { 
+            onClick = {
                 val validationError = when {
                     username.isBlank() -> "Username is required"
                     username.length < 3 -> "Username must be at least 3 characters"
@@ -569,7 +545,6 @@ fun ModernSignUpCard(
                 }
                 if (validationError != null) {
                     onErrorClear()
-                    // Trigger error display through parent
                     onSignUpClick("__ERROR__", validationError, "", "")
                 } else {
                     onSignUpClick(username.trim(), email.trim(), displayName.trim(), password)
@@ -604,7 +579,7 @@ fun ModernTextInput(
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.5.sp
         )
-        
+
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -622,7 +597,7 @@ fun ModernTextInput(
                     }
                 }
             } else null,
-            visualTransformation = if (isPassword && !showPassword) 
+            visualTransformation = if (isPassword && !showPassword)
                 PasswordVisualTransformation() else VisualTransformation.None,
             enabled = enabled,
             modifier = Modifier
@@ -743,7 +718,7 @@ fun ModernErrorBox(
 @Composable
 fun ClickableTermsText(context: Context) {
     val termsUrl = "https://freetime-official.org/terms"
-    
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -765,9 +740,6 @@ fun ClickableTermsText(context: Context) {
     }
 }
 
-/**
- * Perform login - Always saves 30-day auto-login token
- */
 suspend fun performLogin(
     username: String,
     password: String,
@@ -781,7 +753,6 @@ suspend fun performLogin(
     try {
         setLoading(true)
 
-        // Check network connectivity first
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         val activeNetwork = connectivityManager?.activeNetwork
         val networkCapabilities = connectivityManager?.getNetworkCapabilities(activeNetwork)
@@ -794,23 +765,19 @@ suspend fun performLogin(
         }
         android.util.Log.d("FREETIME_LOGIN", "Network connectivity confirmed")
 
-        // Get API instance
         val api = com.freetime.app.data.network.ApiClient.getInstance()
         val prefs = com.freetime.app.data.local.SharedPreferencesHelper(context)
-        
-        // ✅ NEW: Initialize SessionManager for device tracking
+
         val sessionManager = com.freetime.app.services.SessionManager(context)
         val deviceId = sessionManager.getDeviceId()
         val deviceInfo = sessionManager.getDeviceInfo()
-        
+
         android.util.Log.d("FREETIME_LOGIN", "Device ID: $deviceId")
         android.util.Log.d("FREETIME_LOGIN", "Device: ${deviceInfo.optString("deviceName")}")
-        
-        // Log server URL for debugging
+
         val serverUrl = com.freetime.app.data.network.ApiClient.getBaseUrl()
         android.util.Log.d("FREETIME_LOGIN", "Connecting to: $serverUrl")
-        
-        // Create login request ✅ NEW: Include device info
+
         val loginRequest = com.freetime.app.data.network.LoginRequest(
             username = username,
             password = password,
@@ -825,8 +792,7 @@ suspend fun performLogin(
                 buildId = deviceInfo.optString("buildId")
             )
         )
-        
-        // Perform login
+
         val response = try {
             api.login(loginRequest)
         } catch (e: java.net.UnknownHostException) {
@@ -860,12 +826,12 @@ suspend fun performLogin(
             onError("Unexpected error: ${e.message ?: "Unknown error"}")
             return
         }
-        
+
         if (!response.isSuccessful) {
             val errorBody = response.errorBody()?.string() ?: "{}"
             android.util.Log.e("FREETIME_LOGIN", "Login failed (HTTP ${response.code()}): $errorBody")
             setLoading(false)
-            
+
             val errorMsg = try {
                 val json = org.json.JSONObject(errorBody)
                 val rawError = json.optString("error", "")
@@ -875,18 +841,17 @@ suspend fun performLogin(
             } catch (e: Exception) {
                 "Login failed. Please check your credentials."
             }
-            
+
             onError(errorMsg)
             return
         }
-        
+
         val loginResponse = response.body() ?: run {
             setLoading(false)
             onError("Invalid server response")
             return
         }
-        
-        // Check if 2FA is required
+
         if (loginResponse.requiresTwoFactor) {
             android.util.Log.d("FREETIME_LOGIN", "2FA required")
             setLoading(false)
@@ -896,30 +861,25 @@ suspend fun performLogin(
             )
             return
         }
-        
-        // Store token
+
         val token = loginResponse.token ?: run {
             setLoading(false)
             onError("No token received from server")
             return
         }
-        
-        // Extract userId from response (try multiple fields)
-        val userId = loginResponse.user?.userId 
-            ?: loginResponse.userId 
-            ?: loginResponse.user?._id 
-            ?: username // Fallback to username as unique identifier
-        
-        // ✅ NEW: Save session info
+
+        val userId = loginResponse.user?.userId
+            ?: loginResponse.userId
+            ?: loginResponse.user?._id
+            ?: username
+
         val sessionId = loginResponse.sessionId ?: ""
         sessionManager.saveSession(sessionId, deviceId, token)
-        
-        // ALWAYS save token with 30-day auto-login (mandatory for all users)
+
         prefs.saveRememberMeToken(token, userId, username)
         android.util.Log.d("FREETIME_LOGIN", "30-day auto-login token saved for user: $userId")
-        android.util.Log.d("FREETIME_LOGIN", "  User will stay logged in for 30 days - no password required on app restart")
-        
-        // CRITICAL: Also save the token as the active session token (for immediate API calls)
+        android.util.Log.d("FREETIME_LOGIN", " User will stay logged in for 30 days - no password required on app restart")
+
         prefs.saveAuthData(
             token = token,
             userId = userId,
@@ -927,14 +887,13 @@ suspend fun performLogin(
             deviceId = deviceId
         )
         android.util.Log.d("FREETIME_LOGIN", "Session token saved - API calls will now work")
-        
-        // Mark that this is a fresh login (for showing info dialog)
+
         prefs.saveBoolean("show_remember_me_info", true)
-        
+
         setLoading(false)
         android.util.Log.d("FREETIME_LOGIN", "Login successful - auto-login enabled for 30 days")
         onSuccess()
-        
+
     } catch (e: Exception) {
         android.util.Log.e("FREETIME_LOGIN", "Login exception: ${e.message}", e)
         setLoading(false)

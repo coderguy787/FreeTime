@@ -39,7 +39,7 @@ fun GroupMemberInviteScreen(
     var searchQuery by remember { mutableStateOf("") }
     var availableUsers by remember { mutableStateOf<List<UserData>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var isInviting by remember { mutableStateOf<String?>(null) } // userId being invited
+    var isInviting by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf("") }
     var inviteCode by remember { mutableStateOf("") }
@@ -53,7 +53,7 @@ fun GroupMemberInviteScreen(
     val displaySettings = LocalDisplaySettings.current
     val accentColor = displaySettings.getAccentColor()
 
-    // Load friends not already in the group + current invite code
+    // invite members to the group
     LaunchedEffect(groupId) {
         isLoading = true
         try {
@@ -61,7 +61,6 @@ fun GroupMemberInviteScreen(
             friendsResult.onSuccess { friends -> availableUsers = friends }
             friendsResult.onFailure { e -> errorMessage = "Failed to load friends: ${e.message}" }
 
-            // Load group details to get existing invite code
             val groupResult = apiService.getGroupDetails(groupId)
             groupResult.onSuccess { g -> inviteCode = g.inviteCode ?: "" }
         } catch (e: Exception) {
@@ -70,7 +69,7 @@ fun GroupMemberInviteScreen(
             isLoading = false
         }
     }
-    
+
     fun inviteUser(userId: String) {
         coroutineScope.launch {
             isInviting = userId
@@ -133,7 +132,7 @@ fun GroupMemberInviteScreen(
             }
         }
     }
-    
+
     val filteredUsers = availableUsers.filter { user ->
         searchQuery.isBlank() ||
         user.username.contains(searchQuery, ignoreCase = true) ||
@@ -147,7 +146,6 @@ fun GroupMemberInviteScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -165,7 +163,6 @@ fun GroupMemberInviteScreen(
             Spacer(Modifier.size(48.dp))
         }
 
-        // Status messages
         if (errorMessage.isNotBlank()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -183,7 +180,6 @@ fun GroupMemberInviteScreen(
             }
         }
 
-        // Invite Code Section
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CyberpunkTheme.DarkGray.copy(alpha = 0.35f))
@@ -254,7 +250,6 @@ fun GroupMemberInviteScreen(
             }
         }
 
-        // Search Bar
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -269,7 +264,6 @@ fun GroupMemberInviteScreen(
             )
         )
 
-        // Friends list
         if (isLoading) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = accentColor)
@@ -318,7 +312,6 @@ fun UserInviteCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // User Avatar
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -340,7 +333,7 @@ fun UserInviteCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                
+
                 Column {
                     Text(
                         text = user.name,
@@ -360,7 +353,7 @@ fun UserInviteCard(
                     )
                 }
             }
-            
+
             Button(
                 onClick = onInvite,
                 enabled = !isInviting,

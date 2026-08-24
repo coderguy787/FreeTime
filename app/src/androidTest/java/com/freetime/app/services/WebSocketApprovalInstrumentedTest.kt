@@ -11,7 +11,6 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class WebSocketApprovalInstrumentedTest {
-
     @Test
     fun simulateMediaDownloadApprovedInvokesListener() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
@@ -25,13 +24,11 @@ class WebSocketApprovalInstrumentedTest {
                 receivedPayload = data
                 latch.countDown()
             }
-            // no-op other callbacks
         }
 
         try {
             wsManager.addListener(listener)
 
-            // Build a test JSON payload similar to server approval
             val json = JSONObject()
             json.put("requestId", "req-test-123")
             json.put("mediaId", "media-test-456")
@@ -43,7 +40,7 @@ class WebSocketApprovalInstrumentedTest {
             json.put("size", 1024)
             json.put("encrypted", true)
 
-            // Use reflection to invoke private handler on WebSocketManager
+            // poke the private handler directly so no live socket is needed
             val method = wsManager.javaClass.getDeclaredMethod("handleMediaDownloadApproved", JSONObject::class.java)
             method.isAccessible = true
             method.invoke(wsManager, json)

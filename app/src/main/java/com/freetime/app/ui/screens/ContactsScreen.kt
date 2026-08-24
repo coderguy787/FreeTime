@@ -58,14 +58,13 @@ fun ContactsScreenEnhanced(
     var searchResults by remember { mutableStateOf<List<UserData>>(emptyList()) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // Load contacts on screen open
+    // contacts list from friends
     LaunchedEffect(Unit) {
         scope.launch {
             apiService.getFriends().onSuccess { friends ->
                 contacts = friends.map { user ->
-                    // Map online status from API: isOnline -> ContactStatus
                     val contactStatus = when {
-                        user.isOnline -> ContactStatus.Online  // Real online status
+                        user.isOnline -> ContactStatus.Online
                         user.actualOnlineStatus == "occupied" -> ContactStatus.DND
                         else -> ContactStatus.Offline
                     }
@@ -73,7 +72,7 @@ fun ContactsScreenEnhanced(
                         id = user.userId,
                         name = user.name,
                         username = user.username,
-                        status = contactStatus,  // Use REAL online status
+                        status = contactStatus,
                         avatar = user.avatar,
                         lastSeen = if (user.isOnline) "Online now" else (user.lastSeen ?: "Offline")
                     )
@@ -86,7 +85,7 @@ fun ContactsScreenEnhanced(
         }
     }
 
-    // Search users when query changes
+    // user search for adding friends
     LaunchedEffect(searchQuery) {
         if (selectedTab == "ADD_FRIENDS" && searchQuery.isNotEmpty()) {
             scope.launch {
@@ -120,7 +119,6 @@ fun ContactsScreenEnhanced(
             .background(CyberpunkTheme.CyberBlack)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // HEADER
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -176,7 +174,6 @@ fun ContactsScreenEnhanced(
                 }
             }
 
-            // TAB NAVIGATION
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -236,7 +233,6 @@ fun ContactsScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // SEARCH BAR
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -303,7 +299,6 @@ fun ContactsScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // CATEGORY TABS (Only for CONTACTS tab)
             if (selectedTab == "CONTACTS") {
                 Row(
                     modifier = Modifier
@@ -338,7 +333,6 @@ fun ContactsScreenEnhanced(
                 }
             }
 
-            // CONTENT BASED ON TAB
             if (selectedTab == "CONTACTS") {
                 ContactsContent(filteredContacts, onContactClick)
             } else {
@@ -358,7 +352,6 @@ fun ContactsScreenEnhanced(
                 }
             }
 
-            // Friend Request Success Message
             if (friendRequestSent) {
                 LaunchedEffect(Unit) {
                     delay(3000)
@@ -693,7 +686,7 @@ fun ContactItemCard(
             ) {}
 
             IconButton(
-                onClick = { /* Send message */ },
+                onClick = {  },
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
@@ -706,5 +699,4 @@ fun ContactItemCard(
         }
     }
 }
-
 

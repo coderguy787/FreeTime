@@ -20,16 +20,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
 import com.freetime.app.R
 import com.freetime.app.ui.components.CyberpunkTheme
 import com.freetime.app.api.FreeTimeApiService
-import com.freetime.app.data.network.ApiClient  // ✅ FIX: Import for getBaseUrl()
+import com.freetime.app.data.network.ApiClient
 import com.freetime.app.api.UserData
 import com.freetime.app.api.FriendRequest
 import com.freetime.app.api.Group
@@ -41,6 +43,7 @@ import com.freetime.app.services.ServerStatusManager
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.freetime.app.notifications.InAppNotification
 import com.freetime.app.notifications.InAppNotificationStore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -51,7 +54,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import com.freetime.app.utils.GroupRefreshManager  // ✅ NEW: Import global refresh manager
+import com.freetime.app.utils.GroupRefreshManager
+import com.freetime.app.ui.animations.scaleOnPressEffect
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
@@ -63,11 +67,7 @@ import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
-/**
- * Session-scoped flag so the "friends online!" mascot banner only shows once per app launch.
- * Unlike remember{}, this survives navigation (leaving a chat and coming back to Home),
- * but resets to false when the app process starts fresh.
- */
+// home screen
 object MascotBannerSessionState {
     var shownThisSession: Boolean = false
 }
@@ -84,22 +84,12 @@ data class ChatItem(
     val avatarColor: Color = Color.Gray,
     val avatarUrl: String? = null,
     val tags: List<String> = emptyList(),
-    val role: String = "",  // ✅ NEW: User role (admin, moderator, etc.)
-    val isAdmin: Boolean = false,  // ✅ NEW: Admin status
-    val isModerator: Boolean = false,  // ✅ NEW: Moderator status
-    val lastMessageTimestamp: Long = 0L  // ✅ NEW: Epoch millis for time-based filtering
+    val role: String = "",
+    val isAdmin: Boolean = false,
+    val isModerator: Boolean = false,
+    val lastMessageTimestamp: Long = 0L
 )
 
-/**
- * MODERN DISCORD-LIKE HOME SCREEN
- * Features:
- * - Chat list similar to Discord
- * - Mascot character showing contextual messages
- * - Smooth animations and transitions
- * - Online status indicators
- * - Typing indicators
- * - Unread message badges
- */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ModernHomeScreen(
@@ -116,12 +106,13 @@ fun ModernHomeScreen(
     val prefs = SharedPreferencesHelper(context)
     var showApiResponseDialog by remember { mutableStateOf(false) }
     val savedFriendsApiResponse = remember { mutableStateOf(prefs.getString("last_api_friends_response", "")) }
-    val apiService = FreeTimeApiService(context)
-    
+    val apiService = remember(context) { FreeTimeApiService(context) }
+
     var selectedChat by remember { mutableStateOf<String?>(null) }
     var mascotShowMessage by remember { mutableStateOf(!MascotBannerSessionState.shownThisSession) }
     var searchQuery by remember { mutableStateOf("") }
     var chats by remember { mutableStateOf(listOf<ChatItem>()) }
+    val lastSeenOfflineTimestamps = remember { mutableMapOf<String, Long>() }
     var isLoadingChats by remember { mutableStateOf(false) }
     var loadingError by remember { mutableStateOf("") }
     var pendingFriendRequestCount by remember { mutableStateOf(0) }
@@ -130,19 +121,19 @@ fun ModernHomeScreen(
     var incomingMessages by remember { mutableStateOf(listOf<ChatItem>()) }
     var userGroups by remember { mutableStateOf(listOf<Group>()) }
     var isLoadingGroups by remember { mutableStateOf(false) }
-    var groupsRefreshKey by remember { mutableStateOf(0) }  // ✅ FIX: Trigger to reload groups
-    
-    // In-app update
+    var groupsRefreshKey by remember { mutableStateOf(0) }
+
     var updateInfo by remember { mutableStateOf<com.freetime.app.data.network.VersionInfoResponse?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
-    var downloadId by remember { mutableStateOf(-1L) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     val updatePrefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
-    
+
     LaunchedEffect(Unit) {
         val info = com.freetime.app.services.AppUpdateManager.checkForUpdate(context)
         if (info != null && com.freetime.app.services.AppUpdateManager.isUpdateAvailable(info) && info.downloadUrl.isNotEmpty()) {
-            if (info.updateId.isNullOrEmpty() || info.updateId != prefs.getSkippedUpdateId()) {
+            val skippedId = prefs.getSkippedUpdateId()
+            val isSkipped = !info.updateId.isNullOrEmpty() && info.updateId == skippedId
+            if (!isSkipped) {
                 updateInfo = info
                 if (!info.updateId.isNullOrEmpty()) {
                     updatePrefs.setPendingUpdateId(info.updateId)
@@ -150,40 +141,35 @@ fun ModernHomeScreen(
             }
         }
     }
-    
-    // ✅ OBSERVE CONNECTION STATE from Socket.IO manager
+
     val wsManager = remember { WebSocketManager.getInstance() }
     var connectionState by remember { mutableStateOf(wsManager.getConnectionState()) }
-    
-    // Observe connection state changes
+
     LaunchedEffect(wsManager) {
         wsManager.connectionState.collect { newState ->
             connectionState = newState
         }
     }
-    
-    // ✅ OBSERVE SERVER HEALTH for degraded (offline) mode
+
     var isServerDown by remember { mutableStateOf(ServerStatusManager.isDown()) }
     LaunchedEffect(Unit) {
         ServerStatusManager.isServerDown.collect { down ->
             isServerDown = down
         }
     }
-    
-    // Track initialization to prevent excessive recomposition logging
+
     val initCalledRef = remember { mutableStateOf(false) }
     if (!initCalledRef.value) {
         initCalledRef.value = true
         android.util.Log.d("FREETIME_HOME", "ModernHomeScreen: Initializing home screen")
     }
-    
-    // Request POST_NOTIFICATIONS permission on Android 13+ (required for notifications)
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         android.util.Log.d("FREETIME_HOME", "POST_NOTIFICATIONS permission: ${if (isGranted) "GRANTED" else "DENIED"}")
     }
-    
+
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -212,44 +198,43 @@ fun ModernHomeScreen(
         )
     }
 
-    // Connect WebSocket for real-time notifications + register FCM token
     LaunchedEffect(Unit) {
         scope.launch {
             try {
                 apiService.connectWebSocket()
-                android.util.Log.d("FREETIME_HOME", "✓ WebSocket connected for real-time notifications")
+                android.util.Log.d("FREETIME_HOME", " WebSocket connected for real-time notifications")
             } catch (e: Exception) {
                 android.util.Log.e("FREETIME_HOME", "WebSocket connection failed: ${e.message}")
             }
         }
-        
-        // ✅ NEW: Start background polling service for offline notifications (0-1 min delay)
+
         try {
             BackgroundPollingService.startPolling(context)
-            android.util.Log.d("FREETIME_HOME", "✅ Background polling started (max 1 min offline notification delay, NO Firebase needed!)")
+            android.util.Log.d("FREETIME_HOME", " Background polling started (max 1 min offline notification delay, NO Firebase needed!)")
         } catch (e: Exception) {
-            android.util.Log.w("FREETIME_HOME", "⚠️ Could not start background polling: ${e.message}")
+            android.util.Log.w("FREETIME_HOME", " Could not start background polling: ${e.message}")
         }
     }
 
-    // Global WebSocket listener for notifications (fires when user is on home screen, not in chat)
     val globalNotificationListener = remember {
         object : com.freetime.app.services.WebSocketManager.WebSocketListener {
             override fun onNewMessage(message: com.freetime.app.services.WebSocketManager.MessageData) {
-                android.util.Log.d("FREETIME_HOME", "📨 New message notification from ${message.senderId}")
-                
-                // Check if message notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " New message notification from ${message.senderId}")
+
+                if (prefs.isUserMuted(message.senderId)) {
+                    android.util.Log.d("FREETIME_HOME", " Muted user ${message.senderId} - skipping everything")
+                    return
+                }
+
                 if (!prefs.isNotifyMessagesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Message notifications disabled - skipping")
-                    // Still update unread count, just skip notification
+                    android.util.Log.d("FREETIME_HOME", " Message notifications disabled - skipping")
                 } else {
                     val senderChat = chats.find { it.id == message.senderId }
                     val senderName = senderChat?.name ?: message.senderUsername
                     com.freetime.app.notifications.NotificationHelper.showMessageNotification(
                         context, senderName, message.content, message.senderId
                     )
-                    
-                    // Add to in-app notification center
+
                     com.freetime.app.notifications.InAppNotificationStore.addNotification(
                         com.freetime.app.notifications.InAppNotification(
                             type = "message",
@@ -260,7 +245,6 @@ fun ModernHomeScreen(
                     )
                 }
 
-                // Update unread count in chat list
                 val senderExists = chats.any { it.id == message.senderId }
                 if (!senderExists) {
                     val displayName = if (message.senderId == com.freetime.app.api.ANNOUNCEMENT_USER_ID) {
@@ -300,30 +284,34 @@ fun ModernHomeScreen(
                 }
             }
             override fun onGroupMessage(message: com.freetime.app.services.WebSocketManager.GroupMessageData) {
-                android.util.Log.d("FREETIME_HOME", "📨 Group message from ${message.senderUsername} in group ${message.groupId}")
-                
-                // Check if group notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " Group message from ${message.senderUsername} in group ${message.groupId}")
+
+                if (prefs.isGroupMuted(message.groupId)) {
+                    android.util.Log.d("FREETIME_HOME", " Group ${message.groupId} is muted - skipping")
+                    return
+                }
+                if (message.senderId.isNotEmpty() && prefs.isUserMuted(message.senderId)) {
+                    android.util.Log.d("FREETIME_HOME", " Sender ${message.senderId} is muted - skipping group message")
+                    return
+                }
+
                 if (!prefs.isNotifyGroupUpdatesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Group notifications disabled - skipping")
+                    android.util.Log.d("FREETIME_HOME", " Group notifications disabled - skipping")
                     return
                 }
-                
-                // Skip notification if user is currently viewing this group (Telegram-style)
+
                 if (com.freetime.app.notifications.NotificationHelper.currentActiveChatId == message.groupId) {
-                    android.util.Log.d("FREETIME_HOME", "⏭️ Skipping notification - user viewing this group")
+                    android.util.Log.d("FREETIME_HOME", " Skipping notification - user viewing this group")
                     return
                 }
-                
-                // Get group name from chats list
+
                 val groupChat = chats.find { it.id == message.groupId }
                 val groupName = groupChat?.name ?: "Group"
-                
-                // Show notification
+
                 com.freetime.app.notifications.NotificationHelper.showGroupMessageNotification(
                     context, groupName, message.senderUsername, message.content, message.groupId, message.senderId
                 )
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "groupMessage",
@@ -332,8 +320,7 @@ fun ModernHomeScreen(
                         senderId = message.senderId
                     )
                 )
-                
-                // Update group chat in list with latest message
+
                 chats = chats.map { chat ->
                     if (chat.id == message.groupId) {
                         chat.copy(
@@ -345,26 +332,22 @@ fun ModernHomeScreen(
                     } else chat
                 }
             }
-            
-            // ✅ NEW: Handle group member joined events
+
             override fun onGroupMemberJoined(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) {
-                android.util.Log.d("FREETIME_HOME", "👤 ${data.username} joined group ${data.groupId}")
-                
-                // Check if group notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " ${data.username} joined group ${data.groupId}")
+
                 if (!prefs.isNotifyGroupUpdatesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Group notifications disabled - skipping")
+                    android.util.Log.d("FREETIME_HOME", " Group notifications disabled - skipping")
                     return
                 }
-                
+
                 val groupChat = chats.find { it.id == data.groupId }
                 val groupName = groupChat?.name ?: "Group"
-                
-                // Show notification
+
                 com.freetime.app.notifications.NotificationHelper.showGroupMemberActionNotification(
                     context, groupName, data.username, "joined", data.groupId
                 )
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "groupMemberJoined",
@@ -374,26 +357,22 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
-            // ✅ NEW: Handle group member left events
+
             override fun onGroupMemberLeft(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) {
-                android.util.Log.d("FREETIME_HOME", "👤 ${data.username} left group ${data.groupId}")
-                
-                // Check if group notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " ${data.username} left group ${data.groupId}")
+
                 if (!prefs.isNotifyGroupUpdatesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Group notifications disabled - skipping")
+                    android.util.Log.d("FREETIME_HOME", " Group notifications disabled - skipping")
                     return
                 }
-                
+
                 val groupChat = chats.find { it.id == data.groupId }
                 val groupName = groupChat?.name ?: "Group"
-                
-                // Show notification
+
                 com.freetime.app.notifications.NotificationHelper.showGroupMemberActionNotification(
                     context, groupName, data.username, "left", data.groupId
                 )
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "groupMemberLeft",
@@ -403,23 +382,19 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
-            // ✅ NEW: Handle group invitation received events
-            override fun onGroupInviteReceived(data: com.freetime.app.services.WebSocketManager.GroupInviteData) {
-                android.util.Log.d("FREETIME_HOME", "📨 Group invite: ${data.inviterName} invited you to ${data.groupName}")
 
-                // Check if group notifications are enabled
+            override fun onGroupInviteReceived(data: com.freetime.app.services.WebSocketManager.GroupInviteData) {
+                android.util.Log.d("FREETIME_HOME", " Group invite: ${data.inviterName} invited you to ${data.groupName}")
+
                 if (!prefs.isNotifyGroupUpdatesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Group notifications disabled - skipping")
+                    android.util.Log.d("FREETIME_HOME", " Group notifications disabled - skipping")
                     return
                 }
 
-                // Show system push notification
                 com.freetime.app.notifications.NotificationHelper.showGroupInviteNotification(
                     context, data.groupName, data.inviterName, data.groupId
                 )
 
-                // Add to in-app notification center
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "groupInvite",
@@ -431,25 +406,21 @@ fun ModernHomeScreen(
                 )
             }
 
-            // ✅ NEW: Handle group member promoted events
             override fun onGroupMemberPromoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) {
-                android.util.Log.d("FREETIME_HOME", "⭐ ${data.username} promoted to admin in group ${data.groupId}")
-                
-                // Check if group notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " ${data.username} promoted to admin in group ${data.groupId}")
+
                 if (!prefs.isNotifyGroupUpdatesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Group notifications disabled - skipping")
+                    android.util.Log.d("FREETIME_HOME", " Group notifications disabled - skipping")
                     return
                 }
-                
+
                 val groupChat = chats.find { it.id == data.groupId }
                 val groupName = groupChat?.name ?: "Group"
-                
-                // Show notification
+
                 com.freetime.app.notifications.NotificationHelper.showGroupMemberActionNotification(
                     context, groupName, data.username, "promoted", data.groupId
                 )
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "groupMemberPromoted",
@@ -459,26 +430,22 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
-            // ✅ NEW: Handle group member removed events
+
             override fun onGroupMemberRemoved(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) {
-                android.util.Log.d("FREETIME_HOME", "🚫 ${data.username} removed from group ${data.groupId}")
-                
-                // Check if group notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " ${data.username} removed from group ${data.groupId}")
+
                 if (!prefs.isNotifyGroupUpdatesEnabled()) {
-                    android.util.Log.d("FREETIME_HOME", "⏸️ Group notifications disabled - skipping")
+                    android.util.Log.d("FREETIME_HOME", " Group notifications disabled - skipping")
                     return
                 }
-                
+
                 val groupChat = chats.find { it.id == data.groupId }
                 val groupName = groupChat?.name ?: "Group"
-                
-                // Show notification
+
                 com.freetime.app.notifications.NotificationHelper.showGroupMemberActionNotification(
                     context, groupName, data.username, "removed", data.groupId
                 )
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "groupMemberRemoved",
@@ -488,9 +455,9 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
+
             override fun onGroupMemberDemoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) {
-                android.util.Log.d("FREETIME_HOME", "⬇️ ${data.username} demoted in group ${data.groupId}")
+                android.util.Log.d("FREETIME_HOME", " ${data.username} demoted in group ${data.groupId}")
                 if (!prefs.isNotifyGroupUpdatesEnabled()) return
                 val groupChat = chats.find { it.id == data.groupId }
                 val groupName = groupChat?.name ?: "Group"
@@ -510,7 +477,7 @@ fun ModernHomeScreen(
             override fun onGroupHistoryCleared(data: com.freetime.app.services.WebSocketManager.GroupHistoryClearedData) {}
 
             override fun onAppUpdateLaunched(data: com.freetime.app.services.WebSocketManager.AppUpdateData) {
-                android.util.Log.d("FREETIME_HOME", "🔄 App update received: v${data.version}")
+                android.util.Log.d("FREETIME_HOME", " App update received: v${data.version}")
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
                     val info = com.freetime.app.services.AppUpdateManager.checkForUpdate(context)
                     if (info != null && com.freetime.app.services.AppUpdateManager.isUpdateAvailable(info) && info.downloadUrl.isNotEmpty()) {
@@ -519,57 +486,32 @@ fun ModernHomeScreen(
                     }
                 }
             }
-            
+
             override fun onChannelMessage(message: com.freetime.app.services.WebSocketManager.ChannelMessageData) {}
             override fun onUserTyping(typingData: com.freetime.app.services.WebSocketManager.TypingData) {}
             override fun onMessageRead(readData: com.freetime.app.services.WebSocketManager.ReadReceiptData) {}
             override fun onConversationAllRead(readData: com.freetime.app.services.WebSocketManager.ConversationReadData) {}
-            override fun onIncomingCall(callData: com.freetime.app.services.WebSocketManager.IncomingCallData) {
-                android.util.Log.d("FREETIME_HOME", "📞 Incoming call from ${callData.callerUsername}")
-                com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                    context, 
-                    callData.callerUsername, 
-                    callData.callerId, 
-                    callData.callType,
-                    callId = callData.callId,
-                    callerAvatarUrl = callData.callerAvatar,
-                    offerSdp = callData.sdpOffer
-                )
-                
-                // Add to in-app notification center
-                com.freetime.app.notifications.InAppNotificationStore.addNotification(
-                    com.freetime.app.notifications.InAppNotification(
-                        type = "call",
-                        title = callData.callerUsername,
-                        description = "Incoming ${callData.callType} call",
-                        senderId = callData.callerId
-                    )
-                )
-            }
-            override fun onCallAnswered(callData: com.freetime.app.services.WebSocketManager.CallAnsweredData) {}
-            override fun onCallRejected(callData: com.freetime.app.services.WebSocketManager.CallRejectedData) {}
-            override fun onCallEnded(callData: com.freetime.app.services.WebSocketManager.CallEndedData) {}
-            override fun onIceCandidate(iceData: com.freetime.app.services.WebSocketManager.IceCandidateData) {}
             override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {
-                // ✅ REAL-TIME ONLINE STATUS: Update the chat immediately so a chat bubbles to the
-                // top as soon as the user comes online (no need to wait for the 5s poll).
-                android.util.Log.d("FREETIME_HOME", "👤 Online status changed: ${statusData.userId} online=${statusData.isOnline}")
+                android.util.Log.d("FREETIME_HOME", " Online status changed: ${statusData.userId} online=${statusData.isOnline}")
+                if (!statusData.isOnline) {
+                    lastSeenOfflineTimestamps[statusData.userId] = System.currentTimeMillis()
+                } else {
+                    lastSeenOfflineTimestamps.remove(statusData.userId)
+                }
                 chats = chats.map { chat ->
                     if (chat.id == statusData.userId) {
                         chat.copy(
                             isOnline = statusData.isOnline,
-                            timestamp = if (statusData.isOnline) "Online now"
-                                else (statusData.lastSeen.ifEmpty { statusData.actualStatus.ifEmpty { "Offline" } })
+                            timestamp = if (statusData.isOnline) "online"
+                                else formatLastSeen(statusData.lastSeen.ifEmpty { null })
                         )
                     } else chat
                 }
             }
             override fun onReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {}
             override fun onFriendRequestAutoAccepted(data: com.freetime.app.services.WebSocketManager.FriendRequestAutoAcceptedData) {
-                // Refresh pending friend request count when mutual friend request auto-accepts
-                android.util.Log.d("FREETIME_HOME", "🤝 Friend request auto-accepted from ${data.userId}, refreshing badge")
-                
-                // Add to in-app notification center
+                android.util.Log.d("FREETIME_HOME", " Friend request auto-accepted from ${data.userId}, refreshing badge")
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "friendAccepted",
@@ -584,7 +526,7 @@ fun ModernHomeScreen(
                         val result = apiService.getPendingRequests()
                         result.onSuccess { requests ->
                             pendingFriendRequestCount = requests.size
-                            android.util.Log.d("FREETIME_HOME", "✓ Badge updated: ${requests.size} pending requests")
+                            android.util.Log.d("FREETIME_HOME", " Badge updated: ${requests.size} pending requests")
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("FREETIME_HOME", "Error refreshing pending requests: ${e.message}")
@@ -592,39 +534,31 @@ fun ModernHomeScreen(
                 }
             }
             override fun onFriendAdded(data: com.freetime.app.services.WebSocketManager.FriendAddedData) {
-                // Real-time friend list sync - friend was added
-                android.util.Log.d("FREETIME_HOME", "👥 New friend added: ${data.username} (${data.userId})")
-                // The actual friend list will be synced when SearchFriendsScreen receives this event
+                android.util.Log.d("FREETIME_HOME", " New friend added: ${data.username} (${data.userId})")
             }
             override fun onFriendRemoved(data: com.freetime.app.services.WebSocketManager.FriendRemovedData) {
-                // Real-time friend list sync - friend was removed
-                android.util.Log.d("FREETIME_HOME", "👥 Friend removed: ${data.removedFriendId}")
-                // The actual friend list will be synced when SearchFriendsScreen receives this event
+                android.util.Log.d("FREETIME_HOME", " Friend removed: ${data.removedFriendId}")
             }
             override fun onUserProfileUpdated(data: com.freetime.app.services.WebSocketManager.UserProfileUpdatedData) {
-                android.util.Log.d("FREETIME_HOME", "👤 Profile updated for friend: ${data.userId}")
-                // Update the chat list in real-time
+                android.util.Log.d("FREETIME_HOME", " Profile updated for friend: ${data.userId}")
                 chats = chats.map { chat ->
                     if (chat.id == data.userId) {
                         chat.copy(
                             avatarUrl = data.avatar ?: data.profileImageUrl ?: chat.avatarUrl,
-                            // If status is provided, update timestamp if online
-                            timestamp = if (data.status != null && chat.isOnline) "Online - ${data.status}" else chat.timestamp
+                            timestamp = if (chat.isOnline) "online" else chat.timestamp
                         )
                     } else chat
                 }
             }
 
             override fun onNotificationReceived(data: com.freetime.app.services.WebSocketManager.InternalNotificationData) {
-                android.util.Log.d("FREETIME_HOME", "🔔 Internal notification received: ${data.title}")
-                
-                // 1. Show system notification (fallback for FCM)
+                android.util.Log.d("FREETIME_HOME", " Internal notification received: ${data.title}")
+
                 com.freetime.app.notifications.NotificationHelper.showInternalNotification(context, data)
-                
-                // 2. Add to in-app notification center
+
                 val senderId = data.data.optString("senderId", "")
                 val type = data.data.optString("type", "notification")
-                
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = type,
@@ -633,39 +567,18 @@ fun ModernHomeScreen(
                         senderId = senderId
                     )
                 )
-                
-                // 3. Special handling for calls received via WebSocket fallback
-                if (type == "call" || type == "incoming_call") {
-                    val callerName = data.data.optString("callerName", data.title)
-                    val callerId = data.data.optString("callerId", senderId)
-                    val callType = data.data.optString("callType", "audio")
-                    val callId = data.data.optString("callId", "")
-                    
-                    if (callerId.isNotEmpty()) {
-                        com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                            context, 
-                            callerName, 
-                            callerId, 
-                            callType, 
-                            callId = callId,
-                            offerSdp = data.data.optString("offer", data.data.optString("sdp", ""))
-                        )
-                    }
-                }
+
             }
-            
-            // ✅ CRITICAL FIX: Handle incoming friend requests
+
             override fun onFriendRequestReceived(data: com.freetime.app.services.WebSocketManager.FriendRequestEventData) {
-                android.util.Log.d("FREETIME_HOME", "🤝 Friend request received from ${data.senderName}")
-                
-                // Check if friend request notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " Friend request received from ${data.senderName}")
+
                 if (prefs.isNotifyFriendRequestsEnabled()) {
                     com.freetime.app.notifications.NotificationHelper.showFriendRequestNotification(
                         context, data.senderName, data.senderId, data.requestId
                     )
                 }
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "friendRequest",
@@ -674,33 +587,29 @@ fun ModernHomeScreen(
                         senderId = data.senderId
                     )
                 )
-                
-                // Update pending request count badge
+
                 scope.launch {
                     try {
                         val result = apiService.getPendingRequests()
                         result.onSuccess { requests ->
                             pendingFriendRequestCount = requests.size
-                            android.util.Log.d("FREETIME_HOME", "✓ Pending requests badge updated: ${requests.size}")
+                            android.util.Log.d("FREETIME_HOME", " Pending requests badge updated: ${requests.size}")
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("FREETIME_HOME", "Error refreshing pending requests: ${e.message}")
                     }
                 }
             }
-            
-            // ✅ CRITICAL FIX: Handle friend request acceptance (non-auto)
+
             override fun onFriendRequestAccepted(data: com.freetime.app.services.WebSocketManager.FriendRequestEventData) {
-                android.util.Log.d("FREETIME_HOME", "🤝 Friend request accepted by ${data.senderName}")
-                
-                // Check if friend request notifications are enabled
+                android.util.Log.d("FREETIME_HOME", " Friend request accepted by ${data.senderName}")
+
                 if (prefs.isNotifyFriendRequestsEnabled()) {
                     com.freetime.app.notifications.NotificationHelper.showFriendRequestAcceptedNotification(
                         context, data.senderName, data.senderId
                     )
                 }
-                
-                // Add to in-app notification center
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "friendAccepted",
@@ -710,12 +619,10 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
-            // ✅ CRITICAL FIX: Handle friend request rejection
+
             override fun onFriendRequestRejected(data: com.freetime.app.services.WebSocketManager.FriendRequestEventData) {
-                android.util.Log.d("FREETIME_HOME", "❌ Friend request rejected by ${data.senderName}")
-                
-                // Add to in-app notification center
+                android.util.Log.d("FREETIME_HOME", " Friend request rejected by ${data.senderName}")
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "friendRejected",
@@ -725,12 +632,10 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
-            // ✅ CRITICAL FIX: Handle friend request cancellation
+
             override fun onFriendRequestCanceled(data: com.freetime.app.services.WebSocketManager.FriendRequestEventData) {
-                android.util.Log.d("FREETIME_HOME", "🚫 Friend request canceled by ${data.senderName}")
-                
-                // Add to in-app notification center
+                android.util.Log.d("FREETIME_HOME", " Friend request canceled by ${data.senderName}")
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "friendCanceled",
@@ -739,8 +644,7 @@ fun ModernHomeScreen(
                         senderId = data.senderId
                     )
                 )
-                
-                // Update pending request count badge
+
                 scope.launch {
                     try {
                         val result = apiService.getPendingRequests()
@@ -752,12 +656,10 @@ fun ModernHomeScreen(
                     }
                 }
             }
-            
-            // ✅ CRITICAL FIX: Handle media download requests
+
             override fun onMediaDownloadRequested(data: com.freetime.app.services.WebSocketManager.MediaDownloadRequestData) {
-                android.util.Log.d("FREETIME_HOME", "🔔 RECEIVED onMediaDownloadRequested: mediaId=${data.mediaId}, requester=${data.requesterName}, requestId=${data.requestId}")
-                
-                // Add to in-app notification center
+                android.util.Log.d("FREETIME_HOME", " RECEIVED onMediaDownloadRequested: mediaId=${data.mediaId}, requester=${data.requesterName}, requestId=${data.requestId}")
+
                 com.freetime.app.notifications.InAppNotificationStore.addNotification(
                     com.freetime.app.notifications.InAppNotification(
                         type = "downloadRequest",
@@ -767,12 +669,12 @@ fun ModernHomeScreen(
                     )
                 )
             }
-            
+
             override fun onConnectionEstablished() {
-                android.util.Log.d("FREETIME_HOME", "✓ WebSocket connected for notifications")
+                android.util.Log.d("FREETIME_HOME", " WebSocket connected for notifications")
             }
             override fun onConnectionLost() {
-                android.util.Log.d("FREETIME_HOME", "❌ WebSocket disconnected")
+                android.util.Log.d("FREETIME_HOME", " WebSocket disconnected")
             }
             override fun onError(error: String) {
                 android.util.Log.e("FREETIME_HOME", "WebSocket error: $error")
@@ -780,15 +682,12 @@ fun ModernHomeScreen(
         }
     }
 
-    // ✅ CRITICAL FIX: Register listener BEFORE connecting to prevent race condition
-    // where connection completes and events fire before listener is attached
     LaunchedEffect(globalNotificationListener) {
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
-        // Add listener first, THEN connect
         wsManager.addListener(globalNotificationListener)
-        android.util.Log.d("FREETIME_HOME", "✅ WebSocket listener registered BEFORE connection")
+        android.util.Log.d("FREETIME_HOME", " WebSocket listener registered BEFORE connection")
     }
-    
+
     DisposableEffect(Unit) {
         onDispose {
             val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
@@ -797,14 +696,13 @@ fun ModernHomeScreen(
         }
     }
 
-    // Fetch friend request count
     LaunchedEffect(Unit) {
         scope.launch {
             try {
                 val result = apiService.getPendingRequests()
                 result.onSuccess { requests ->
                     pendingFriendRequestCount = requests.size
-                    android.util.Log.d("FREETIME_HOME", "✓ Pending friend requests: ${requests.size}")
+                    android.util.Log.d("FREETIME_HOME", " Pending friend requests: ${requests.size}")
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FREETIME_HOME", "Error fetching pending requests: ${e.message}")
@@ -812,25 +710,20 @@ fun ModernHomeScreen(
         }
     }
 
-    // ✅ NEW: Watch global refresh manager
     val globalRefreshKey = GroupRefreshManager.refreshTrigger.value
-    
-    // Load user groups
-    LaunchedEffect(groupsRefreshKey, globalRefreshKey) {  // ✅ FIX: Reload when manual refresh OR global refresh triggered
+
+    LaunchedEffect(groupsRefreshKey, globalRefreshKey) {
         isLoadingGroups = true
         try {
-            // 🔄 Log refresh event
             if (globalRefreshKey > 0) {
-                android.util.Log.d("FREETIME_HOME", "🔄 Refresh triggered by global signal (key=$globalRefreshKey), clearing old groups...")
-                userGroups = emptyList()  // ✅ IMPROVED: Clear groups immediately to show loading state
+                android.util.Log.d("FREETIME_HOME", " Refresh triggered by global signal (key=$globalRefreshKey), clearing old groups...")
+                userGroups = emptyList()
             }
-            
+
             val result = apiService.getUserGroups()
             result.onSuccess { groups ->
-                // ✅ CRITICAL FIX: Construct picture URLs for groups that don't have them
                 val enrichedGroups = groups.map { group ->
                     if (group.profilePictureUrl.isNullOrEmpty() || group.profilePictureUrl == "undefined") {
-                        // Construct the picture URL if missing
                         group.copy(
                             profilePictureUrl = "${ApiClient.getBaseUrl().trimEnd('/')}/api/groups/${group.groupId}/picture"
                         )
@@ -838,43 +731,41 @@ fun ModernHomeScreen(
                         group
                     }
                 }
-                
-                // ✅ IMPROVED: Log group changes
-                android.util.Log.d("FREETIME_HOME", "✓ Loaded ${enrichedGroups.size} groups (was ${userGroups.size})")
+
+                android.util.Log.d("FREETIME_HOME", " Loaded ${enrichedGroups.size} groups (was ${userGroups.size})")
                 val oldGroupIds = userGroups.map { it.groupId }.toSet()
                 val newGroupIds = enrichedGroups.map { it.groupId }.toSet()
                 val removedGroups = oldGroupIds - newGroupIds
                 val addedGroups = newGroupIds - oldGroupIds
-                
+
                 if (removedGroups.isNotEmpty()) {
-                    android.util.Log.d("FREETIME_HOME", "  ❌ Removed: ${removedGroups.size} group(s)")
+                    android.util.Log.d("FREETIME_HOME", " Removed: ${removedGroups.size} group(s)")
                     removedGroups.forEach { groupId ->
-                        android.util.Log.d("FREETIME_HOME", "    - Removed: $groupId")
+                        android.util.Log.d("FREETIME_HOME", " - Removed: $groupId")
                     }
                 }
                 if (addedGroups.isNotEmpty()) {
-                    android.util.Log.d("FREETIME_HOME", "  ✅ Added: ${addedGroups.size} group(s)")
+                    android.util.Log.d("FREETIME_HOME", " Added: ${addedGroups.size} group(s)")
                 }
-                
+
                 userGroups = enrichedGroups
-                
+
                 enrichedGroups.forEach { group ->
-                    android.util.Log.d("FREETIME_HOME", "  📁 Group: ${group.name}")
-                    android.util.Log.d("FREETIME_HOME", "    - PFP URL: ${group.profilePictureUrl}")
-                    android.util.Log.d("FREETIME_HOME", "    - Avatar: ${group.avatar ?: "NULL"}")
-                    android.util.Log.d("FREETIME_HOME", "    - InviteCode: ${group.inviteCode ?: "NULL"}")
-                    android.util.Log.d("FREETIME_HOME", "    - InviteLink: ${group.inviteLink ?: "NULL"}")
+                    android.util.Log.d("FREETIME_HOME", " Group: ${group.name}")
+                    android.util.Log.d("FREETIME_HOME", " - PFP URL: ${group.profilePictureUrl}")
+                    android.util.Log.d("FREETIME_HOME", " - Avatar: ${group.avatar ?: "NULL"}")
+                    android.util.Log.d("FREETIME_HOME", " - InviteCode: ${group.inviteCode ?: "NULL"}")
+                    android.util.Log.d("FREETIME_HOME", " - InviteLink: ${group.inviteLink ?: "NULL"}")
                 }
             }.onFailure { error ->
-                android.util.Log.e("FREETIME_HOME", "❌ Error loading groups: ${error.message}")
-                // ✅ NEW: Auto-logout on 401 Unauthorized
+                android.util.Log.e("FREETIME_HOME", " Error loading groups: ${error.message}")
                 if (error.message?.contains("401") == true) {
                     android.util.Log.e("FREETIME_HOME", "401 Unauthorized - clearing auth data")
                     prefs.clearAllAuthenticationData()
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("FREETIME_HOME", "❌ Exception loading groups: ${e.message}", e)
+            android.util.Log.e("FREETIME_HOME", " Exception loading groups: ${e.message}", e)
         } finally {
             isLoadingGroups = false
         }
@@ -883,7 +774,6 @@ fun ModernHomeScreen(
     LaunchedEffect(Unit) {
         isLoadingChats = true
         try {
-            // ✅ OFFLINE-FIRST: Load cached friends immediately
             val cachedFriendsJson = prefs.getCachedFriends()
             if (!cachedFriendsJson.isNullOrEmpty()) {
                 try {
@@ -905,45 +795,43 @@ fun ModernHomeScreen(
                                 for (j in 0 until arr.length()) tagList.add(arr.getString(j))
                                 tagList.toList() as List<String>
                             } ?: emptyList<String>(),
-                            role = obj.optString("role", null),  // ✅ NEW: Extract role from cache
-                            isAdmin = obj.optBoolean("isAdmin", false),  // ✅ NEW: Extract isAdmin from cache
-                            isModerator = obj.optBoolean("isModerator", false)  // ✅ NEW: Extract isModerator from cache
+                            role = obj.optString("role", null),
+                            isAdmin = obj.optBoolean("isAdmin", false),
+                            isModerator = obj.optBoolean("isModerator", false)
                         ))
                     }
-                    
+
                     chats = friendsList.mapIndexed { index, friend ->
                         ChatItem(
                             id = friend.userId,
                             name = friend.name.ifEmpty { friend.username },
                             lastMessage = "Tap to start chatting...",
-                            timestamp = if (friend.isOnline) "Online now" else formatLastSeen(friend.lastSeen),
+                            timestamp = formatLastSeen(friend.lastSeen),
                             isUnread = false,
                             unreadCount = 0,
                             isTyping = false,
-                            isOnline = friend.isOnline,
+                            isOnline = false,
                             avatarColor = listOf(
                                 Color(0xFFFF1493), Color(0xFF00FFFF), Color(0xFF9D4EDD),
                                 Color(0xFF3A86FF), Color(0xFFFF7A00), Color(0xFF00FF00)
                             )[index % 6],
                             avatarUrl = apiService.resolveAvatarUrl(friend.avatar),
                             tags = friend.tags,
-                            role = friend.role ?: "",  // ✅ NEW: Add role
-                            isAdmin = friend.isAdmin,  // ✅ NEW: Add isAdmin
-                            isModerator = friend.isModerator  // ✅ NEW: Add isModerator
+                            role = friend.role ?: "",
+                            isAdmin = friend.isAdmin,
+                            isModerator = friend.isModerator
                         )
                     }
-                    android.util.Log.d("FREETIME_HOME", "📦 Loaded ${friendsList.size} friends from cache")
+                    android.util.Log.d("FREETIME_HOME", " Loaded ${friendsList.size} friends from cache")
                 } catch (e: Exception) {
                     android.util.Log.w("FREETIME_HOME", "Failed to parse cached friends: ${e.message}")
                 }
             }
-            
-            // ✅ ATTEMPT API LOAD: Try to get fresh friends (even if cache was loaded)
+
             val result = apiService.getFriends()
             result.onSuccess { friends ->
-                android.util.Log.d("FREETIME_HOME", "🔄 Updated with ${friends.size} friends from API")
-                
-                // ✅ CACHE: Save fresh friends for offline access
+                android.util.Log.d("FREETIME_HOME", " Updated with ${friends.size} friends from API")
+
                 try {
                     val friendsArray = org.json.JSONArray()
                     friends.forEach { friend ->
@@ -954,54 +842,52 @@ fun ModernHomeScreen(
                         obj.put("email", friend.email)
                         obj.put("avatar", friend.avatar)
                         obj.put("bio", friend.bio)
-                        obj.put("isOnline", friend.isOnline)
+                        obj.put("isOnline", false)
                         obj.put("lastSeen", friend.lastSeen ?: "")
                         val tagsArr = org.json.JSONArray(friend.tags)
                         obj.put("tags", tagsArr)
-                        obj.put("role", friend.role ?: "")  // ✅ NEW: Cache role
-                        obj.put("isAdmin", friend.isAdmin)  // ✅ NEW: Cache isAdmin
-                        obj.put("isModerator", friend.isModerator)  // ✅ NEW: Cache isModerator
+                        obj.put("role", friend.role ?: "")
+                        obj.put("isAdmin", friend.isAdmin)
+                        obj.put("isModerator", friend.isModerator)
                         friendsArray.put(obj)
                     }
                     prefs.saveFriendsCache(friendsArray.toString())
                 } catch (e: Exception) {
                     android.util.Log.w("FREETIME_HOME", "Failed to cache friends: ${e.message}")
                 }
-                
+
                 chats = friends.mapIndexed { index, friend ->
                     ChatItem(
                         id = friend.userId,
                         name = friend.name.ifEmpty { friend.username },
                         lastMessage = "Tap to start chatting...",
-                        timestamp = if (friend.isOnline) "Online now" else formatLastSeen(friend.lastSeen),
+                        timestamp = if (friend.isOnline) "online" else formatLastSeen(friend.lastSeen),
                         isUnread = false,
                         unreadCount = 0,
                         isTyping = false,
-                        isOnline = friend.isOnline,  // USE REAL ONLINE STATUS
+                        isOnline = friend.isOnline,
                         avatarColor = listOf(
                             Color(0xFFFF1493), Color(0xFF00FFFF), Color(0xFF9D4EDD),
                             Color(0xFF3A86FF), Color(0xFFFF7A00), Color(0xFF00FF00)
                         )[index % 6],
                         avatarUrl = apiService.resolveAvatarUrl(friend.avatar),
                         tags = friend.tags,
-                        role = friend.role ?: "",  // ✅ NEW: Add role
-                        isAdmin = friend.isAdmin,  // ✅ NEW: Add isAdmin
-                        isModerator = friend.isModerator  // ✅ NEW: Add isModerator
+                        role = friend.role ?: "",
+                        isAdmin = friend.isAdmin,
+                        isModerator = friend.isModerator
                     )
                 }
                 loadingError = ""
             }
             result.onFailure { error ->
-                android.util.Log.e("FREETIME_HOME", "⚠️  Failed to load friends from API: ${error.message}")
-                
-                // ✅ NEW: Auto-logout on 401 Unauthorized
+                android.util.Log.e("FREETIME_HOME", " Failed to load friends from API: ${error.message}")
+
                 if (error.message?.contains("401") == true) {
-                    android.util.Log.w("FREETIME_HOME", "🔐 Session expired (401). Navigating to login.")
+                    android.util.Log.w("FREETIME_HOME", " Session expired (401). Navigating to login.")
                     prefs.clearAllAuthenticationData()
-                    onNavigateToSettings() // Or dedicated logout function
+                    onNavigateToSettings()
                 }
-                
-                // Don't clear chats - if cache was loaded, keep showing cached data
+
                 val devSaveEnabled = prefs.getBoolean("dev_save_api_responses", false)
                 if (chats.isEmpty()) {
                     loadingError = "Failed to load friends (${error.message ?: "unknown"})"
@@ -1009,7 +895,6 @@ fun ModernHomeScreen(
                 } else {
                     loadingError = "Using cached friends (reconnecting...)"
                 }
-                // Refresh in-memory saved response
                 savedFriendsApiResponse.value = prefs.getString("last_api_friends_response", "")
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1018,27 +903,29 @@ fun ModernHomeScreen(
         } catch (e: Exception) {
             android.util.Log.e("FREETIME_HOME", "ModernHomeScreen: Exception: ${e.message}", e)
             loadingError = "Error: ${e.message ?: "Unknown error"}"
-            // Keep cached chats if loading failed
             if (chats.isEmpty()) {
                 chats = emptyList()
             }
         } finally {
             isLoadingChats = false
         }
-        
-        // Poll online status every 5 seconds
+
         while (true) {
-            delay(5000)
+            delay(30_000)
             try {
                 val result = apiService.getFriends()
                 result.onSuccess { friends ->
-                    android.util.Log.d("FREETIME_HOME", "📡 Online status poll: ${friends.filter { it.isOnline }.size}/${friends.size} online")
+                    android.util.Log.d("FREETIME_HOME", " Online status poll: ${friends.filter { it.isOnline }.size}/${friends.size} online")
+                    val now = System.currentTimeMillis()
                     chats = chats.mapNotNull { chat ->
                         val updatedFriend = friends.find { it.userId == chat.id }
                         if (updatedFriend != null) {
+                            val wsOfflineAt = lastSeenOfflineTimestamps[chat.id]
+                            val isWsOfflineRecent = wsOfflineAt != null && (now - wsOfflineAt) < 60_000
+                            val effectiveOnline = updatedFriend.isOnline && !isWsOfflineRecent
                             chat.copy(
-                                isOnline = updatedFriend.isOnline,
-                                timestamp = if (updatedFriend.isOnline) "Online now" else (updatedFriend.lastSeen ?: "Offline")
+                                isOnline = effectiveOnline,
+                                timestamp = if (effectiveOnline) "online" else formatLastSeen(updatedFriend.lastSeen)
                             )
                         } else {
                             chat
@@ -1051,51 +938,24 @@ fun ModernHomeScreen(
         }
     }
 
-    // ✅ FALLBACK POLLING: Periodically check for pending calls and requests via REST API
-    // This ensures calls and friend requests are NEVER missed even if Socket.IO polling fails
     LaunchedEffect(Unit) {
         while (true) {
-            delay(15000)  // Check every 15 seconds (calls must notify within this window)
+            delay(15000)
             try {
-                // Check for pending incoming calls
-                val callsResult = apiService.getPendingCallsViaREST()
-                callsResult.onSuccess { pendingCalls ->
-                    if (pendingCalls.isNotEmpty()) {
-                        android.util.Log.w("FREETIME_HOME", "🚨 FALLBACK POLL: Found ${pendingCalls.size} pending calls via REST!")
-                        // Immediately notify via listener (if Socket.IO didn't deliver)
-                        pendingCalls.forEach { callData ->
-                            globalNotificationListener?.onIncomingCall(
-                                WebSocketManager.IncomingCallData(
-                                    callId = callData["callId"] as? String ?: "",
-                                    callerId = callData["callerId"] as? String ?: "",
-                                    callerUsername = callData["callerName"] as? String ?: "Unknown",
-                                    callType = callData["callType"] as? String ?: "audio",
-                                    sdpOffer = "",
-                                    timestamp = System.currentTimeMillis()
-                                )
-                            )
-                        }
-                    }
-                }
-                
-                // Check for pending friend requests
                 val requestsResult = apiService.getPendingFriendRequestsViaREST()
                 requestsResult.onSuccess { pendingRequests ->
                     if (pendingRequests.isNotEmpty()) {
                         pendingRequests.forEach { request ->
-                            // Deduplicate: skip if we already notified for this requestId
                             if (request.requestId.isNotEmpty() && notifiedRequestIds.contains(request.requestId)) return@forEach
                             if (request.requestId.isNotEmpty()) notifiedRequestIds.add(request.requestId)
                             val userName = request.senderUsername.ifEmpty { "Someone" }
                             android.util.Log.d("FREETIME_HOME", "REST Fallback: New friend request from $userName")
-                            // Show system push notification
                             com.freetime.app.notifications.NotificationHelper.showFriendRequestNotification(
                                 context = context,
                                 senderName = userName,
                                 senderId = request.senderId,
                                 requestId = request.requestId
                             )
-                            // Add in-app notification
                             com.freetime.app.notifications.InAppNotificationStore.addNotification(
                                 com.freetime.app.notifications.InAppNotification(
                                     type = "friendRequest",
@@ -1105,7 +965,6 @@ fun ModernHomeScreen(
                                 )
                             )
                         }
-                        // Update badge count
                         pendingFriendRequestCount = pendingRequests.size
                     }
                 }
@@ -1115,50 +974,48 @@ fun ModernHomeScreen(
         }
     }
 
-    // ✅ SOCKET.IO DIAGNOSTIC CHECK: Monitor connectivity every 30 seconds
-    // Helps identify transport issues and connection problems
     LaunchedEffect(Unit) {
         while (true) {
-            delay(30000)  // Check every 30 seconds
+            delay(30000)
             try {
                 val diagResult = apiService.testSocketIODiagnostic()
                 diagResult.onSuccess { diag ->
                     val connected = diag["clientConnected"] as? String ?: "unknown"
                     val transport = diag["currentTransport"] as? String ?: "none"
                     val socketId = diag["socketId"] as? String ?: "N/A"
-                    android.util.Log.d("FREETIME_DIAG", "🔍 Socket.IO Status: Connected=$connected, Transport=$transport, SocketId=$socketId")
-                    
+                    android.util.Log.d("FREETIME_DIAG", " Socket.IO Status: Connected=$connected, Transport=$transport, SocketId=$socketId")
+
                     if (connected == "false" || transport == "none") {
-                        android.util.Log.w("FREETIME_DIAG", "⚠️ Socket.IO NOT CONNECTED! Relying on REST API fallback polling...")
+                        android.util.Log.w("FREETIME_DIAG", " Socket.IO NOT CONNECTED! Relying on REST API fallback polling...")
                     } else {
-                        android.util.Log.d("FREETIME_DIAG", "✅ Socket.IO connected via $transport")
+                        android.util.Log.d("FREETIME_DIAG", " Socket.IO connected via $transport")
                     }
                 }
                 diagResult.onFailure { error ->
-                    android.util.Log.w("FREETIME_DIAG", "⚠️ Diagnostic check failed: ${error.message}")
+                    android.util.Log.w("FREETIME_DIAG", " Diagnostic check failed: ${error.message}")
                 }
             } catch (e: Exception) {
                 android.util.Log.d("FREETIME_DIAG", "Diagnostic error (non-critical): ${e.message}")
             }
         }
     }
-    
-    val CHAT_PERSIST_MS = 2 * 60 * 1000L // 2 minutes
-    val filteredChats = chats
-        .filter { chat ->
-            val passesSearch = chat.name.contains(searchQuery, ignoreCase = true) ||
-                chat.lastMessage.contains(searchQuery, ignoreCase = true)
-            val isVisible = if (chat.id == com.freetime.app.api.ANNOUNCEMENT_USER_ID) {
-                true  // Always visible, never auto-hide
-            } else if (chat.lastMessageTimestamp > 0L) {
-                System.currentTimeMillis() - chat.lastMessageTimestamp < CHAT_PERSIST_MS
-            } else true
-            passesSearch && isVisible
-        }
-        // ✅ ONLINE USERS FIRST: Online chats bubble to the top automatically when
-        // someone comes online (stable sort keeps recent-chat order within each group)
-        .sortedWith(compareByDescending<ChatItem> { it.isOnline })
-    
+
+    val CHAT_PERSIST_MS = 2 * 60 * 1000L
+    val filteredChats = remember(chats, searchQuery) {
+        chats
+            .filter { chat ->
+                val passesSearch = chat.name.contains(searchQuery, ignoreCase = true) ||
+                    chat.lastMessage.contains(searchQuery, ignoreCase = true)
+                val isVisible = if (chat.id == com.freetime.app.api.ANNOUNCEMENT_USER_ID) {
+                    true
+                } else if (chat.lastMessageTimestamp > 0L) {
+                    System.currentTimeMillis() - chat.lastMessageTimestamp < CHAT_PERSIST_MS
+                } else true
+                passesSearch && isVisible
+            }
+            .sortedWith(compareByDescending<ChatItem> { it.isOnline })
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1174,8 +1031,6 @@ fun ModernHomeScreen(
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            
-            // Top Bar
             TopAppBar(
                 title = {
                     Row(
@@ -1187,13 +1042,24 @@ fun ModernHomeScreen(
                                 .weight(1f)
                                 .padding(vertical = 4.dp)
                         ) {
-                            Text(
-                                "Messages",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = CyberpunkTheme.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 24.sp
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Messages",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = CyberpunkTheme.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 24.sp
+                                )
+                                if (isServerDown) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Icon(
+                                        Icons.Default.CloudOff,
+                                        contentDescription = "Server offline",
+                                        tint = Color(0xFFFF4444),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                             Text(
                                 "${filteredChats.size} conversations",
                                 style = MaterialTheme.typography.bodySmall,
@@ -1201,8 +1067,7 @@ fun ModernHomeScreen(
                                 fontSize = 12.sp
                             )
                         }
-                        
-                        // Update available icon
+
                         if (updateInfo != null) {
                             Box {
                                 IconButton(
@@ -1226,8 +1091,7 @@ fun ModernHomeScreen(
                                 }
                             }
                         }
-                        
-                        // Three-dot overflow menu
+
                         Box {
                             var showMenu by remember { mutableStateOf(false) }
                             val unreadNotifCount = InAppNotificationStore.notifications.count { !it.isRead }
@@ -1244,104 +1108,80 @@ fun ModernHomeScreen(
                                 )
                             }
 
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                // Notifications
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("Notifications")
-                                            if (unreadNotifCount > 0) {
-                                                Spacer(Modifier.width(8.dp))
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = Color(0xFFFF00FF)
-                                                ) {
-                                                    Text(
-                                                        if (unreadNotifCount > 9) "9+" else unreadNotifCount.toString(),
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                        fontSize = 10.sp,
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
+                            if (showMenu) {
+                                Popup(
+                                    alignment = Alignment.TopEnd,
+                                    offset = IntOffset(0, 44),
+                                    onDismissRequest = { showMenu = false }
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color(0xFF1A1A2E),
+                                        shadowElevation = 8.dp,
+                                        border = BorderStroke(1.dp, CyberpunkTheme.CyberCyan.copy(alpha = 0.3f))
+                                    ) {
+                                        Column(modifier = Modifier.width(140.dp)) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { showMenu = false; showNotificationCenter = !showNotificationCenter }
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Default.Notifications, null, tint = Color(0xFF00FFFF), modifier = Modifier.size(14.dp))
+                                                Text("Notifications", color = Color.White, fontWeight = FontWeight.Medium, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                                                if (unreadNotifCount > 0) {
+                                                    Surface(shape = CircleShape, color = Color(0xFFFF00FF)) {
+                                                        Text(if (unreadNotifCount > 9) "9+" else unreadNotifCount.toString(), modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp), fontSize = 7.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        showNotificationCenter = !showNotificationCenter
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Notifications, null, tint = Color(0xFF00FFFF))
-                                    }
-                                )
-
-                                // Friend Requests / Search Friends
-                                val friendIconTint = if (pendingFriendRequestCount > 0) CyberpunkTheme.CyberCyan else CyberpunkTheme.PrimaryPurple
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("Find Friends")
-                                            if (pendingFriendRequestCount > 0) {
-                                                Spacer(Modifier.width(8.dp))
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = Color(0xFFFF00FF)
-                                                ) {
-                                                    Text(
-                                                        pendingFriendRequestCount.toString(),
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                        fontSize = 10.sp,
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
+                                            HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 0.5.dp)
+                                            val friendIconTint = if (pendingFriendRequestCount > 0) CyberpunkTheme.CyberCyan else CyberpunkTheme.PrimaryPurple
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { showMenu = false; if (pendingFriendRequestCount > 0) onNavigateToFriendRequests() else onNavigateToSearchFriends() }
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Default.PersonAdd, null, tint = friendIconTint, modifier = Modifier.size(14.dp))
+                                                Text("Find Friends", color = Color.White, fontWeight = FontWeight.Medium, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                                                if (pendingFriendRequestCount > 0) {
+                                                    Surface(shape = CircleShape, color = Color(0xFFFF00FF)) {
+                                                        Text(pendingFriendRequestCount.toString(), modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp), fontSize = 7.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
                                             }
+                                            HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 0.5.dp)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { showMenu = false; GroupRefreshManager.triggerRefresh() }
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Default.Refresh, null, tint = if (isLoadingGroups) Color(0xFF00FFFF) else CyberpunkTheme.PrimaryPurple, modifier = Modifier.size(14.dp))
+                                                Text("Refresh Groups", color = Color.White, fontWeight = FontWeight.Medium, fontSize = 11.sp)
+                                            }
+                                            HorizontalDivider(color = CyberpunkTheme.CyberCyan.copy(alpha = 0.2f), thickness = 0.5.dp)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { showMenu = false; onNavigateToSettings() }
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Default.Settings, null, tint = CyberpunkTheme.PrimaryPurple, modifier = Modifier.size(14.dp))
+                                                Text("Settings", color = Color.White, fontWeight = FontWeight.Medium, fontSize = 11.sp)
+                                            }
                                         }
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        if (pendingFriendRequestCount > 0) {
-                                            onNavigateToFriendRequests()
-                                        } else {
-                                            onNavigateToSearchFriends()
-                                        }
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.PersonAdd, null, tint = friendIconTint)
                                     }
-                                )
-
-                                // Refresh Groups
-                                DropdownMenuItem(
-                                    text = { Text("Refresh Groups") },
-                                    onClick = {
-                                        showMenu = false
-                                        GroupRefreshManager.triggerRefresh()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Refresh,
-                                            null,
-                                            tint = if (isLoadingGroups) Color(0xFF00FFFF) else CyberpunkTheme.PrimaryPurple
-                                        )
-                                    }
-                                )
-
-                                // Settings
-                                DropdownMenuItem(
-                                    text = { Text("Settings") },
-                                    onClick = {
-                                        showMenu = false
-                                        onNavigateToSettings()
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Settings, null, tint = CyberpunkTheme.PrimaryPurple)
-                                    }
-                                )
+                                }
                             }
                         }
                     }
@@ -1362,8 +1202,7 @@ fun ModernHomeScreen(
                     titleContentColor = CyberpunkTheme.White
                 )
             )
-            
-            // Search Bar
+
             SearchBar(
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
@@ -1371,13 +1210,11 @@ fun ModernHomeScreen(
                     .fillMaxWidth()
                     .padding(16.dp)
             )
-            
-            // ✅ Server-offline banner (degraded mode)
+
             if (isServerDown) {
                 ServerOfflineBanner()
             }
-            
-            // Notification Center Overlay
+
             AnimatedVisibility(
                 visible = showNotificationCenter,
                 enter = slideInVertically() + fadeIn(),
@@ -1391,19 +1228,17 @@ fun ModernHomeScreen(
                     onNavigateToChat = onNavigateToChat
                 )
             }
-            
-            // ✅ Group chats are disabled while the server is offline
+
             val filteredGroups = if (isServerDown) emptyList() else userGroups.filter {
                 it.name.contains(searchQuery, ignoreCase = true) ||
                 it.description.contains(searchQuery, ignoreCase = true)
             }
-            
+
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
             ) {
-                // Chat List
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1419,7 +1254,15 @@ fun ModernHomeScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = PaddingValues(vertical = 8.dp)
                         ) {
-                            // Groups Section
+                            if (pendingFriendRequestCount > 0) {
+                                item {
+                                    FriendRequestBanner(
+                                        count = pendingFriendRequestCount,
+                                        onClick = onNavigateToFriendRequests
+                                    )
+                                }
+                            }
+
                             if (filteredGroups.isNotEmpty()) {
                                 item {
                                     Text(
@@ -1434,6 +1277,7 @@ fun ModernHomeScreen(
                                 items(filteredGroups) { group ->
                                     GroupListItem(
                                         group = group,
+                                        isMuted = !prefs.isNotifyGroupUpdatesEnabled() || prefs.isGroupMuted(group.groupId),
                                         onClick = {
                                             onNavigateToChat("group:${group.groupId}")
                                         }
@@ -1453,7 +1297,7 @@ fun ModernHomeScreen(
                                     )
                                 }
                             }
-                            
+
                             items(filteredChats) { chat ->
                                 ChatListItem(
                                     chat = chat,
@@ -1467,8 +1311,7 @@ fun ModernHomeScreen(
                         }
                     }
                 }
-                
-                // Sidebar with Mascot
+
                 LaunchedEffect(mascotShowMessage) {
                     if (mascotShowMessage) {
                         MascotBannerSessionState.shownThisSession = true
@@ -1483,12 +1326,9 @@ fun ModernHomeScreen(
         }
     }
 
-    // FAB for new group/channel
     var showCreateDialog by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ...existing code...
-        // Place FAB at bottom right
         FloatingActionButton(
             onClick = {
                 if (isServerDown) {
@@ -1503,13 +1343,13 @@ fun ModernHomeScreen(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(24.dp),
+                .padding(24.dp)
+                .scaleOnPressEffect(),
             containerColor = CyberpunkTheme.PrimaryPurple
         ) {
             Icon(Icons.Default.Add, contentDescription = "New Group/Channel", tint = Color.White)
         }
 
-        // Dialog to choose group or channel
         if (showCreateDialog) {
             AlertDialog(
                 onDismissRequest = { showCreateDialog = false },
@@ -1521,7 +1361,7 @@ fun ModernHomeScreen(
                         Button(
                             onClick = {
                                 showCreateDialog = false
-                                android.util.Log.d("FREETIME_HOME", "✓ Navigate to Create Group")
+                                android.util.Log.d("FREETIME_HOME", " Navigate to Create Group")
                                 onNavigateToCreateGroup()
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -1559,7 +1399,6 @@ fun ModernHomeScreen(
             )
         }
 
-        // In-app update dialog
         if (showUpdateDialog && updateInfo != null) {
             AlertDialog(
                 onDismissRequest = { showUpdateDialog = false },
@@ -1585,7 +1424,6 @@ fun ModernHomeScreen(
                         showUpdateDialog = false
                         isDownloading = true
                         val info = updateInfo ?: return@TextButton
-                        // Acknowledge the update on server
                         val pendingId = updatePrefs.getPendingUpdateId()
                         if (pendingId.isNotEmpty()) {
                             kotlinx.coroutines.MainScope().launch {
@@ -1596,11 +1434,14 @@ fun ModernHomeScreen(
                                 } catch (_: Exception) {}
                             }
                         }
-                        com.freetime.app.services.AppUpdateManager.downloadApk(context, info) { id ->
+                        val result = com.freetime.app.services.AppUpdateManager.downloadApk(context, info) { id ->
                             isDownloading = false
                             if (id != -1L) {
                                 com.freetime.app.services.AppUpdateManager.installApk(context, id)
                             }
+                        }
+                        if (result == -1L) {
+                            isDownloading = false
                         }
                     }) {
                         Text("Download", color = Color(0xFF00FFFF))
@@ -1610,7 +1451,13 @@ fun ModernHomeScreen(
                     Row {
                         TextButton(onClick = {
                             showUpdateDialog = false
-                            updateInfo?.let { updatePrefs.setSkippedUpdate(it.updateId ?: "") }
+                            updateInfo?.let { info ->
+                                val id = info.updateId
+                                if (!id.isNullOrEmpty()) {
+                                    updatePrefs.setSkippedUpdate(id)
+                                }
+                                updatePrefs.clearPendingUpdateId()
+                            }
                             updateInfo = null
                         }) {
                             Text("Skip this version", color = CyberpunkTheme.GhostGray)
@@ -1705,9 +1552,10 @@ fun NotificationCenter(
     onNavigateToChat: (String) -> Unit
 ) {
     var pendingRequests by remember { mutableStateOf(listOf<FriendRequest>()) }
+    var pendingGroupInvites by remember { mutableStateOf(listOf<FreeTimeApiService.GroupInvitation>()) }
     val scope = rememberCoroutineScope()
     val inAppNotifications = InAppNotificationStore.notifications
-    
+
     LaunchedEffect(Unit) {
         scope.launch {
             val result = apiService.getPendingRequests()
@@ -1715,9 +1563,28 @@ fun NotificationCenter(
                 pendingRequests = requests
             }
         }
+        scope.launch {
+            val result = apiService.getPendingGroupInvitations()
+            result.onSuccess { invites ->
+                pendingGroupInvites = invites
+                for (invite in invites) {
+                    if (inAppNotifications.none { it.type == "groupInvite" && it.inviteId == invite.inviteId }) {
+                        InAppNotificationStore.addNotification(
+                            InAppNotification(
+                                type = "groupInvite",
+                                title = invite.groupName,
+                                description = "${invite.inviterDisplayName.ifEmpty { invite.inviterUsername }} invited you to join",
+                                senderId = invite.groupId,
+                                inviteId = invite.inviteId
+                            )
+                        )
+                    }
+                }
+            }
+        }
         InAppNotificationStore.markAllRead()
     }
-    
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1733,7 +1600,6 @@ fun NotificationCenter(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1758,10 +1624,9 @@ fun NotificationCenter(
                     }
                 }
             }
-            
+
             Divider(color = CyberpunkTheme.DarkGray.copy(alpha = 0.5f), thickness = 0.5.dp)
-            
-            // Content
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1769,7 +1634,6 @@ fun NotificationCenter(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(8.dp)
             ) {
-                // Friend Requests Section
                 if (pendingRequests.isNotEmpty()) {
                     item {
                         Text(
@@ -1780,7 +1644,7 @@ fun NotificationCenter(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
-                    
+
                     items(pendingRequests.size, key = { pendingRequests[it].senderId }) { index ->
                         val request = pendingRequests[index]
                         FriendRequestActionCard(
@@ -1803,8 +1667,7 @@ fun NotificationCenter(
                         )
                     }
                 }
-                
-                // Real-time notifications from FCM
+
                 if (inAppNotifications.isNotEmpty()) {
                     item {
                         Text(
@@ -1815,13 +1678,12 @@ fun NotificationCenter(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
-                    
+
                     items(inAppNotifications.size, key = { inAppNotifications[it].id }) { index ->
                         val notif = inAppNotifications[index]
                         val timeAgo = getTimeAgo(notif.time)
 
                         when (notif.type) {
-                            // Friend requests from FCM: show Accept / Decline inline
                             "friendRequest" -> {
                                 if (notif.senderId.isNotEmpty()) {
                                     FriendRequestActionCard(
@@ -1854,7 +1716,6 @@ fun NotificationCenter(
                                 }
                             }
 
-                            // Messages: show notification + per-user Mute toggle
                             "message", "channelMessage" -> {
                                 val isMuted = remember(notif.senderId) {
                                     mutableStateOf(prefs.isUserMuted(notif.senderId))
@@ -1903,7 +1764,6 @@ fun NotificationCenter(
                                 }
                             }
 
-                            // Group invitations: show Join / Decline inline
                             "groupInvite" -> {
                                 if (notif.inviteId.isNotEmpty()) {
                                     GroupInviteActionCard(
@@ -1937,19 +1797,16 @@ fun NotificationCenter(
                                 }
                             }
 
-                            // Everything else: standard row with appropriate icon, clickable to chat
                             else -> {
                                 val (icon, color, badge) = when (notif.type) {
-                                    "call"       -> Triple(Icons.Default.Phone, Color(0xFF3A86FF), "Call")
-                                    "missedCall" -> Triple(Icons.Default.PhoneMissed, Color(0xFFFF4444), "Missed Call")
                                     "friendAccepted" -> Triple(Icons.Default.CheckCircle, Color(0xFF00FF00), "Accepted")
                                     "groupVote", "group_vote", "group_invite" -> Triple(Icons.Default.Group, Color(0xFFFFAA00), "Group")
                                     "mediaDownloadRequest", "media_req" -> Triple(Icons.Default.Download, Color(0xFFFFAA00), "Download Req.")
                                     "mediaApproved" -> Triple(Icons.Default.CheckCircle, Color(0xFF00FF00), "Approved")
-                                    "mediaDenied"  -> Triple(Icons.Default.Block, Color(0xFFFF4444), "Denied")
+                                    "mediaDenied" -> Triple(Icons.Default.Block, Color(0xFFFF4444), "Denied")
                                     else -> Triple(Icons.Default.Notifications, CyberpunkTheme.PrimaryPurple, "Notification")
                                 }
-                                
+
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1974,8 +1831,7 @@ fun NotificationCenter(
                         }
                     }
                 }
-                
-                // Empty State
+
                 if (pendingRequests.isEmpty() && inAppNotifications.isEmpty()) {
                     item {
                         Box(
@@ -2097,10 +1953,6 @@ fun NotificationItem(
     }
 }
 
-/**
- * Actionable notification card for pending friend requests.
- * Shows username + Accept / Decline buttons; replaces itself with a spinner while the API call is in flight.
- */
 @Composable
 fun FriendRequestActionCard(
     username: String,
@@ -2122,7 +1974,6 @@ fun FriendRequestActionCard(
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
-            // Top row: icon + name + badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2153,7 +2004,6 @@ fun FriendRequestActionCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action row: spinner while acting, buttons otherwise
             if (isActing) {
                 Box(
                     modifier = Modifier.fillMaxWidth(),
@@ -2195,10 +2045,6 @@ fun FriendRequestActionCard(
     }
 }
 
-/**
- * Actionable notification card for pending group invitations.
- * Shows group name + inviter + Join / Decline buttons.
- */
 @Composable
 fun GroupInviteActionCard(
     groupName: String,
@@ -2293,30 +2139,22 @@ fun GroupInviteActionCard(
     }
 }
 
-// ✅ NEW: Helper function for color-coding usernames based on tags/role
 fun getUsernameColor(
     tags: List<String> = emptyList(),
     isAdmin: Boolean = false,
     isModerator: Boolean = false,
     role: String = ""
 ): Color {
-    // Default to white if no tags/roles
     if (tags.isEmpty() && !isAdmin && !isModerator && role.isBlank()) {
         return CyberpunkTheme.White
     }
-    
+
     return when {
-        // Priority 1: OWNER tag → Bright Magenta
-        tags.contains("OWNER") -> Color(0xFFFF00FF)  // Bright Magenta
-        // Priority 2: VIP tag → Yellow
-        tags.contains("VIP") -> Color(0xFFFFFF00)  // Bright Yellow
-        // Priority 3: BETA TESTER tag → Cyan
-        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)  // Bright Cyan
-        // Priority 4: isAdmin or role=admin → Red
-        isAdmin || role.equals("admin", ignoreCase = true) -> Color(0xFFFF0000)  // Bright Red
-        // Priority 5: isModerator or role=moderator → Orange
-        isModerator || role.equals("moderator", ignoreCase = true) -> Color(0xFFFF8C00)  // Bright Orange
-        // Default → White
+        tags.contains("OWNER") -> Color(0xFFFF00FF)
+        tags.contains("VIP") -> Color(0xFFFFFF00)
+        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+        isAdmin || role.equals("admin", ignoreCase = true) -> Color(0xFFFF0000)
+        isModerator || role.equals("moderator", ignoreCase = true) -> Color(0xFFFF8C00)
         else -> CyberpunkTheme.White
     }
 }
@@ -2331,7 +2169,7 @@ fun ChatListItem(
         targetValue = if (isSelected) 1.02f else 1f,
         animationSpec = spring(stiffness = 300f)
     )
-    
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -2356,9 +2194,9 @@ fun ChatListItem(
             )
             .border(
                 width = if (isSelected) 2.dp else 1.5.dp,
-                color = if (isSelected) 
-                    CyberpunkTheme.CyberCyan 
-                else 
+                color = if (isSelected)
+                    CyberpunkTheme.CyberCyan
+                else
                     CyberpunkTheme.PrimaryPurple.copy(alpha = 0.2f),
                 shape = RoundedCornerShape(14.dp)
             )
@@ -2374,7 +2212,6 @@ fun ChatListItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar with positioned status indicator outside
             Box(modifier = Modifier.size(56.dp)) {
                 if (chat.id == com.freetime.app.api.ANNOUNCEMENT_USER_ID) {
                     Image(
@@ -2422,8 +2259,7 @@ fun ChatListItem(
                         )
                     }
                 }
-                
-                // Online Indicator - LARGER and MORE VISIBLE (18.dp instead of 14.dp)
+
                 Box(
                     modifier = Modifier
                         .size(18.dp)
@@ -2440,8 +2276,7 @@ fun ChatListItem(
                         .offset(x = (-3.dp), y = (-3.dp))
                 )
             }
-            
-            // Message content
+
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -2454,21 +2289,36 @@ fun ChatListItem(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            chat.name,
-                            color = getUsernameColor(chat.tags, chat.isAdmin, chat.isModerator, chat.role),  // ✅ NEW: Apply color coding
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                chat.name,
+                                color = getUsernameColor(chat.tags, chat.isAdmin, chat.isModerator, chat.role),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (com.freetime.app.data.local.SharedPreferencesHelper(LocalContext.current).isUserMuted(chat.id)) {
+                                Icon(
+                                    Icons.Default.VolumeOff,
+                                    contentDescription = "Muted",
+                                    tint = Color(0xFFFF6B6B).copy(alpha = 0.7f),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+
                         Text(
                             chat.timestamp,
-                            color = CyberpunkTheme.LightGray,
+                            color = if (chat.isOnline) Color(0xFF00FF88) else CyberpunkTheme.LightGray,
                             fontSize = 11.sp
                         )
                     }
-                    
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2491,8 +2341,7 @@ fun ChatListItem(
                             }
                         }
                     }
-                    
-                    // Tags display
+
                     if (chat.tags.isNotEmpty()) {
                         Row(
                             modifier = Modifier
@@ -2541,17 +2390,31 @@ fun ChatListItem(
                         }
                     }
                 }
-                
-                // Unread badge
+
                 if (chat.unreadCount > 0) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "badge_pulse")
+                    val badgeScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.15f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "badge_scale"
+                    )
                     Badge(
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer {
+                                scaleX = badgeScale
+                                scaleY = badgeScale
+                            },
                         containerColor = CyberpunkTheme.PrimaryPurple,
                         contentColor = CyberpunkTheme.Black
                     ) {
                         Text(
-                            if (chat.unreadCount > 99) "∞" else chat.unreadCount.toString(),
-                            fontSize = 10.sp,
+                            if (chat.unreadCount > 999) "999+" else chat.unreadCount.toString(),
+                            fontSize = if (chat.unreadCount > 99) 8.sp else 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -2575,7 +2438,7 @@ fun TypingIndicator() {
                     repeatMode = RepeatMode.Reverse
                 )
             )
-            
+
             Box(
                 modifier = Modifier
                     .size(6.dp)
@@ -2648,7 +2511,6 @@ fun MascotSidebar(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Close button
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier
@@ -2666,8 +2528,7 @@ fun MascotSidebar(
                     modifier = Modifier.size(16.dp)
                 )
             }
-            
-            // Mascot Image - Fixed and enlarged with proper padding
+
             Box(
                 modifier = Modifier
                     .size(180.dp)
@@ -2684,8 +2545,7 @@ fun MascotSidebar(
                     contentScale = ContentScale.Fit
                 )
             }
-            
-            // Message box
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2704,7 +2564,7 @@ fun MascotSidebar(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     maxLines = 1
                 )
-                
+
                 Text(
                     unreadCount,
                     color = CyberpunkTheme.CyberCyan,
@@ -2713,9 +2573,9 @@ fun MascotSidebar(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     maxLines = 1
                 )
-                
+
                 Text(
-                    "friends online! 🎉",
+                    "friends online! ",
                     color = CyberpunkTheme.LightGray,
                     fontSize = 11.sp,
                     style = MaterialTheme.typography.bodySmall,
@@ -2723,7 +2583,7 @@ fun MascotSidebar(
                     maxLines = 2
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(4.dp))
         }
     }
@@ -2747,12 +2607,12 @@ fun ServerOfflineBanner() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "⚠️",
+                text = "",
                 fontSize = 16.sp
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Servers are offline — only private text messages are available.",
+                text = "Your connection with the FreeTime servers is unstable. Some messages or media might take a while to be sent.",
                 color = Color(0xFFFFD98A),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
@@ -2764,6 +2624,7 @@ fun ServerOfflineBanner() {
 @Composable
 fun GroupListItem(
     group: Group,
+    isMuted: Boolean = false,
     onClick: () -> Unit
 ) {
     Card(
@@ -2786,7 +2647,6 @@ fun GroupListItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ✅ FIX: Group avatar with error handling - show PFP if available, fallback to Group icon
             Box(
                 modifier = Modifier
                     .size(50.dp)
@@ -2802,24 +2662,20 @@ fun GroupListItem(
                     .clip(RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                // ✅ FIX: Log what we're trying to display
-                android.util.Log.d("FREETIME_HOME_GROUP_AVATAR", "📁 ${group.name}: profilePictureUrl=${group.profilePictureUrl ?: "NULL"}, avatar=${group.avatar ?: "NULL"}")
-                
-                // Try both profilePictureUrl and avatar fields
+                android.util.Log.d("FREETIME_HOME_GROUP_AVATAR", " ${group.name}: profilePictureUrl=${group.profilePictureUrl ?: "NULL"}, avatar=${group.avatar ?: "NULL"}")
+
                 val pictureUrl = if (!group.profilePictureUrl.isNullOrEmpty()) {
                     group.profilePictureUrl
                 } else if (!group.avatar.isNullOrEmpty()) {
                     group.avatar
                 } else {
-                    // ✅ FIX: Construct endpoint URL if neither field is populated
                     "/api/groups/${group.groupId}/picture"
                 }
-                
+
                 if (!pictureUrl.isNullOrEmpty() && pictureUrl != "/api/groups/${group.groupId}/picture") {
                     var imageLoaded by remember { mutableStateOf(false) }
                     var imageError by remember { mutableStateOf(false) }
-                    
-                    // ✅ FIX: Ensure URL is absolute
+
                     val baseUrl = ApiClient.getBaseUrl().trimEnd('/')
                     val absoluteUrl = if (pictureUrl.startsWith("http")) {
                         pictureUrl
@@ -2828,16 +2684,15 @@ fun GroupListItem(
                     } else {
                         "$baseUrl/$pictureUrl"
                     }
-                    
-                    // ✅ FIX: Add cache busting with timestamp
+
                     val imageUrl = if (!group.profilePictureUpdatedAt.isNullOrEmpty()) {
                         "$absoluteUrl?v=${group.profilePictureUpdatedAt?.hashCode() ?: System.currentTimeMillis()}"
                     } else {
                         "$absoluteUrl?v=${System.currentTimeMillis()}"
                     }
-                    
-                    android.util.Log.d("FREETIME_HOME_GROUP_AVATAR", "📁 ${group.name}: Loading image from $imageUrl")
-                    
+
+                    android.util.Log.d("FREETIME_HOME_GROUP_AVATAR", " ${group.name}: Loading image from $imageUrl")
+
                     if (!imageError && imageUrl.isNotEmpty()) {
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
@@ -2846,19 +2701,18 @@ fun GroupListItem(
                                 .build(),
                             contentDescription = group.name,
                             contentScale = ContentScale.Crop,
-                            onSuccess = { 
+                            onSuccess = {
                                 imageLoaded = true
-                                android.util.Log.d("FREETIME_HOME_GROUP_AVATAR", "✅ ${group.name}: Image loaded successfully")
+                                android.util.Log.d("FREETIME_HOME_GROUP_AVATAR", " ${group.name}: Image loaded successfully")
                             },
-                            onError = { 
+                            onError = {
                                 imageError = true
-                                android.util.Log.w("FREETIME_HOME_GROUP_AVATAR", "❌ ${group.name}: Failed to load image from $imageUrl")
+                                android.util.Log.w("FREETIME_HOME_GROUP_AVATAR", " ${group.name}: Failed to load image from $imageUrl")
                             },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                    
-                    // Fallback icon if image failed to load
+
                     if (imageError || !imageLoaded) {
                         Icon(
                             Icons.Default.Group,
@@ -2905,6 +2759,15 @@ fun GroupListItem(
                 )
             }
 
+            if (isMuted) {
+                Icon(
+                    Icons.Default.VolumeOff,
+                    contentDescription = "Muted",
+                    tint = Color(0xFFFF4444),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
@@ -2931,9 +2794,9 @@ fun EmptyChatList(searchQuery: String) {
                 .size(120.dp),
             contentScale = ContentScale.Fit
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Text(
             if (searchQuery.isEmpty()) "No conversations yet" else "No results found",
             color = CyberpunkTheme.White,
@@ -2942,7 +2805,7 @@ fun EmptyChatList(searchQuery: String) {
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             maxLines = 2
         )
-        
+
         Text(
             if (searchQuery.isEmpty())
                 "Start a new conversation to get going!"
@@ -2957,12 +2820,8 @@ fun EmptyChatList(searchQuery: String) {
     }
 }
 
-/**
- * Format a lastSeen ISO timestamp into a human-readable relative time string
- * e.g. "Just now", "5m ago", "2h ago", "3 days ago", "Jun 15"
- */
 fun formatLastSeen(lastSeen: String?): String {
-    if (lastSeen.isNullOrEmpty() || lastSeen == "Offline") return "Offline"
+    if (lastSeen.isNullOrEmpty() || lastSeen == "Offline" || lastSeen == "offline") return "last seen recently"
     return try {
         val formats = listOf(
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
@@ -2970,7 +2829,7 @@ fun formatLastSeen(lastSeen: String?): String {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US)
         )
         formats.forEach { it.timeZone = TimeZone.getTimeZone("UTC") }
-        
+
         var date: Date? = null
         for (fmt in formats) {
             try {
@@ -2978,28 +2837,106 @@ fun formatLastSeen(lastSeen: String?): String {
                 if (date != null) break
             } catch (_: Exception) {}
         }
-        
-        if (date == null) return lastSeen
-        
+
+        if (date == null) return "last seen recently"
+
         val now = System.currentTimeMillis()
         val diffMs = now - date.time
-        if (diffMs < 0) return "Just now"
-        
+        if (diffMs < 0) return "last seen recently"
+
         val diffMin = TimeUnit.MILLISECONDS.toMinutes(diffMs)
         val diffHours = TimeUnit.MILLISECONDS.toHours(diffMs)
         val diffDays = TimeUnit.MILLISECONDS.toDays(diffMs)
-        
+        val calendar = java.util.Calendar.getInstance()
+        val today = calendar.clone() as java.util.Calendar
+        calendar.time = date
+
         when {
-            diffMin < 1 -> "Just now"
-            diffMin < 60 -> "${diffMin}m ago"
-            diffHours < 24 -> "${diffHours}h ago"
-            diffDays < 7 -> "${diffDays}d ago"
-            else -> {
-                val sdf = SimpleDateFormat("MMM dd", Locale.US)
-                sdf.format(date)
-            }
+            diffMin < 1 -> "last seen just now"
+            diffHours < 1 -> "last seen ${diffMin}m ago"
+            diffDays < 1 -> "last seen today at ${SimpleDateFormat("HH:mm", Locale.US).format(date)}"
+            diffDays == 1L -> "last seen yesterday at ${SimpleDateFormat("HH:mm", Locale.US).format(date)}"
+            diffDays < 7 -> "last seen ${SimpleDateFormat("EEEE", Locale.US).format(date)}"
+            else -> "last seen ${SimpleDateFormat("dd/MM/yy", Locale.US).format(date)}"
         }
     } catch (e: Exception) {
-        lastSeen
+        "last seen recently"
+    }
+}
+
+@Composable
+fun FriendRequestBanner(
+    count: Int,
+    onClick: () -> Unit
+) {
+    val pulseAnim = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by pulseAnim.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFFFF00FF).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .clickable { onClick() },
+        color = Color(0xFFFF00FF).copy(alpha = 0.08f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFFFF00FF).copy(alpha = 0.2f),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.PersonAdd,
+                        contentDescription = null,
+                        tint = Color(0xFFFF00FF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Friend Requests",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = Color.White
+                )
+                Text(
+                    text = "$count pending request${if (count != 1) "s" else ""}",
+                    fontSize = 11.sp,
+                    color = CyberpunkTheme.LightGray
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFFFF00FF).copy(alpha = 0.15f)
+            ) {
+                Text(
+                    text = "VIEW",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFF00FF)
+                )
+            }
+        }
     }
 }

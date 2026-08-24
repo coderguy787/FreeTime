@@ -1,8 +1,3 @@
-/**
- * FreeTime Master-Server Peer Manager
- * Manages peer connections, routing, and communication
- */
-
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -12,12 +7,12 @@ class PeerManager extends EventEmitter {
     constructor(dbConnection) {
         super();
         this.db = dbConnection;
-        this.peers = new Map(); // Connected peers
-        this.peerRoutes = new Map(); // Routing table
-        this.heartbeatInterval = 30000; // 30 seconds
+        this.peers = new Map();
+        this.peerRoutes = new Map();
+        this.heartbeatInterval = 30000;
         this.maxRetries = 3;
         this.retryTimeout = 5000;
-        
+
         this.startHeartbeat();
     }
 
@@ -39,35 +34,32 @@ class PeerManager extends EventEmitter {
                 retryCount: 0
             };
 
-            // Save to database
             await this.db.collection('peers').updateOne(
                 { id: peer.id },
                 { $set: peer },
                 { upsert: true }
             );
 
-            // Add to active peers
             this.peers.set(peer.id, peer);
-            
-            console.log(`🔗 Peer registered: ${peer.name} (${peer.address}:${peer.port})`);
+
+            console.log(` Peer registered: ${peer.name} (${peer.address}:${peer.port})`);
             this.emit('peerRegistered', peer);
-            
+
             return peer;
         } catch (error) {
-            console.error('❌ Failed to register peer:', error);
+            console.error(' Failed to register peer:', error);
             throw error;
         }
     }
 
     async connectPeer(peerId) {
         const peer = this.peers.get(peerId) || await this.getPeerFromDatabase(peerId);
-        
+
         if (!peer) {
             throw new Error(`Peer ${peerId} not found`);
         }
 
         try {
-            // Test peer connectivity
             const response = await axios.get(`http://${peer.address}:${peer.port}/health`, {
                 timeout: 5000,
                 headers: {
@@ -82,10 +74,9 @@ class PeerManager extends EventEmitter {
                 peer.lastSeen = new Date();
                 peer.retryCount = 0;
 
-                // Update database
                 await this.db.collection('peers').updateOne(
                     { id: peer.id },
-                    { $set: { 
+                    { $set: {
                         status: 'connected',
                         connected: true,
                         lastSeen: peer.lastSeen,
@@ -93,75 +84,70 @@ class PeerManager extends EventEmitter {
                     }}
                 );
 
-                // Update local cache
                 this.peers.set(peer.id, peer);
-                
-                console.log(`✅ Peer connected: ${peer.name}`);
+
+                console.log(` Peer connected: ${peer.name}`);
                 this.emit('peerConnected', peer);
-                
+
                 return true;
             }
         } catch (error) {
             peer.status = 'failed';
             peer.connected = false;
             peer.retryCount++;
-            
-            // Update database
+
             await this.db.collection('peers').updateOne(
                 { id: peer.id },
-                { $set: { 
+                { $set: {
                     status: 'failed',
                     connected: false,
                     retryCount: peer.retryCount
                 }}
             );
 
-            console.error(`❌ Failed to connect to peer ${peer.name}:`, error.message);
+            console.error(` Failed to connect to peer ${peer.name}:`, error.message);
             this.emit('peerConnectionFailed', peer, error);
-            
-            // Schedule retry if under max retries
+
             if (peer.retryCount < this.maxRetries) {
                 setTimeout(() => this.connectPeer(peerId), this.retryTimeout);
             }
-            
+
             return false;
         }
     }
 
     async disconnectPeer(peerId) {
         const peer = this.peers.get(peerId);
-        
+
         if (peer) {
             peer.status = 'disconnected';
             peer.connected = false;
             peer.lastSeen = new Date();
 
-            // Update database
             await this.db.collection('peers').updateOne(
                 { id: peer.id },
-                { $set: { 
+                { $set: {
                     status: 'disconnected',
                     connected: false,
                     lastSeen: peer.lastSeen
                 }}
             );
 
-            // Remove from active peers
             this.peers.delete(peerId);
-            
-            console.log(`🔌 Peer disconnected: ${peer.name}`);
+
+            console.log(` Peer disconnected: ${peer.name}`);
             this.emit('peerDisconnected', peer);
-            
+
             return true;
         }
-        
+
         return false;
     }
 
     async routeMessage(fromPeerId, toPeerId, message) {
         const fromPeer = this.peers.get(fromPeerId);
         const toPeer = this.peers.get(toPeerId) || await this.getPeerFromDatabase(toPeerId);
-        
+
         if (!fromPeer || !toPeer) {
             throw new Error('Peer not found for message routing');
         }
@@ -184,7 +170,6 @@ class PeerManager extends EventEmitter {
                 }
             };
 
-            // Send message to target peer
             const response = await axios.post(
                 `http://${toPeer.address}:${toPeer.port}/message`,
                 messageData,
@@ -198,15 +183,14 @@ class PeerManager extends EventEmitter {
                 }
             );
 
-            // Store message in database
             await this.db.collection('peer_messages').insertOne(messageData);
 
-            console.log(`📨 Message routed: ${fromPeer.name} → ${toPeer.name}`);
+            console.log(` Message routed: ${fromPeer.name} ${toPeer.name}`);
             this.emit('messageRouted', messageData);
-            
+
             return messageData;
         } catch (error) {
-            console.error(`❌ Failed to route message from ${fromPeer.name} to ${toPeer.name}:`, error.message);
+            console.error(` Failed to route message from ${fromPeer.name} to ${toPeer.name}:`, error.message);
             this.emit('messageRoutingFailed', { fromPeer, toPeer, message, error });
             throw error;
         }
@@ -218,7 +202,7 @@ class PeerManager extends EventEmitter {
             .filter(peer => peer.connected && peer.id !== fromPeerId && !excludePeers.includes(peer.id));
 
         const results = [];
-        
+
         for (const peer of connectedPeers) {
             try {
                 const result = await this.routeMessage(fromPeerId, peer.id, message);
@@ -228,20 +212,19 @@ class PeerManager extends EventEmitter {
             }
         }
 
-        console.log(`📡 Broadcast completed: ${results.filter(r => r.success).length}/${results.length} peers reached`);
+        console.log(` Broadcast completed: ${results.filter(r => r.success).length}/${results.length} peers reached`);
         this.emit('messageBroadcasted', { fromPeerId, message, results });
-        
+
         return results;
     }
 
     async getPeerStatus(peerId) {
         const peer = this.peers.get(peerId) || await this.getPeerFromDatabase(peerId);
-        
+
         if (!peer) {
             return null;
         }
 
-        // Check if peer is still responsive
         if (peer.connected) {
             try {
                 const response = await axios.get(`http://${peer.address}:${peer.port}/health`, {
@@ -276,16 +259,13 @@ class PeerManager extends EventEmitter {
 
     async getAllPeers() {
         const peers = [];
-        
-        // Get connected peers from memory
+
         for (const peer of this.peers.values()) {
             peers.push(await this.getPeerStatus(peer.id));
         }
-        
-        // Get all peers from database
+
         const dbPeers = await this.db.collection('peers').find({}).toArray();
-        
-        // Merge and deduplicate
+
         const allPeers = new Map();
         peers.forEach(peer => allPeers.set(peer.id, peer));
         dbPeers.forEach(peer => {
@@ -304,27 +284,25 @@ class PeerManager extends EventEmitter {
                 });
             }
         });
-        
+
         return Array.from(allPeers.values());
     }
 
     async removePeer(peerId) {
         try {
-            // Disconnect if connected
             await this.disconnectPeer(peerId);
-            
-            // Remove from database
+
             const result = await this.db.collection('peers').deleteOne({ id: peerId });
-            
+
             if (result.deletedCount > 0) {
-                console.log(`🗑️  Peer removed: ${peerId}`);
+                console.log(` Peer removed: ${peerId}`);
                 this.emit('peerRemoved', peerId);
                 return true;
             }
-            
+
             return false;
         } catch (error) {
-            console.error(`❌ Failed to remove peer ${peerId}:`, error);
+            console.error(` Failed to remove peer ${peerId}:`, error);
             throw error;
         }
     }
@@ -332,7 +310,7 @@ class PeerManager extends EventEmitter {
     startHeartbeat() {
         setInterval(async () => {
             const peers = Array.from(this.peers.values());
-            
+
             for (const peer of peers) {
                 if (peer.connected) {
                     try {
@@ -349,18 +327,17 @@ class PeerManager extends EventEmitter {
                     } catch (error) {
                         peer.status = 'unresponsive';
                         peer.connected = false;
-                        
-                        // Update database
+
                         await this.db.collection('peers').updateOne(
                             { id: peer.id },
-                            { $set: { 
+                            { $set: {
                                 status: 'unresponsive',
                                 connected: false,
                                 lastSeen: new Date()
                             }}
                         );
 
-                        console.log(`⚠️  Peer unresponsive: ${peer.name}`);
+                        console.log(` Peer unresponsive: ${peer.name}`);
                         this.emit('peerUnresponsive', peer);
                     }
                 }
@@ -373,9 +350,10 @@ class PeerManager extends EventEmitter {
         return peer;
     }
 
+    // peer auth tokens valid 1 year
     generateApiKey() {
         return jwt.sign(
-            { 
+            {
                 id: uuidv4(),
                 type: 'peer',
                 generated: new Date().toISOString()

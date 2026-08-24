@@ -10,11 +10,6 @@ import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import java.io.IOException
 import java.security.GeneralSecurityException
 
-/**
- * Encryption utility for all sensitive data
- * Uses Google Tink library for secure encryption/decryption
- * AES-256-GCM encryption with Android Keystore for key persistence
- */
 class EncryptionManager(private val context: Context) {
     private var aead: Aead? = null
     private val PREF_FILE_NAME = "freetime_crypto_prefs"
@@ -25,33 +20,25 @@ class EncryptionManager(private val context: Context) {
         initializeEncryption()
     }
 
-    /**
-     * Initialize encryption with Tink and Android Keystore
-     */
     private fun initializeEncryption() {
         try {
             AeadConfig.register()
-            
+
+            // encryption keys live in the android keystore
             val keysetHandle = AndroidKeysetManager.Builder()
                 .withSharedPref(context, KEYSET_NAME, PREF_FILE_NAME)
                 .withKeyTemplate(AeadKeyTemplates.AES256_GCM)
                 .withMasterKeyUri(MASTER_KEY_URI)
                 .build()
                 .keysetHandle
-                
+
             aead = keysetHandle.getPrimitive(Aead::class.java)
         } catch (e: Exception) {
+            // keystore failure surfaces as an error on first use
             e.printStackTrace()
-            // Depending on requirements, throw or handle gracefully
         }
     }
 
-    /**
-     * Encrypt sensitive data
-     * @param plaintext The data to encrypt
-     * @param associatedData Optional associated data for authentication
-     * @return Base64 encoded encrypted data
-     */
     fun encrypt(plaintext: String, associatedData: String? = null): String {
         return try {
             val aead = this.aead ?: throw RuntimeException("Encryption not initialized")
@@ -66,12 +53,6 @@ class EncryptionManager(private val context: Context) {
         }
     }
 
-    /**
-     * Decrypt encrypted data
-     * @param encryptedData Base64 encoded encrypted data
-     * @param associatedData Optional associated data that was used during encryption
-     * @return Decrypted plaintext
-     */
     fun decrypt(encryptedData: String, associatedData: String? = null): String {
         return try {
             val aead = this.aead ?: throw RuntimeException("Encryption not initialized")
@@ -87,9 +68,6 @@ class EncryptionManager(private val context: Context) {
         }
     }
 
-    /**
-     * Encrypt bytes (for media files)
-     */
     fun encryptBytes(plainBytes: ByteArray, associatedData: String? = null): ByteArray {
         return try {
             val aead = this.aead ?: throw RuntimeException("Encryption not initialized")
@@ -103,9 +81,6 @@ class EncryptionManager(private val context: Context) {
         }
     }
 
-    /**
-     * Decrypt bytes (for media files)
-     */
     fun decryptBytes(encryptedBytes: ByteArray, associatedData: String? = null): ByteArray {
         return try {
             val aead = this.aead ?: throw RuntimeException("Encryption not initialized")
@@ -119,26 +94,18 @@ class EncryptionManager(private val context: Context) {
         }
     }
 
-    /**
-     * Decrypt bytes using AES-256-CBC (standard for server-side media)
-     * @param encryptedData The raw encrypted bytes from server
-     * @param keyBase64 The base64 encoded 32-byte AES key
-     * @param ivBase64 The base64 encoded 16-byte IV
-     * @return Decrypted plaintext bytes
-     */
+    // aes-cbc path for peer media keys
     fun decryptMediaBytes(encryptedData: ByteArray, keyBase64: String, ivBase64: String): ByteArray {
         return try {
             val keyBytes = android.util.Base64.decode(keyBase64, android.util.Base64.DEFAULT)
             val ivBytes = android.util.Base64.decode(ivBase64, android.util.Base64.DEFAULT)
-            
+
             val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
             val ivSpec = javax.crypto.spec.IvParameterSpec(ivBytes)
-            
+
             val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, ivSpec)
-            
-            // Server format is IV + encryptedData, but we receive raw data and IV separately
-            // so we just decrypt the data directly
+
             cipher.doFinal(encryptedData)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -146,9 +113,6 @@ class EncryptionManager(private val context: Context) {
         }
     }
 
-    /**
-     * Generate a secure random salt for password hashing
-     */
     fun generateSalt(length: Int = 32): String {
         val random = java.security.SecureRandom()
         val salt = ByteArray(length)
@@ -156,9 +120,6 @@ class EncryptionManager(private val context: Context) {
         return Base64.encodeToString(salt, Base64.DEFAULT)
     }
 
-    /**
-     * Hash password with salt (for local authentication)
-     */
     fun hashPassword(password: String, salt: String): String {
         return try {
             val saltBytes = Base64.decode(salt, Base64.DEFAULT)
@@ -172,9 +133,6 @@ class EncryptionManager(private val context: Context) {
         }
     }
 
-    /**
-     * Verify password with salt
-     */
     fun verifyPassword(password: String, salt: String, hashedPassword: String): Boolean {
         return try {
             val computed = hashPassword(password, salt)

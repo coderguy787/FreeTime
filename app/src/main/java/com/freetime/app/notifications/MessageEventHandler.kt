@@ -7,26 +7,17 @@ import com.freetime.app.data.network.*
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 
-/**
- * Message Event Handler
- * Listens to WebSocket events and triggers notifications
- * Integrates real-time messages with push notifications
- */
+// handles incoming websocket events
 class MessageEventHandler(private val context: Context) {
-
     companion object {
         private const val TAG = "MessageEventHandler"
     }
 
     private val prefs = SharedPreferencesHelper(context)
 
-    /**
-     * Handle WebSocket events and show appropriate notifications
-     */
     fun handleWebSocketEvent(event: WebSocketEvent) {
         try {
             when (event.type) {
-                // Friend request events
                 "friend.request.received" -> {
                     val data = event.data as? FriendRequestEventData ?: return
                     handleFriendRequestReceived(data)
@@ -37,19 +28,16 @@ class MessageEventHandler(private val context: Context) {
                     handleFriendRequestAccepted(data)
                 }
 
-                // Group invitation events
                 "group.invite.pending" -> {
                     val data = event.data as? GroupInvitePendingEventData ?: return
                     handleGroupInvitePending(data)
                 }
 
-                // Channel message event
                 "channel.message.received" -> {
                     val data = event.data as? ChannelMessageEventData ?: return
                     handleChannelMessageReceived(data)
                 }
 
-                // Group voting events
                 "group.vote.initiated" -> {
                     val data = event.data as? GroupVoteInitiatedEventData ?: return
                     handleGroupVoteInitiated(data)
@@ -60,7 +48,6 @@ class MessageEventHandler(private val context: Context) {
                     handleGroupVoteCast(data)
                 }
 
-                // Media events
                 "media.download.approved" -> {
                     val data = event.data as? MediaDownloadApprovedEventData ?: return
                     handleMediaDownloadApproved(data)
@@ -71,34 +58,8 @@ class MessageEventHandler(private val context: Context) {
                     handleMediaDownloadDenied(data)
                 }
 
-                // Direct message event (if implemented on server)
                 "message.received", "direct.message.received", "chat.message.received" -> {
                     handleDirectMessageReceived(event)
-                }
-
-                // Call events
-                "call.incoming" -> {
-                    val data = event.data as? CallIncomingEventData ?: return
-                    handleIncomingCall(data.callerId, data.callerName, data.callType)
-                }
-
-                "call.missed" -> {
-                    val data = event.data as? CallMissedEventData ?: return
-                    handleMissedCall(data.callerId, data.callerName)
-                }
-
-                "call.ended" -> {
-                    val data = event.data as? CallEndedEventData ?: return
-                    handleCallEnded(data.duration)
-                }
-
-                "call.rejected" -> {
-                    val data = event.data as? CallRejectedEventData ?: return
-                    Log.d(TAG, "Call rejected by ${data.rejectedBy}")
-                }
-
-                "call.accepted" -> {
-                    Log.d(TAG, "Call accepted")
                 }
 
                 else -> {
@@ -110,20 +71,16 @@ class MessageEventHandler(private val context: Context) {
         }
     }
 
-    /**
-     * Handle direct message received - show notification
-     */
     private fun handleDirectMessageReceived(event: WebSocketEvent) {
         try {
             if (!prefs.isNotifyMessagesEnabled()) {
                 Log.d(TAG, "Message notifications disabled - skipping")
                 return
             }
-            // Extract data based on structure
             val senderId = (event.data as? Map<*, *>)?.get("senderId") as? String ?: return
             val senderName = (event.data as? Map<*, *>)?.get("senderName") as? String ?: "Unknown User"
             val messageContent = (event.data as? Map<*, *>)?.get("content") as? String ?: ""
-            
+
             val messagePreview = if (messageContent.length > 100) {
                 messageContent.take(97) + "..."
             } else {
@@ -142,9 +99,6 @@ class MessageEventHandler(private val context: Context) {
         }
     }
 
-    /**
-     * Handle friend request received
-     */
     private fun handleFriendRequestReceived(data: FriendRequestEventData) {
         if (!prefs.isNotifyFriendRequestsEnabled()) {
             Log.d(TAG, "Friend request notifications disabled - skipping")
@@ -167,9 +121,6 @@ class MessageEventHandler(private val context: Context) {
         )
     }
 
-    /**
-     * Handle group invitation pending
-     */
     private fun handleGroupInvitePending(data: GroupInvitePendingEventData) {
         Log.d(TAG, "Group invite pending: ${data.inviterUsername} invited you to ${data.groupName}")
         val displayName = data.inviterDisplayName.ifEmpty { data.inviterUsername }
@@ -190,9 +141,6 @@ class MessageEventHandler(private val context: Context) {
         )
     }
 
-    /**
-     * Handle friend request accepted
-     */
     private fun handleFriendRequestAccepted(data: FriendAcceptedEventData) {
         Log.d(TAG, "Friend request accepted by ${data.username}")
         NotificationHelper.showFriendRequestAcceptedNotification(
@@ -202,15 +150,11 @@ class MessageEventHandler(private val context: Context) {
         )
     }
 
-    /**
-     * Handle channel message received
-     */
     private fun handleChannelMessageReceived(data: ChannelMessageEventData) {
         if (!prefs.isNotifyMessagesEnabled()) {
             Log.d(TAG, "Message notifications disabled - skipping channel message")
             return
         }
-        // Use channel ID as name (in production, would fetch from cache)
         val channelName = "Channel #${data.channelId.take(8)}"
 
         val messagePreview = if (data.content.length > 100) {
@@ -229,9 +173,6 @@ class MessageEventHandler(private val context: Context) {
         )
     }
 
-    /**
-     * Handle group voting initiated
-     */
     private fun handleGroupVoteInitiated(data: GroupVoteInitiatedEventData) {
         if (!prefs.isNotifyGroupUpdatesEnabled()) {
             Log.d(TAG, "Group notifications disabled - skipping vote notification")
@@ -249,9 +190,6 @@ class MessageEventHandler(private val context: Context) {
         )
     }
 
-    /**
-     * Handle group voting cast
-     */
     private fun handleGroupVoteCast(data: GroupVoteCastEventData) {
         if (!prefs.isNotifyGroupUpdatesEnabled()) {
             Log.d(TAG, "Group notifications disabled - skipping vote cast notification")
@@ -268,23 +206,17 @@ class MessageEventHandler(private val context: Context) {
         )
     }
 
-    /**
-     * ✅ UPDATED: Handle media download approved - trigger automatic download and decryption
-     */
     private fun handleMediaDownloadApproved(data: MediaDownloadApprovedEventData) {
-        Log.d(TAG, "✅ Media download approved: ${data.mediaId}, encrypted: ${data.encrypted}")
-        
-        // Show notification first
+        Log.d(TAG, " Media download approved: ${data.mediaId}, encrypted: ${data.encrypted}")
+
         NotificationHelper.showMediaDownloadApprovedNotification(
             context = context,
             mediaName = data.fileName ?: "Media File"
         )
-        
-        // ✅ NEW: Trigger automatic download and decryption if encrypted details are available
+
         if (data.encrypted && !data.encryptionKey.isNullOrEmpty() && !data.fileName.isNullOrEmpty()) {
             Log.d(TAG, "Starting automatic download and decryption for ${data.fileName}")
-            
-            // Create approval response object for the download handler
+
             val approval = com.freetime.app.api.MediaDownloadApproval(
                 downloadLink = data.downloadUrl,
                 mediaId = data.mediaId,
@@ -294,20 +226,19 @@ class MessageEventHandler(private val context: Context) {
                 encryptionKey = data.encryptionKey,
                 iv = data.iv
             )
-            
-            // Launch coroutine to handle download and decryption
+
             val apiService = com.freetime.app.api.FreeTimeApiService(context)
             GlobalScope.launch {
                 try {
                     val result = apiService.downloadAndDecryptApprovedMedia(approval)
                     result.onSuccess {
-                        Log.d(TAG, "✅ Media saved successfully to gallery: ${data.fileName}")
+                        Log.d(TAG, " Media saved successfully to gallery: ${data.fileName}")
                         NotificationHelper.showMediaDownloadSuccessNotification(
                             context = context,
                             fileName = data.fileName
                         )
                     }.onFailure { error ->
-                        Log.e(TAG, "❌ Failed to download/decrypt media: ${error.message}")
+                        Log.e(TAG, " Failed to download/decrypt media: ${error.message}")
                         NotificationHelper.showMediaDownloadErrorNotification(
                             context = context,
                             fileName = data.fileName,
@@ -315,15 +246,12 @@ class MessageEventHandler(private val context: Context) {
                         )
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error during media download: ${e.message}")
+                    Log.e(TAG, " Error during media download: ${e.message}")
                 }
             }
         }
     }
 
-    /**
-     * Handle media download denied
-     */
     private fun handleMediaDownloadDenied(data: MediaDownloadDeniedEventData) {
         Log.d(TAG, "Media download denied: ${data.mediaId}")
         NotificationHelper.showMediaDownloadDeniedNotification(
@@ -332,38 +260,4 @@ class MessageEventHandler(private val context: Context) {
             reason = data.reason
         )
     }
-
-    /**
-     * Handle incoming call
-     */
-    private fun handleIncomingCall(callerId: String, callerName: String, callType: String) {
-        Log.d(TAG, "Incoming $callType call from $callerName ($callerId)")
-        NotificationHelper.showIncomingCallNotification(
-            context = context,
-            callerName = callerName,
-            callerId = callerId,
-            callType = callType
-        )
-    }
-
-    /**
-     * Handle missed call
-     */
-    private fun handleMissedCall(callerId: String, callerName: String) {
-        Log.d(TAG, "Missed call from $callerName ($callerId)")
-        NotificationHelper.showMissedCallNotification(
-            context = context,
-            callerName = callerName,
-            callerId = callerId
-        )
-    }
-
-    /**
-     * Handle call ended
-     */
-    private fun handleCallEnded(duration: String) {
-        Log.d(TAG, "Call ended, duration: $duration")
-        // Notification shown by NotificationHelper.showCallEndedNotification
-        // This is mostly for logging purposes; the actual notification
-        // would be triggered from the call screen or FCM
-    }}
+}

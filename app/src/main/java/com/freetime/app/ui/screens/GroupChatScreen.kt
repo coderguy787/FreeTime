@@ -43,13 +43,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.freetime.app.ui.components.CyberpunkTheme
+import com.freetime.app.ui.animations.scaleOnPressEffect
 import com.freetime.app.api.FreeTimeApiService
 import com.freetime.app.api.Group
 import com.freetime.app.api.GroupMessage
@@ -77,7 +82,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.freetime.app.utils.GroupRefreshManager  // ✅ NEW: Import global refresh manager
+import com.freetime.app.utils.GroupRefreshManager
 import com.freetime.app.ui.composables.GifPickerDialog
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -92,8 +97,6 @@ fun extractMediaKeyFromContent(content: String): String? {
     return """\[Media:\s*[^|\]\s]+\|([^\]\s]+)""".toRegex().find(content)?.groupValues?.get(1)
 }
 
-// ✅ NEW: Extract media filename from message content
-// Format: "[Media: id|key] filename.ext" or "[Media: id] filename.ext"
 fun extractMediaNameFromContent(content: String): String? {
     val match = """\]\s*(.+)""".toRegex().find(content)
     return match?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
@@ -162,16 +165,14 @@ data class GroupInfo(
     val profilePictureUpdatedAt: String? = null,
     val creatorId: String = "",
     val admins: List<String> = emptyList(),
-    val adminIds: List<String> = emptyList() // ✅ NEW: Add adminIds field
+    val adminIds: List<String> = emptyList()
 )
 
-/**
- * ✅ NEW: Helper function to detect URLs in text and create AnnotatedString with clickable links
- */
+// makes urls in messages clickable
 @Composable
 fun LinkifyText(
-    text: String, 
-    modifier: Modifier = Modifier, 
+    text: String,
+    modifier: Modifier = Modifier,
     style: androidx.compose.ui.text.TextStyle = androidx.compose.ui.text.TextStyle(),
     onLongPress: () -> Unit = {}
 ) {
@@ -181,16 +182,13 @@ fun LinkifyText(
         buildAnnotatedString {
             var lastIndex = 0
             for (result in urlPattern.findAll(text)) {
-                // Add non-link text
                 append(text.substring(lastIndex, result.range.first))
-                
-                // Add link with special styling
+
                 val url = result.value
                 val linkStart = length
                 append(url)
                 val linkEnd = length
-                
-                // Apply blue color and underline to link
+
                 addStyle(
                     style = SpanStyle(
                         color = Color(0xFF00BFFF),
@@ -199,24 +197,22 @@ fun LinkifyText(
                     start = linkStart,
                     end = linkEnd
                 )
-                
-                // Add clickable annotation for handling clicks
+
                 addStringAnnotation(
                     tag = "URL",
                     annotation = url,
                     start = linkStart,
                     end = linkEnd
                 )
-                
+
                 lastIndex = result.range.last + 1
             }
-            // Add remaining text
             append(text.substring(lastIndex))
         }
     }
-    
+
     val layoutResult = remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-    
+
     androidx.compose.foundation.text.BasicText(
         text = annotatedString,
         modifier = modifier.pointerInput(text) {
@@ -251,7 +247,6 @@ fun LinkifyText(
     )
 }
 
-// ✅ Helper: GroupVotesOverlay (moved before GroupChatScreen for proper compilation order)
 @Composable
 fun GroupVotesOverlay(
     votes: List<com.freetime.app.api.GroupDeletionVote>,
@@ -316,12 +311,11 @@ fun GroupVotesOverlay(
     }
 }
 
-// ✅ Helper Composables (moved before GroupChatScreen for proper resolution order)
-
 @Composable
-fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, selectedMemberId: String?, isCurrentUserAdmin: Boolean, currentUserId: String, onKickMember: (String) -> Unit, onPromoteMember: (String) -> Unit, onDemoteMember: (String) -> Unit = {}, modifier: Modifier, creatorId: String = "", adminList: List<String> = emptyList()) {
+fun GroupMembersTab(show: Boolean = true, members: List<GroupMember>, onMenuClick: (String) -> Unit, selectedMemberId: String?, isCurrentUserAdmin: Boolean, currentUserId: String, onKickMember: (String) -> Unit, onPromoteMember: (String) -> Unit, onDemoteMember: (String) -> Unit = {}, creatorId: String = "", adminList: List<String> = emptyList()) {
+    if (!show) return
     var expandedMemberId by remember { mutableStateOf<String?>(null) }
-    LazyColumn(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(members) { member ->
             val isMe = member.id == currentUserId
             val isGroupOwner = member.id == creatorId
@@ -348,23 +342,20 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        val displayNameToShow = member.displayName.ifBlank { member.name }  // ✅ UPDATED: Show displayName with fallback to username
-                        Text(if (isMe) "${displayNameToShow} (You)" else displayNameToShow, 
+                        val displayNameToShow = member.displayName.ifBlank { member.name }
+                        Text(if (isMe) "${displayNameToShow} (You)" else displayNameToShow,
                             color = getUsernameColorGroup(member.tags, member.isSystemAdmin || memberIsAdmin, member.isSystemModerator, member.role),
                             fontWeight = FontWeight.Bold)
-                        // ✅ FIX: Show admin badge for all admins; show owner badge for group creator
-                        if (isGroupOwner) Text("👑 Owner", color = Color(0xFFFFD700), fontSize = 10.sp)
-                        else if (memberIsAdmin) Text("👑 Admin", color = Color(0xFFFFD700), fontSize = 10.sp)
+                        if (isGroupOwner) Text(" Owner", color = Color(0xFFFFD700), fontSize = 10.sp)
+                        else if (memberIsAdmin) Text(" Admin", color = Color(0xFFFFD700), fontSize = 10.sp)
                     }
-                    if (isCurrentUserAdmin && !isMe) {
+                        if (isCurrentUserAdmin && !isMe && !isGroupOwner) {
                         Box {
                             IconButton(onClick = { expandedMemberId = member.id }) { Icon(Icons.Default.MoreVert, null, tint = Color.Gray) }
                             DropdownMenu(expanded = expandedMemberId == member.id, onDismissRequest = { expandedMemberId = null }) {
-                                // ✅ FIX: Admins can promote members to admins
                                 if (!memberIsAdmin) DropdownMenuItem(text = { Text("Make Admin") }, onClick = { onPromoteMember(member.id); expandedMemberId = null })
-                                // ✅ FIX: Admins can demote other admins except the group owner
                                 if (memberIsAdmin && !isGroupOwner) DropdownMenuItem(text = { Text("Remove Admin", color = Color.Yellow) }, onClick = { onDemoteMember(member.id); expandedMemberId = null })
-                                DropdownMenuItem(text = { Text("Remove Member", color = Color.Red) }, onClick = { onKickMember(member.id); expandedMemberId = null })
+                                if (!isGroupOwner) DropdownMenuItem(text = { Text("Remove Member", color = Color.Red) }, onClick = { onKickMember(member.id); expandedMemberId = null })
                             }
                         }
                     }
@@ -375,59 +366,59 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
 }
 
 @Composable
-    fun GroupInfoTab(
-        group: GroupInfo, 
-        isMuted: Boolean, 
-        onMuteToggle: (Boolean) -> Unit, 
-        onLeaveGroup: () -> Unit, 
-        onDeleteGroup: () -> Unit, 
-        onUpdateGroup: (String, String) -> Unit, 
-        onClearHistoryVote: () -> Unit = {},
-        isStartingVote: Boolean = false,
-        modifier: Modifier, 
-        isAdmin: Boolean = false, 
-        members: List<GroupMember> = emptyList(), 
-        currentUserId: String = "", 
-        creatorId: String = "", 
-        onPromoteMember: (String) -> Unit = {}, 
-        onDemoteMember: (String) -> Unit = {}, 
-        onRemoveMember: (String) -> Unit = {},
-        onInviteMembers: () -> Unit = {}
-    ) {
-        var name by remember(group.name) { mutableStateOf(group.name) }
-        var desc by remember(group.description) { mutableStateOf(group.description) }
-        val context = LocalContext.current
-    
-    Column(modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // ✅ FIX: Only admins can change the group name
+fun GroupInfoTab(
+    show: Boolean = true,
+    group: GroupInfo,
+    isMuted: Boolean,
+    onMuteToggle: (Boolean) -> Unit,
+    onLeaveGroup: () -> Unit,
+    onDeleteGroup: () -> Unit,
+    onUpdateGroup: (String, String) -> Unit,
+    onClearHistoryVote: () -> Unit = {},
+    isStartingVote: Boolean = false,
+    isAdmin: Boolean = false,
+    members: List<GroupMember> = emptyList(),
+    currentUserId: String = "",
+    creatorId: String = "",
+    onPromoteMember: (String) -> Unit = {},
+    onDemoteMember: (String) -> Unit = {},
+    onRemoveMember: (String) -> Unit = {},
+    onInviteMembers: () -> Unit = {},
+    currentChatBgPath: String? = null,
+    onSetChatBackground: () -> Unit = {},
+    onClearChatBackground: () -> Unit = {}
+) {
+    if (!show) return
+    var name by remember(group.name) { mutableStateOf(group.name) }
+    var desc by remember(group.description) { mutableStateOf(group.description) }
+    val context = LocalContext.current
+
+    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (isAdmin) {
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Group Name") }, modifier = Modifier.fillMaxWidth())
         } else {
             OutlinedTextField(value = name, onValueChange = {}, label = { Text("Group Name") }, modifier = Modifier.fillMaxWidth(), enabled = false)
         }
-        // ✅ FIX: Members CAN change the group description
         OutlinedTextField(value = desc, onValueChange = { desc = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
         Button(
-            onClick = { 
+            onClick = {
                 if (name.isNotBlank()) {
                     onUpdateGroup(name, desc)
                 } else {
                     Toast.makeText(context, "Group name cannot be empty", Toast.LENGTH_SHORT).show()
                 }
-            }, 
+            },
             modifier = Modifier.fillMaxWidth(),
-            // ✅ FIX: Enable save button for: admins (can change name) OR anyone with description changes
             enabled = (isAdmin || desc != group.description) && name.isNotBlank()
-        ) { 
-            Text("Save Changes") 
+        ) {
+            Text("Save Changes")
         }
-        
+
         HorizontalDivider(color = Color.DarkGray)
-        
-        // ✅ NEW: Invite Members Button - Only admins can invite
+
         if (isAdmin) {
             Button(
-                onClick = onInviteMembers, 
+                onClick = onInviteMembers,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                 border = BorderStroke(1.dp, Color.Cyan)
@@ -436,7 +427,7 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
             }
         } else {
             Button(
-                onClick = {}, 
+                onClick = {},
                 modifier = Modifier.fillMaxWidth(),
                 enabled = false,
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -445,12 +436,11 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
                 Text("Invite Members (Admin only)", color = Color.Gray)
             }
         }
-        
+
         HorizontalDivider(color = Color.DarkGray)
-        
-        // ✅ NEW: Clear History Vote Button (Visible to all members/admins)
+
         Button(
-            onClick = onClearHistoryVote, 
+            onClick = onClearHistoryVote,
             modifier = Modifier.fillMaxWidth(),
             enabled = !isStartingVote,
             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
@@ -464,10 +454,34 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
             Text("Mute Notifications", color = Color.White)
             Switch(checked = isMuted, onCheckedChange = onMuteToggle)
         }
+
+        HorizontalDivider(color = Color.DarkGray)
+
+        Button(
+            onClick = onSetChatBackground,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+            border = BorderStroke(1.dp, Color(0xFF4CAF50))
+        ) {
+            Text(if (currentChatBgPath != null) "Change Chat Background" else "Set Chat Background", color = Color(0xFF4CAF50))
+        }
+        if (currentChatBgPath != null) {
+            Button(
+                onClick = onClearChatBackground,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                border = BorderStroke(1.dp, Color(0xFFFF9800))
+            ) {
+                Text("Remove Chat Background", color = Color(0xFFFF9800))
+            }
+        }
+
         Button(onClick = onLeaveGroup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, Color.Red)) {
             Text("Leave Group", color = Color.Red)
         }
-        if (isAdmin) {
+        val isCreator = currentUserId == creatorId
+        val isLastMember = members.size <= 1 && members.any { it.userId == currentUserId }
+        if (isCreator || isLastMember) {
             Button(onClick = onDeleteGroup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, Color(0xFFFF4444))) {
                 Text("Delete Group", color = Color(0xFFFF4444))
             }
@@ -479,30 +493,93 @@ fun GroupMembersTab(members: List<GroupMember>, onMenuClick: (String) -> Unit, s
 @OptIn(ExperimentalFoundationApi::class)
 fun GroupMessageInput(value: String, onValueChange: (String) -> Unit, onSendMessage: () -> Unit, onEmojiClick: () -> Unit = {}, onMediaClick: () -> Unit = {}, onGifClick: (() -> Unit)? = null, isSending: Boolean, onFocusChange: ((Boolean) -> Unit) = {}) {
     val accentColor = LocalDisplaySettings.current.getAccentColor()
-    Row(Modifier.fillMaxWidth().background(Color(0xFF0F0F1E)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onMediaClick) { Icon(Icons.Default.AttachFile, null, tint = Color.Gray) }
-        if (onGifClick != null) {
-            IconButton(onClick = onGifClick) { Text("GIF", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Gray) }
-        }
-        IconButton(onClick = onEmojiClick) { Icon(Icons.Default.EmojiEmotions, null, tint = Color.Gray) }
-        TextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.weight(1f).onFocusChanged { focusState -> onFocusChange(focusState.isFocused) },
-            placeholder = { Text("Type a message...", color = Color.Gray) },
-            colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1A1A2E), unfocusedContainerColor = Color(0xFF1A1A2E), focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = accentColor, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-            shape = RoundedCornerShape(24.dp)
-        )
-        IconButton(onClick = onSendMessage, enabled = value.isNotBlank() && !isSending) {
-            if(isSending) CircularProgressIndicator(Modifier.size(24.dp), color = accentColor, strokeWidth = 2.dp)
-            else Icon(Icons.AutoMirrored.Default.Send, null, tint = accentColor)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = Color.Black,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            )
+            .border(
+                width = 0.5.dp,
+                color = accentColor.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            )
+            .padding(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0F0F1E))
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onMediaClick,
+                modifier = Modifier.size(32.dp).scaleOnPressEffect()
+            ) {
+                Icon(Icons.Default.AttachFile, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+            }
+            if (onGifClick != null) {
+                IconButton(
+                    onClick = onGifClick,
+                    modifier = Modifier.size(32.dp).scaleOnPressEffect()
+                ) {
+                    Text("GIF", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.Gray)
+                }
+            }
+            IconButton(
+                onClick = onEmojiClick,
+                modifier = Modifier.size(32.dp).scaleOnPressEffect()
+            ) {
+                Icon(Icons.Default.EmojiEmotions, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+            }
+            TextField(
+                value = value,
+                onValueChange = { newValue ->
+                    val filtered = newValue.replace("\n", "").replace("\r", "")
+                    onValueChange(filtered)
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { focusState -> onFocusChange(focusState.isFocused) },
+                placeholder = { Text("Message", color = Color.Gray, fontSize = 13.sp) },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color(0xFF1A1A2E),
+                    unfocusedContainerColor = Color(0xFF1A1A2E),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    cursorColor = accentColor,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                shape = RoundedCornerShape(20.dp),
+                textStyle = TextStyle(fontSize = 13.sp)
+            )
+            IconButton(
+                onClick = onSendMessage,
+                enabled = value.isNotBlank() && !isSending,
+                modifier = Modifier.size(32.dp).scaleOnPressEffect()
+            ) {
+                if (isSending) {
+                    CircularProgressIndicator(Modifier.size(24.dp), color = accentColor, strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        Icons.Default.Send,
+                        null,
+                        tint = if (value.isNotBlank()) accentColor else Color.Gray,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 fun GroupEmojiPickerRow(onEmojiSelected: (String) -> Unit) {
-    val emojis = listOf("😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "😎", "🤓", "🧐", "😕", "😟", "🙁", "😮", "😯", "😲", "😳", "🥺", "😢", "😭", "😤", "😡", "😠", "🤬", "👍", "👎", "👌", "✌️", "🤞", "🤟", "🤘", "🤙", "👋", "💪", "🙏", "🎉", "🎊", "🔥", "⭐", "✨", "💫", "❤️", "🧡", "💛", "💚", "💙", "💜")
+    val emojis = listOf("", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "")
     LazyRow(modifier = Modifier.fillMaxWidth().background(Color(0xFF0F0F1E)).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         items(emojis) { emoji ->
             Surface(modifier = Modifier.size(36.dp).clickable { onEmojiSelected(emoji) }, color = Color.Transparent) {
@@ -512,16 +589,14 @@ fun GroupEmojiPickerRow(onEmojiSelected: (String) -> Unit) {
     }
 }
 
-// ✅ NEW: Helper function to determine username color based on FreeTime role/tags
 fun getUsernameColorGroup(tags: List<String>, isAdmin: Boolean, isModerator: Boolean, role: String? = null): Color {
-    // Priority: OWNER tag → VIP tag → BETA TESTER tag → role=admin → role=moderator → default white
     return when {
-        tags.contains("OWNER") -> Color(0xFFFF00FF)  // Bright Magenta for OWNER tag
-        tags.contains("VIP") -> Color(0xFFFFFF00)    // Yellow for VIP tag
-        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)  // Cyan for BETA TESTER tag
-        isAdmin || role == "admin" -> Color(0xFFFF0000)    // Bright Red for Admin
-        isModerator || role == "moderator" -> Color(0xFFFF8C00)  // Bright Orange for Moderator
-        else -> Color.White  // Default white
+        tags.contains("OWNER") -> Color(0xFFFF00FF)
+        tags.contains("VIP") -> Color(0xFFFFFF00)
+        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+        isAdmin || role == "admin" -> Color(0xFFFF0000)
+        isModerator || role == "moderator" -> Color(0xFFFF8C00)
+        else -> Color.White
     }
 }
 
@@ -567,6 +642,7 @@ private fun GroupChatScreenBody(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { SharedPreferencesHelper(context) }
+    val database = remember { com.freetime.app.data.local.database.FreeTimeDatabase.getInstance(context) }
     val currentUserId = prefs.getUserId() ?: ""
     val currentUsername = prefs.getUsername() ?: "You"
     val token = prefs.getToken() ?: ""
@@ -582,17 +658,19 @@ private fun GroupChatScreenBody(
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
     var selectedMessageText by remember { mutableStateOf("") }
     var selectedMessageIsOwn by remember { mutableStateOf(false) }
+    var isMultiSelectMode by remember { mutableStateOf(false) }
+    var selectedMessages by remember { mutableStateOf(setOf<String>()) }
+    var showForwardDialog by remember { mutableStateOf(false) }
+    var isForwarding by remember { mutableStateOf(false) }
     var replyingToMessageId by remember { mutableStateOf<String?>(null) }
     var replyingToUsername by remember { mutableStateOf("") }
     var replyingToText by remember { mutableStateOf("") }
     var mediaDownloadApprovals by remember { mutableStateOf(mapOf<String, com.freetime.app.services.WebSocketManager.MediaDownloadResponseData>()) }
-    // ✅ NEW: Helper function to map MIME types to file extensions
     fun getFileExtensionFromMimeType(mimeType: String): String {
         val extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
         if (extension != null) return ".$extension"
-        
+
         return when (mimeType.lowercase()) {
-            // Fallbacks for common types MimeTypeMap might miss
             "image/jpeg", "image/jpg" -> ".jpg"
             "image/png" -> ".png"
             "video/mp4" -> ".mp4"
@@ -603,20 +681,17 @@ private fun GroupChatScreenBody(
         }
     }
 
-    // ✅ NEW: Helper function to ensure filename has correct extension
     fun ensureCorrectFileExtension(originalFileName: String, mimeType: String): String {
-        // If filename already has an extension, preserve it
         if (originalFileName.contains('.')) {
-            android.util.Log.d("FREETIME_MEDIA", "📝 Preserving original extension: $originalFileName")
+            android.util.Log.d("FREETIME_MEDIA", " Preserving original extension: $originalFileName")
             return originalFileName
         }
-        
-        // No extension - add one based on MIME type
+
         val extension = getFileExtensionFromMimeType(mimeType)
         if (extension.isEmpty()) return originalFileName
-        
+
         val fileName = originalFileName + extension
-        android.util.Log.d("FREETIME_MEDIA", "📝 File extension mapping: $originalFileName → $fileName (mimeType: $mimeType)")
+        android.util.Log.d("FREETIME_MEDIA", " File extension mapping: $originalFileName $fileName (mimeType: $mimeType)")
         return fileName
     }
 
@@ -628,8 +703,6 @@ private fun GroupChatScreenBody(
         return """\[Media:\s*[^|\]\s]+\|([^\]\s]+)""".toRegex().find(content)?.groupValues?.get(1)
     }
 
-    // ✅ NEW: Extract media filename from message content
-    // Format: "[Media: id|key] filename.ext" or "[Media: id] filename.ext"
     fun extractMediaNameFromContent(content: String): String? {
         val match = """\]\s*(.+)""".toRegex().find(content)
         return match?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
@@ -647,39 +720,36 @@ private fun GroupChatScreenBody(
         }
     }
 
-    // Download and save media file function
     fun downloadAndSaveMediaFile(data: com.freetime.app.services.WebSocketManager.MediaDownloadResponseData) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                android.util.Log.d("FREETIME_MEDIA", "🎬 Starting auto-download of approved media: ${data.mediaId}")
-                
-                // ✅ FIX: Ensure token is not empty before attempting download
+                android.util.Log.d("FREETIME_MEDIA", " Starting auto-download of approved media: ${data.mediaId}")
+
                 if (token.isEmpty()) {
-                    android.util.Log.e("FREETIME_MEDIA", "❌ Cannot download media: Authentication token is empty")
+                    android.util.Log.e("FREETIME_MEDIA", " Cannot download media: Authentication token is empty")
                     coroutineScope.launch(Dispatchers.Main) {
                         Toast.makeText(context, "Error: Not authenticated. Please log in again.", Toast.LENGTH_SHORT).show()
                     }
                     return@launch
                 }
-                
+
                 val downloadUrl = if (data.downloadUrl?.startsWith("http") == true) {
                     data.downloadUrl
                 } else if (!data.downloadUrl.isNullOrEmpty()) {
                     "${apiService.getBaseUrl().trimEnd('/')}${data.downloadUrl}"
                 } else {
-                    android.util.Log.e("FREETIME_MEDIA", "❌ No download URL provided in approval")
+                    android.util.Log.e("FREETIME_MEDIA", " No download URL provided in approval")
                     return@launch
                 }
-                
-                android.util.Log.d("FREETIME_MEDIA", "📥 Download URL: $downloadUrl (with Bearer token)")
-                
+
+                android.util.Log.d("FREETIME_MEDIA", " Download URL: $downloadUrl (with Bearer token)")
+
                 val request = okhttp3.Request.Builder()
                     .url(downloadUrl)
                     .addHeader("Authorization", "Bearer $token")
                     .get()
                     .build()
-                
-                // Create OkHttpClient with SSL bypass (same as FreeTimeApiService)
+
                 val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
                     override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
                     override fun checkClientTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
@@ -687,20 +757,20 @@ private fun GroupChatScreenBody(
                 })
                 val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
                 sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-                
+
                 val client = okhttp3.OkHttpClient.Builder()
                     .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
                     .hostnameVerifier { _, _ -> true }
                     .build()
-                
+
                 val response = client.newCall(request).execute()
-                
+
                 if (!response.isSuccessful) {
-                    android.util.Log.e("FREETIME_MEDIA", "❌ Download failed: HTTP ${response.code} - ${response.message}")
+                    android.util.Log.e("FREETIME_MEDIA", " Download failed: HTTP ${response.code} - ${response.message}")
                 }
-                
+
                 val encryptedBytes = response.body?.bytes() ?: return@launch
-                
+
                 val decryptedBytes = if (data.encrypted && !data.encryptionKey.isNullOrEmpty()) {
                     try {
                         val encryptor = com.freetime.app.security.MediaEncryption(context)
@@ -712,7 +782,7 @@ private fun GroupChatScreenBody(
                 } else {
                     encryptedBytes
                 }
-                
+
                 val mimeType = data.mimeType ?: "application/octet-stream"
                 val mediaType = when {
                     mimeType.startsWith("image") -> "image"
@@ -720,17 +790,15 @@ private fun GroupChatScreenBody(
                     mimeType.startsWith("audio") -> "audio"
                     else -> "document"
                 }
-                
-                // ✅ FIXED: Ensure filename has correct extension based on MIME type
+
                 val originalFileName = data.fileName ?: "media_${System.currentTimeMillis()}"
                 val fileName = ensureCorrectFileExtension(originalFileName, mimeType)
-                
-                // ✅ FIX: Use private app storage instead of MediaStore for automatic cleanup
+
                 val mediaDir = java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES), "FreeTimeMedia")
                 if (!mediaDir.exists()) mediaDir.mkdirs()
-                
+
                 val file = java.io.File(mediaDir, fileName)
-                
+
                 context.contentResolver.openOutputStream(
                     androidx.core.content.FileProvider.getUriForFile(
                         context,
@@ -744,20 +812,20 @@ private fun GroupChatScreenBody(
                     android.util.Log.e("FREETIME_MEDIA", "Failed to open output stream")
                     return@launch
                 }
-                
-                android.util.Log.d("FREETIME_MEDIA", "✅ Media saved to private storage: ${file.absolutePath}")
+
+                android.util.Log.d("FREETIME_MEDIA", " Media saved to private storage: ${file.absolutePath}")
                 coroutineScope.launch(Dispatchers.Main) {
                     Toast.makeText(context, "Media saved to app storage", Toast.LENGTH_SHORT).show()
                 }
-                
-                android.util.Log.d("FREETIME_MEDIA", "✅ Media saved to gallery: $fileName")
+
+                android.util.Log.d("FREETIME_MEDIA", " Media saved to gallery: $fileName")
                 coroutineScope.launch(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "Media saved to gallery", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FREETIME_MEDIA", "Error downloading media: ${e.message}", e)
                 coroutineScope.launch(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "Failed to download media: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "Failed to download media: ${e.message ?: "Unknown error. Please try again."}", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -768,19 +836,42 @@ private fun GroupChatScreenBody(
     var isLoadingMembers by remember { mutableStateOf(false) }
     var typingUsers by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val typingTimeouts = remember { mutableMapOf<String, Long>() }
-    
+
     var loadedGroup by remember { mutableStateOf(GroupInfo(id = groupId, name = "Loading...")) }
     var reloadTrigger by remember { mutableIntStateOf(0) }
     var uploadProgress by remember { mutableStateOf(0f) }
-    
+
     var isUploadingMedia by remember { mutableStateOf(false) }
     var isSendingMessage by remember { mutableStateOf(false) }
+    var currentGroupBgPath by remember { mutableStateOf<String?>(null) }
+
+    val groupBgPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val bgDir = java.io.File(context.getExternalFilesDir(null), "chat_backgrounds")
+                if (!bgDir.exists()) bgDir.mkdirs()
+                val destFile = java.io.File(bgDir, "bg_group_${groupId}.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                prefs.setChatBackgroundForUser(groupId, destFile.absolutePath)
+                currentGroupBgPath = destFile.absolutePath
+                Toast.makeText(context, "Chat background set!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to set background: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     var errorMessage by remember { mutableStateOf("") }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
     var showLeaveConfirm by remember { mutableStateOf(false) }
     var isLeaving by remember { mutableStateOf(false) }
-    var isMuted by remember { mutableStateOf(false) }
+    var isMuted by remember { mutableStateOf(prefs.isGroupMuted(groupId)) }
     var showGroupPictureUpload by remember { mutableStateOf(false) }
     var isUploadingGroupPicture by remember { mutableStateOf(false) }
     var groupPictureUploadStatus by remember { mutableStateOf("") }
@@ -792,17 +883,14 @@ private fun GroupChatScreenBody(
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showGifPicker by remember { mutableStateOf(false) }
     val gifDownloaderScope = rememberCoroutineScope()
-    
-    // ✅ NEW: Voting state
+
     var activeVotes by remember { mutableStateOf(listOf<com.freetime.app.api.GroupDeletionVote>()) }
     var isStartingVote by remember { mutableStateOf(false) }
 
-    // ✅ Media picker launcher for group media sharing (supports all file types)
     val mediaPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri: Uri? ->
             if (uri != null) {
-                // Take persistable permission to prevent ENOENT on delayed access
                 try {
                     context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 } catch (_: Exception) { }
@@ -811,7 +899,6 @@ private fun GroupChatScreenBody(
                         isUploadingMedia = true
                         uploadProgress = 0f
 
-                        // Get file info from URI
                         val fileName = com.freetime.app.utils.FileUtils.getFileNameFromUri(context, uri) ?: "media_${System.currentTimeMillis()}"
                         val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
                         val mediaType = when {
@@ -820,27 +907,22 @@ private fun GroupChatScreenBody(
                             else -> "document"
                         }
 
-                        // Read file data on IO dispatcher with auto-close
                         val fileData = withContext(Dispatchers.IO) {
                             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         } ?: byteArrayOf()
 
                         if (fileData.isNotEmpty()) {
-                            // ✅ FIX: Ensure token is not empty before uploading
                             if (token.isEmpty()) {
-                                android.util.Log.e("FREETIME_GROUP_MEDIA", "❌ Cannot upload media: Authentication token is empty")
+                                android.util.Log.e("FREETIME_GROUP_MEDIA", " Cannot upload media: Authentication token is empty")
                                 Toast.makeText(context, "Error: Not authenticated. Please log in again.", Toast.LENGTH_SHORT).show()
                                 return@launch
                             }
-                            
-                            // ✅ NEW: Handle both public and protected media modes
+
                             val isPublicMedia = mediaShareMode == "public"
-                            
+
                             if (isPublicMedia) {
-                                // PUBLIC MODE: Upload WITHOUT encryption, available to all members
-                                android.util.Log.d("FREETIME_GROUP_MEDIA", "📤 Uploading PUBLIC media to group (no encryption)")
-                                
-                                // ✅ USE: uploadPublicMediaToChat for unencrypted public media
+                                android.util.Log.d("FREETIME_GROUP_MEDIA", " Uploading PUBLIC media to group (no encryption)")
+
                                 val mediaId = apiService.uploadPublicMediaToChat(
                                     mediaData = fileData,
                                     fileName = fileName,
@@ -851,12 +933,10 @@ private fun GroupChatScreenBody(
                                 )
 
                                 if (mediaId != null && mediaId.isNotEmpty()) {
-                                    // Send group message with mediaId so all members can view it
-                                    // Include the mediaId in the message tag so receivers can extract it from the content
                                     val mediaMessage = "[Media: $mediaId] $fileName"
                                     apiService.sendGroupMessage(groupId, mediaMessage, mediaShareMode = "public").onSuccess { groupMsg ->
-                                        android.util.Log.d("FREETIME_GROUP_MEDIA", "✅ PUBLIC media message sent. mediaId=$mediaId")
-                                        
+                                        android.util.Log.d("FREETIME_GROUP_MEDIA", " PUBLIC media message sent. mediaId=$mediaId")
+
                                         val msg = GroupMessage(
                                             messageId = groupMsg.messageId,
                                             groupId = groupId,
@@ -876,24 +956,22 @@ private fun GroupChatScreenBody(
                                             mediaShareMode = "public"
                                         )
                                         messages = messages + msg
-                                        errorMessage = "✓ $mediaType shared publicly with group"
+                                        errorMessage = " $mediaType shared publicly with group"
                                     }.onFailure { error ->
-                                        android.util.Log.e("FREETIME_GROUP_MEDIA", "❌ Failed to send public media message: ${error.message}", error)
+                                        android.util.Log.e("FREETIME_GROUP_MEDIA", " Failed to send public media message: ${error.message}", error)
                                         errorMessage = "Failed to share media: ${error.message}"
                                     }
                                 } else {
                                     errorMessage = "Media uploaded but no ID returned"
                                 }
                             } else {
-                                // PROTECTED MODE: Upload with encryption, requires download requests (like private chat)
-                                android.util.Log.d("FREETIME_GROUP_MEDIA", "🔒 Uploading PROTECTED media to group (with encryption)")
-                                
-                                // Upload using uploadMediaToChat (recipientId = groupId for group uploads)
+                                android.util.Log.d("FREETIME_GROUP_MEDIA", " Uploading PROTECTED media to group (with encryption)")
+
                                 val uploadResult = apiService.uploadMediaToChat(
                                     mediaData = fileData,
                                     fileName = fileName,
                                     mimeType = mimeType,
-                                    recipientId = groupId,  // Use group ID as recipient for group media
+                                    recipientId = groupId,
                                     token = "Bearer $token",
                                     groupId = groupId,
                                     mediaShareMode = "protected"
@@ -903,13 +981,10 @@ private fun GroupChatScreenBody(
                                     val mediaId = uploadResult.first
                                     val encryptionKey = uploadResult.second
                                     if (mediaId.isNotEmpty()) {
-                                        // Send group message with mediaId so all members are notified
-                                        // ✅ FIX: Use the standard media tag format [Media: id|key] fileName
                                         val mediaMessage = "[Media: $mediaId|$encryptionKey] $fileName"
                                         apiService.sendGroupMessage(groupId, mediaMessage, mediaShareMode = "protected").onSuccess { groupMsg ->
-                                            android.util.Log.d("FREETIME_GROUP_MEDIA", "✅ PROTECTED media message sent to group. mediaId=$mediaId")
-                                            
-                                            // Add to local chat with mediaId for display
+                                            android.util.Log.d("FREETIME_GROUP_MEDIA", " PROTECTED media message sent to group. mediaId=$mediaId")
+
                                             val msg = GroupMessage(
                                                 messageId = groupMsg.messageId,
                                                 groupId = groupId,
@@ -929,9 +1004,9 @@ private fun GroupChatScreenBody(
                                                 mediaShareMode = "protected"
                                             )
                                             messages = messages + msg
-                                            errorMessage = "✓ $mediaType shared with download protection"
+                                            errorMessage = " $mediaType shared with download protection"
                                         }.onFailure { error ->
-                                            android.util.Log.e("FREETIME_GROUP_MEDIA", "❌ Failed to send protected media message: ${error.message}", error)
+                                            android.util.Log.e("FREETIME_GROUP_MEDIA", " Failed to send protected media message: ${error.message}", error)
                                             errorMessage = "Failed to send media message: ${error.message}"
                                         }
                                     } else {
@@ -956,7 +1031,11 @@ private fun GroupChatScreenBody(
         }
     )
 
-    // Load full group details
+    LaunchedEffect(groupId) {
+        currentGroupBgPath = prefs.getChatBackgroundForUser(groupId)
+    }
+
+    // load group info and members
     LaunchedEffect(groupId, reloadTrigger) {
         isLoadingMembers = true
         try {
@@ -974,7 +1053,6 @@ private fun GroupChatScreenBody(
         }
     }
 
-    // Load messages
     LaunchedEffect(groupId, reloadTrigger) {
         isLoadingMessages = true
         try {
@@ -992,7 +1070,6 @@ private fun GroupChatScreenBody(
         }
     }
 
-    // ✅ NEW: Load active votes (with periodic refresh)
     LaunchedEffect(groupId, reloadTrigger) {
         while (true) {
             try {
@@ -1002,7 +1079,7 @@ private fun GroupChatScreenBody(
             } catch (e: Exception) {
                 Log.e("GROUP_CHAT", "Error loading votes: ${e.message}")
             }
-            kotlinx.coroutines.delay(5000) // Refresh every 5 seconds
+            kotlinx.coroutines.delay(5000)
         }
     }
 
@@ -1023,11 +1100,9 @@ private fun GroupChatScreenBody(
         }
     }
 
-    // WebSocket logic
     DisposableEffect(groupId) {
-        // ✅ Set active chat ID to suppress notifications while viewing
         com.freetime.app.notifications.NotificationHelper.currentActiveChatId = groupId
-        
+
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
         try {
             val joinObj = JSONObject()
@@ -1038,14 +1113,11 @@ private fun GroupChatScreenBody(
         val listener = object : com.freetime.app.services.WebSocketManager.WebSocketListener {
             override fun onGroupMessage(message: com.freetime.app.services.WebSocketManager.GroupMessageData) {
                 coroutineScope.launch(Dispatchers.Main) {
-                    // Skip own messages (already added via HTTP response) to prevent duplicates
                     if (message.groupId == groupId && message.senderId != currentUserId) {
-                        // ✅ MEDIA EXTRACTION: Extract mediaId from content if present
-                        // Format: [Media: mediaId|mediaKey] fileName OR [Shared type: fileName] (for public)
                         val mediaIdRegex = """^\[Media: ([^|\]]+)(?:\|[^\]]*)?\]""".toRegex()
                         val mediaMatch = mediaIdRegex.find(message.content)
                         val extractedMediaId = mediaMatch?.groupValues?.get(1)
-                        
+
                         var extractedMediaName: String? = null
                         var extractedMediaType: String? = null
                         var extractedShareMode: String = message.mediaShareMode ?: if (mediaMatch != null && mediaMatch.groupValues.getOrNull(2).isNullOrEmpty()) "public" else "protected"
@@ -1054,15 +1126,12 @@ private fun GroupChatScreenBody(
                             extractedMediaName = message.content.substringAfter("] ").takeIf { it.isNotEmpty() }
                             extractedMediaType = if (message.content.contains("video", ignoreCase = true)) "video" else "image"
                         } else if (message.content.startsWith("[Shared ")) {
-                            // Public media format: [Shared type: fileName]
                             val publicRegex = """^\[Shared ([^:]+): ([^\]]+)\]""".toRegex()
                             val publicMatch = publicRegex.find(message.content)
                             if (publicMatch != null) {
                                 extractedMediaType = publicMatch.groupValues[1]
                                 extractedMediaName = publicMatch.groupValues[2]
                                 extractedShareMode = "public"
-                                // Note: mediaId should ideally be in the WebSocket payload
-                                // If missing from payload, it's hard to download
                             }
                         }
 
@@ -1086,7 +1155,7 @@ private fun GroupChatScreenBody(
                     }
                 }
             }
-            
+
             override fun onGroupPictureUpdated(data: com.freetime.app.services.WebSocketManager.GroupPictureUpdatedData) {
                 if (data.groupId == groupId) {
                     coroutineScope.launch(Dispatchers.Main) {
@@ -1117,7 +1186,7 @@ private fun GroupChatScreenBody(
                     reloadTrigger++
                 }
             }
-            
+
             override fun onGroupReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {
                 if (reactionData.groupId == groupId) {
                     coroutineScope.launch(Dispatchers.Main) {
@@ -1136,7 +1205,7 @@ private fun GroupChatScreenBody(
                     }
                 }
             }
-            
+
             override fun onGroupReactionRemoved(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {
                 if (reactionData.groupId == groupId) {
                     coroutineScope.launch(Dispatchers.Main) {
@@ -1161,21 +1230,6 @@ private fun GroupChatScreenBody(
             override fun onChannelMessage(message: com.freetime.app.services.WebSocketManager.ChannelMessageData) {}
             override fun onMessageRead(readData: com.freetime.app.services.WebSocketManager.ReadReceiptData) {}
             override fun onConversationAllRead(readData: com.freetime.app.services.WebSocketManager.ConversationReadData) {}
-            override fun onIncomingCall(callData: com.freetime.app.services.WebSocketManager.IncomingCallData) {
-                com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                    context, 
-                    callData.callerUsername, 
-                    callData.callerId, 
-                    callData.callType,
-                    callId = callData.callId,
-                    callerAvatarUrl = callData.callerAvatar,
-                    offerSdp = callData.sdpOffer
-                )
-            }
-            override fun onCallAnswered(callData: com.freetime.app.services.WebSocketManager.CallAnsweredData) {}
-            override fun onCallRejected(callData: com.freetime.app.services.WebSocketManager.CallRejectedData) {}
-            override fun onCallEnded(callData: com.freetime.app.services.WebSocketManager.CallEndedData) {}
-            override fun onIceCandidate(iceData: com.freetime.app.services.WebSocketManager.IceCandidateData) {}
             override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {}
             override fun onReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {}
             override fun onReactionRemoved(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {}
@@ -1185,27 +1239,44 @@ private fun GroupChatScreenBody(
             override fun onGroupMemberPromoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
             override fun onGroupMemberDemoted(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
             override fun onGroupMemberRemoved(data: com.freetime.app.services.WebSocketManager.GroupMemberActionData) { if(data.groupId == groupId) coroutineScope.launch { reloadTrigger++ } }
-            override fun onGroupHistoryCleared(data: com.freetime.app.services.WebSocketManager.GroupHistoryClearedData) { if(data.groupId == groupId) coroutineScope.launch { messages = emptyList(); reloadTrigger++ } }
+            override fun onGroupHistoryCleared(data: com.freetime.app.services.WebSocketManager.GroupHistoryClearedData) {
+                if(data.groupId == groupId) coroutineScope.launch {
+                    messages = emptyList()
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        database.messageDao().deleteAllMessagesForChat(groupId)
+                    }
+                    reloadTrigger++
+                }
+            }
+            override fun onGroupMessageDeleted(data: com.freetime.app.services.WebSocketManager.GroupMessageDeletedData) {
+                if (data.groupId == groupId) {
+                    coroutineScope.launch {
+                        messages = messages.filterNot { it.messageId == data.messageId }
+                    }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        database.messageDao().deleteMessageById(data.messageId)
+                    }
+                }
+            }
             override fun onConnectionEstablished() {}
             override fun onConnectionLost() {}
             override fun onError(error: String) {}
 
             override fun onMediaDownloadRequested(data: com.freetime.app.services.WebSocketManager.MediaDownloadRequestData) {
-                android.util.Log.d("FREETIME_GROUP_MEDIA", "🔔 RECEIVED onMediaDownloadRequested: mediaId=${data.mediaId}, requester=${data.requesterName}, requestId=${data.requestId}, for groupId=$groupId")
-                
+                android.util.Log.d("FREETIME_GROUP_MEDIA", " RECEIVED onMediaDownloadRequested: mediaId=${data.mediaId}, requester=${data.requesterName}, requestId=${data.requestId}, for groupId=$groupId")
+
                 coroutineScope.launch(Dispatchers.Main) {
                     var attached = false
                     messages = messages.map { msg ->
                         if (!data.mediaId.isNullOrEmpty() && msg.mediaId == data.mediaId) {
                             attached = true
-                            android.util.Log.d("FREETIME_GROUP_MEDIA", "✅ Attached request to message: ${msg.messageId}")
+                            android.util.Log.d("FREETIME_GROUP_MEDIA", " Attached request to message: ${msg.messageId}")
                             msg.copy(pendingRequests = msg.pendingRequests + data)
                         } else msg
                     }
 
                     if (!attached) {
-                        android.util.Log.w("FREETIME_GROUP_MEDIA", "⚠️ Could not find message with mediaId=${data.mediaId} in current messages")
-                        // Fallback: query pending requests via REST to resolve mediaId by requestId
+                        android.util.Log.w("FREETIME_GROUP_MEDIA", " Could not find message with mediaId=${data.mediaId} in current messages")
                         val requestIdToResolve = data.requestId
                         val apiServiceLocal = apiService
                         val dataCopy = data
@@ -1215,7 +1286,7 @@ private fun GroupChatScreenBody(
                                 val resolved = pending?.getOrNull()?.find { it.requestId == requestIdToResolve }
                                 val resolvedMediaId = resolved?.mediaId
                                 if (!resolvedMediaId.isNullOrEmpty()) {
-                                    android.util.Log.d("FREETIME_GROUP_MEDIA", "✅ Resolved mediaId via REST: $resolvedMediaId")
+                                    android.util.Log.d("FREETIME_GROUP_MEDIA", " Resolved mediaId via REST: $resolvedMediaId")
                                     coroutineScope.launch(Dispatchers.Main) {
                                         messages = messages.map { msg ->
                                             if (msg.mediaId == resolvedMediaId) {
@@ -1224,7 +1295,7 @@ private fun GroupChatScreenBody(
                                         }
                                     }
                                 } else {
-                                    android.util.Log.w("FREETIME_GROUP_MEDIA", "❌ Could not resolve mediaId via REST for requestId=$requestIdToResolve")
+                                    android.util.Log.w("FREETIME_GROUP_MEDIA", " Could not resolve mediaId via REST for requestId=$requestIdToResolve")
                                 }
                             } catch (e: Exception) {
                                 android.util.Log.w("FREETIME_GROUP_MEDIA", "Failed to resolve pending request via REST: ${e.message}")
@@ -1235,9 +1306,8 @@ private fun GroupChatScreenBody(
             }
 
             override fun onMediaDownloadApproved(data: com.freetime.app.services.WebSocketManager.MediaDownloadResponseData) {
-                android.util.Log.d("FREETIME_GROUP", "✅ Media download approved: ${data.mediaId}, encrypted=${data.encrypted}, key=${!data.encryptionKey.isNullOrEmpty()}")
+                android.util.Log.d("FREETIME_GROUP", " Media download approved: ${data.mediaId}, encrypted=${data.encrypted}, key=${!data.encryptionKey.isNullOrEmpty()}")
                 coroutineScope.launch(Dispatchers.Main) {
-                    // Store approval payload for manual download actions
                     mediaDownloadApprovals = mediaDownloadApprovals + (data.mediaId to data)
                     messages = messages.map { msg ->
                         if (msg.mediaId == data.mediaId) {
@@ -1252,7 +1322,7 @@ private fun GroupChatScreenBody(
                                     android.widget.Toast.makeText(context, "Downloaded", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             } catch (e: Exception) {
-                                android.util.Log.e("FREETIME_MEDIA", "❌ Error during auto-download after approval: ${e.message}", e)
+                                android.util.Log.e("FREETIME_MEDIA", " Error during auto-download after approval: ${e.message}", e)
                             }
                         }
                     }
@@ -1269,15 +1339,15 @@ private fun GroupChatScreenBody(
                 }
             }
         }
-        
+
         wsManager.addListener(listener)
-        onDispose { 
-            wsManager.removeListener(listener) 
+        onDispose {
+            wsManager.removeListener(listener)
             com.freetime.app.notifications.NotificationHelper.currentActiveChatId = null
         }
     }
 
-    // Typing timeout cleanup
+    // typing indicator handling
     LaunchedEffect(typingUsers) {
         while (typingUsers.isNotEmpty()) {
             val now = System.currentTimeMillis()
@@ -1294,7 +1364,7 @@ private fun GroupChatScreenBody(
             val message = messages.find { it.messageId == messageId } ?: return@launch
             val currentUsersReacted = message.reactions[emoji] ?: emptyList()
             val cleanMessageId = if (messageId.startsWith("msg_")) messageId.substring(4) else messageId
-            
+
             if (currentUsersReacted.contains(currentUserId)) {
                 apiService.removeGroupReaction(groupId, cleanMessageId, emoji).onSuccess {
                     val newReactions = message.reactions.toMutableMap()
@@ -1312,7 +1382,7 @@ private fun GroupChatScreenBody(
             }
         }
     }
-    
+
     fun replyToGroupMessage(messageId: String) {
         val message = messages.find { it.messageId == messageId }
         if (message != null) {
@@ -1323,12 +1393,12 @@ private fun GroupChatScreenBody(
     }
 
     val lastGroupSendTimeMs = remember { mutableStateOf(0L) }
-    
+
     fun sendMessage() {
         if (messageText.isBlank() || isSendingMessage) return
         val now = System.currentTimeMillis()
         if (now - lastGroupSendTimeMs.value < 1500) {
-            android.util.Log.d("FREETIME_CHAT", "⏱️ Group debounce: message send throttled")
+            android.util.Log.d("FREETIME_CHAT", " Group debounce: message send throttled")
             return
         }
         lastGroupSendTimeMs.value = now
@@ -1336,16 +1406,15 @@ private fun GroupChatScreenBody(
         val replyToId = replyingToMessageId
         val replyUsername = replyingToUsername
         val replyText = replyingToText
-        
+
         messageText = ""
         replyingToMessageId = null
         replyingToUsername = ""
         replyingToText = ""
-        
+
         coroutineScope.launch {
             isSendingMessage = true
             apiService.sendGroupMessage(groupId, text, replyToId).onSuccess {
-                // ✅ CRITICAL FIX: Manually populate reply fields for immediate UI feedback
                 val msgWithReply = it.copy(
                     replyToMessageId = replyToId?.takeIf { id -> id.isNotEmpty() && id != "null" },
                     replyToUsername = replyUsername?.takeIf { u -> u.isNotEmpty() && u != "null" },
@@ -1355,7 +1424,6 @@ private fun GroupChatScreenBody(
             }.onFailure {
                 errorMessage = "Failed to send: ${it.message}"
                 messageText = text
-                // Restore reply state if failed
                 replyingToMessageId = replyToId
                 replyingToUsername = replyUsername
                 replyingToText = replyText
@@ -1364,14 +1432,27 @@ private fun GroupChatScreenBody(
         }
     }
 
+    val chatBgPath = currentGroupBgPath
+
     Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CyberpunkTheme.Black, Color(0xFF0A0E27))))) {
+        if (chatBgPath != null) {
+            val bgFile = java.io.File(chatBgPath)
+            if (bgFile.exists()) {
+                AsyncImage(
+                    model = bgFile,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.3f
+                )
+            }
+        }
         Column(modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))) {
-            // ✅ IMPROVED: Check both admins and adminIds (server sends adminIds)
             val adminList = (loadedGroup.admins + loadedGroup.adminIds).distinct()
             val isCurrentUserAdmin = adminList.contains(currentUserId)
-            
+
             GroupChatHeader(
                 group = loadedGroup,
                 onNavigateBack = onNavigateBack,
@@ -1379,188 +1460,251 @@ private fun GroupChatScreenBody(
                 onUploadClick = { showGroupPictureUpload = true },
                 onShareInvite = { showShareInvite = true }
             )
-            
+
             GroupTabBar(selectedTab, { selectedTab = it }, loadedGroup.members.size)
 
-            when (selectedTab) {
-                "messages" -> {
-                    if (isLoadingMessages) {
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accentColor) }
+            Column(modifier = Modifier.weight(1f)) {
+                GroupMessagesTab(
+                show = selectedTab == "messages",
+                messages = messages,
+                currentUserId = currentUserId,
+                token = token,
+                typingUsers = typingUsers,
+                errorMessage = errorMessage,
+                isLoadingMessages = isLoadingMessages,
+                accentColor = accentColor,
+                onMessageLongPress = { messageId, messageText, isOwn ->
+                    if (isMultiSelectMode) {
+                        selectedMessages = if (selectedMessages.contains(messageId)) {
+                            selectedMessages - messageId
+                        } else {
+                            selectedMessages + messageId
+                        }
+                        if (selectedMessages.isEmpty()) isMultiSelectMode = false
                     } else {
-                        GroupMessagesTab(
-                            messages, 
-                            currentUserId, 
-                            token,
-                            typingUsers, 
-                            errorMessage, 
-                            Modifier.weight(1f),
-                            onMessageLongPress = { messageId, messageText, isOwn ->
-                                val msg = messages.find { it.messageId == messageId }
-                                val mediaId = msg?.mediaId?.takeIf { it.isNotEmpty() && it != "null" }
-                                    ?: extractMediaIdFromContent(msg?.message ?: "")
-                                if (msg != null && !isOwn && msg.mediaShareMode == "protected" && mediaId != null) {
-                                    coroutineScope.launch {
-                                        apiService.requestMediaDownload(mediaId).onSuccess {
-                                            Toast.makeText(context, "Download request sent!", Toast.LENGTH_SHORT).show()
-                                        }.onFailure {
-                                            Toast.makeText(context, "Failed to send download request", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                } else {
-                                    selectedMessageId = messageId
-                                    selectedMessageText = messageText
-                                    selectedMessageIsOwn = isOwn
-                                    showMessageContextMenu = true
-                                }
-                            },
-                            onApproveRequest = { requestId ->
-                                coroutineScope.launch {
-                                    apiService.approveMediaDownloadRequest(requestId)
-                                    messages = messages.map { m ->
-                                        m.copy(pendingRequests = m.pendingRequests.filterNot { it.requestId == requestId })
-                                    }
-                                }
-                            },
-                            onDenyRequest = { requestId ->
-                                coroutineScope.launch {
-                                    apiService.denyMediaDownloadRequest(requestId)
-                                    messages = messages.map { m ->
-                                        m.copy(pendingRequests = m.pendingRequests.filterNot { it.requestId == requestId })
-                                    }
-                                }
-                            },
-                            onRequestDownload = { mediaId ->
-                                coroutineScope.launch {
-                                    apiService.requestMediaDownload(mediaId).onSuccess {
-                                        Toast.makeText(context, "Download request sent!", Toast.LENGTH_SHORT).show()
-                                    }.onFailure {
-                                        Toast.makeText(context, "Failed: ${it.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            activeVotes = activeVotes,
-                            onVote = { voteId, vote ->
-                                coroutineScope.launch {
-                                    apiService.castClearHistoryVote(groupId, voteId, vote == "yes").onSuccess {
-                                        reloadTrigger++
-                                    }
-                                }
-                            },
-                            mediaDownloadApprovals = mediaDownloadApprovals,
-                            downloadAndSaveMediaFile = ::downloadAndSaveMediaFile,
-                            isInputFocused = isInputFocused
-                        )
-                    }
-                }
-                "members" -> {
-                    GroupMembersTab(
-                        members = loadedGroup.members,
-                        onMenuClick = {},
-                        selectedMemberId = null,
-                        isCurrentUserAdmin = isCurrentUserAdmin,
-                        currentUserId = currentUserId,
-                        onKickMember = { mid: String -> coroutineScope.launch {
-                            apiService.removeGroupMember(groupId, mid).onSuccess {
-                                reloadTrigger++
-                            }.onFailure { error ->
-                                val message = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_CHAT", "Failed to kick member $mid", error)
-                                Toast.makeText(context, "Cannot remove member: $message", Toast.LENGTH_LONG).show()
-                            }
-                        } },
-                        onPromoteMember = { mid: String -> coroutineScope.launch {
-                            apiService.promoteGroupAdmin(groupId, mid).onSuccess {
-                                reloadTrigger++
-                            }.onFailure { error ->
-                                val message = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_CHAT", "Failed to promote member $mid", error)
-                                Toast.makeText(context, "Cannot promote member: $message", Toast.LENGTH_LONG).show()
-                            }
-                        } },
-                        onDemoteMember = { mid: String -> coroutineScope.launch {
-                            apiService.demoteGroupAdmin(groupId, mid).onSuccess {
-                                reloadTrigger++
-                            }.onFailure { error ->
-                                val message = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_CHAT", "Failed to demote member $mid", error)
-                                Toast.makeText(context, "Cannot demote member: $message", Toast.LENGTH_LONG).show()
-                            }
-                        } },
-                        modifier = Modifier.weight(1f),
-                        creatorId = loadedGroup.creatorId,
-                        adminList = adminList
-                    )
-                }
-                "info" -> {
-                    GroupInfoTab(
-                        group = loadedGroup,
-                        isMuted = isMuted,
-                        onMuteToggle = { checked: Boolean -> isMuted = checked },
-                        onLeaveGroup = { showLeaveConfirm = true },
-                        onDeleteGroup = { showDeleteConfirm = true },
-                            onUpdateGroup = { n: String, d: String -> 
-                                coroutineScope.launch { 
-                                    val nameToUpdate = if (isCurrentUserAdmin) n else loadedGroup.name
-                                    apiService.updateGroupDetails(groupId, nameToUpdate, d, loadedGroup.isPrivate)
-                                        .onSuccess { 
-                                            reloadTrigger++
-                                            Toast.makeText(context, "Group updated successfully!", Toast.LENGTH_SHORT).show()
-                                        }
-                                        .onFailure { error ->
-                                            Toast.makeText(context, "Failed: ${error.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                } 
-                            },
-                        onClearHistoryVote = {
+                        val msg = messages.find { it.messageId == messageId }
+                        val mediaId = msg?.mediaId?.takeIf { it.isNotEmpty() && it != "null" }
+                            ?: extractMediaIdFromContent(msg?.message ?: "")
+                        if (msg != null && !isOwn && msg.mediaShareMode == "protected" && mediaId != null) {
                             coroutineScope.launch {
-                                isStartingVote = true
-                                apiService.initiateClearHistoryVote(groupId).onSuccess {
-                                    reloadTrigger++
-                                    Toast.makeText(context, "Clear history vote initiated!", Toast.LENGTH_SHORT).show()
+                                apiService.requestMediaDownload(mediaId).onSuccess {
+                                    Toast.makeText(context, "Download request sent!", Toast.LENGTH_SHORT).show()
                                 }.onFailure {
-                                    Toast.makeText(context, "Failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Failed to send download request", Toast.LENGTH_SHORT).show()
                                 }
-                                isStartingVote = false
                             }
-                        },
-                        isStartingVote = isStartingVote,
-                        isAdmin = isCurrentUserAdmin,
-                        members = loadedGroup.members,
-                        currentUserId = currentUserId,
-                        creatorId = loadedGroup.creatorId,
-                        onPromoteMember = { mid: String -> coroutineScope.launch {
-                            apiService.promoteGroupAdmin(groupId, mid).onSuccess {
+                        } else {
+                            isMultiSelectMode = true
+                            selectedMessages = setOf(messageId)
+                        }
+                    }
+                },
+                onApproveRequest = { requestId ->
+                    coroutineScope.launch {
+                        apiService.approveMediaDownloadRequest(requestId)
+                        messages = messages.map { m ->
+                            m.copy(pendingRequests = m.pendingRequests.filterNot { it.requestId == requestId })
+                        }
+                    }
+                },
+                onDenyRequest = { requestId ->
+                    coroutineScope.launch {
+                        apiService.denyMediaDownloadRequest(requestId)
+                        messages = messages.map { m ->
+                            m.copy(pendingRequests = m.pendingRequests.filterNot { it.requestId == requestId })
+                        }
+                    }
+                },
+                onRequestDownload = { mediaId ->
+                    coroutineScope.launch {
+                        apiService.requestMediaDownload(mediaId).onSuccess {
+                            Toast.makeText(context, "Download request sent!", Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            Toast.makeText(context, "Failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                activeVotes = activeVotes,
+                onVote = { voteId, vote ->
+                    coroutineScope.launch {
+                        apiService.castClearHistoryVote(groupId, voteId, vote == "yes").onSuccess {
+                            reloadTrigger++
+                        }
+                    }
+                },
+                mediaDownloadApprovals = mediaDownloadApprovals,
+                downloadAndSaveMediaFile = ::downloadAndSaveMediaFile,
+                isInputFocused = isInputFocused,
+                isMultiSelectMode = isMultiSelectMode,
+                selectedMessages = selectedMessages,
+                onToggleSelection = { msgId ->
+                    selectedMessages = if (selectedMessages.contains(msgId)) {
+                        selectedMessages - msgId
+                    } else {
+                        selectedMessages + msgId
+                    }
+                    if (selectedMessages.isEmpty()) isMultiSelectMode = false
+                },
+                onClearMultiSelect = {
+                    isMultiSelectMode = false
+                    selectedMessages = emptySet()
+                },
+                onForward = {
+                    coroutineScope.launch {
+                        try {
+                            val result = apiService.getFriends()
+                            result.onSuccess { friends ->
+                                friendsList = friends
+                                showForwardDialog = true
+                            }.onFailure {
+                                Toast.makeText(context, "Failed to load friends", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Failed to load friends", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onDeleteSelected = {
+                    coroutineScope.launch {
+                        var deleted = 0
+                        for (msgId in selectedMessages) {
+                            apiService.deleteGroupMessage(groupId, msgId).onSuccess {
+                                messages = messages.filterNot { it.messageId == msgId }
+                                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                    database.messageDao().deleteMessageById(msgId)
+                                }
+                                deleted++
+                            }
+                        }
+                        if (deleted > 0) {
+                            Toast.makeText(context, "$deleted message(s) deleted", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+                        }
+                        isMultiSelectMode = false
+                        selectedMessages = emptySet()
+                    }
+                },
+                allSelectedAreOwn = selectedMessages.isNotEmpty() && messages.filter { it.messageId in selectedMessages }.all { it.senderId == currentUserId }
+            )
+
+            GroupMembersTab(
+                show = selectedTab == "members",
+                members = loadedGroup.members,
+                onMenuClick = {},
+                selectedMemberId = null,
+                isCurrentUserAdmin = isCurrentUserAdmin,
+                currentUserId = currentUserId,
+                onKickMember = { mid: String -> coroutineScope.launch {
+                    apiService.removeGroupMember(groupId, mid).onSuccess {
+                        reloadTrigger++
+                    }.onFailure { error ->
+                        val message = error.message ?: "Unknown error"
+                        android.util.Log.e("GROUP_CHAT", "Failed to kick member $mid", error)
+                        Toast.makeText(context, "Cannot remove member: $message", Toast.LENGTH_LONG).show()
+                    }
+                } },
+                onPromoteMember = { mid: String -> coroutineScope.launch {
+                    apiService.promoteGroupAdmin(groupId, mid).onSuccess {
+                        reloadTrigger++
+                    }.onFailure { error ->
+                        val message = error.message ?: "Unknown error"
+                        android.util.Log.e("GROUP_CHAT", "Failed to promote member $mid", error)
+                        Toast.makeText(context, "Cannot promote member: $message", Toast.LENGTH_LONG).show()
+                    }
+                } },
+                onDemoteMember = { mid: String -> coroutineScope.launch {
+                    apiService.demoteGroupAdmin(groupId, mid).onSuccess {
+                        reloadTrigger++
+                    }.onFailure { error ->
+                        val message = error.message ?: "Unknown error"
+                        android.util.Log.e("GROUP_CHAT", "Failed to demote member $mid", error)
+                        Toast.makeText(context, "Cannot demote member: $message", Toast.LENGTH_LONG).show()
+                    }
+                } },
+                creatorId = loadedGroup.creatorId,
+                adminList = adminList
+            )
+
+            GroupInfoTab(
+                show = selectedTab == "info",
+                group = loadedGroup,
+                isMuted = isMuted,
+                onMuteToggle = { checked: Boolean ->
+                    isMuted = checked
+                    if (checked) prefs.muteGroup(groupId)
+                    else prefs.unmuteGroup(groupId)
+                },
+                onLeaveGroup = { showLeaveConfirm = true },
+                onDeleteGroup = { showDeleteConfirm = true },
+                onUpdateGroup = { n: String, d: String ->
+                    coroutineScope.launch {
+                        val nameToUpdate = if (isCurrentUserAdmin) n else loadedGroup.name
+                        apiService.updateGroupDetails(groupId, nameToUpdate, d, loadedGroup.isPrivate)
+                            .onSuccess {
                                 reloadTrigger++
-                            }.onFailure { error ->
-                                val message = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_CHAT", "Failed to promote member $mid", error)
-                                Toast.makeText(context, "Cannot promote member: $message", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Group updated successfully!", Toast.LENGTH_SHORT).show()
                             }
-                        } },
-                        onDemoteMember = { mid: String -> coroutineScope.launch {
-                            apiService.demoteGroupAdmin(groupId, mid).onSuccess {
-                                reloadTrigger++
-                            }.onFailure { error ->
-                                val message = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_CHAT", "Failed to demote member $mid", error)
-                                Toast.makeText(context, "Cannot demote member: $message", Toast.LENGTH_LONG).show()
+                            .onFailure { error ->
+                                Toast.makeText(context, "Failed: ${error.message}", Toast.LENGTH_SHORT).show()
                             }
-                        } },
-                        onRemoveMember = { mid: String -> coroutineScope.launch {
-                            apiService.removeGroupMember(groupId, mid).onSuccess {
-                                reloadTrigger++
-                            }.onFailure { error ->
-                                val message = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_CHAT", "Failed to remove member $mid", error)
-                                Toast.makeText(context, "Cannot remove member: $message", Toast.LENGTH_LONG).show()
-                            }
-                        } },
-                        onInviteMembers = { showInviteDialog = true },
-                        modifier = Modifier.weight(1f)
-                    )
+                    }
+                },
+                onClearHistoryVote = {
+                    coroutineScope.launch {
+                        isStartingVote = true
+                        apiService.initiateClearHistoryVote(groupId).onSuccess {
+                            reloadTrigger++
+                            Toast.makeText(context, "Clear history vote initiated!", Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            Toast.makeText(context, "Failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                        }
+                        isStartingVote = false
+                    }
+                },
+                isStartingVote = isStartingVote,
+                isAdmin = isCurrentUserAdmin,
+                members = loadedGroup.members,
+                currentUserId = currentUserId,
+                creatorId = loadedGroup.creatorId,
+                onPromoteMember = { mid: String -> coroutineScope.launch {
+                    apiService.promoteGroupAdmin(groupId, mid).onSuccess {
+                        reloadTrigger++
+                    }.onFailure { error ->
+                        val message = error.message ?: "Unknown error"
+                        android.util.Log.e("GROUP_CHAT", "Failed to promote member $mid", error)
+                        Toast.makeText(context, "Cannot promote member: $message", Toast.LENGTH_LONG).show()
+                    }
+                } },
+                onDemoteMember = { mid: String -> coroutineScope.launch {
+                    apiService.demoteGroupAdmin(groupId, mid).onSuccess {
+                        reloadTrigger++
+                    }.onFailure { error ->
+                        val message = error.message ?: "Unknown error"
+                        android.util.Log.e("GROUP_CHAT", "Failed to demote member $mid", error)
+                        Toast.makeText(context, "Cannot demote member: $message", Toast.LENGTH_LONG).show()
+                    }
+                } },
+                onRemoveMember = { mid: String -> coroutineScope.launch {
+                    apiService.removeGroupMember(groupId, mid).onSuccess {
+                        reloadTrigger++
+                    }.onFailure { error ->
+                        val message = error.message ?: "Unknown error"
+                        android.util.Log.e("GROUP_CHAT", "Cannot remove member $mid", error)
+                        Toast.makeText(context, "Cannot remove member: $message", Toast.LENGTH_LONG).show()
+                    }
+                } },
+                onInviteMembers = { showInviteDialog = true },
+                currentChatBgPath = currentGroupBgPath,
+                onSetChatBackground = { groupBgPickerLauncher.launch("image/*") },
+                onClearChatBackground = {
+                    prefs.clearChatBackgroundForUser(groupId)
+                    currentGroupBgPath = null
+                    Toast.makeText(context, "Chat background removed", Toast.LENGTH_SHORT).show()
                 }
+                )
             }
-            
+
             if (selectedTab == "messages") {
                 Column {
                     if (showEmojiPicker) {
@@ -1613,7 +1757,7 @@ private fun GroupChatScreenBody(
                 }
             }
         }
-        
+
         if (showMessageContextMenu && selectedMessageId != null) {
             val selectedMsg = messages.find { it.messageId == selectedMessageId }
             val hasPublicMedia = selectedMsg?.mediaId != null && selectedMsg?.mediaShareMode == "public"
@@ -1623,15 +1767,37 @@ private fun GroupChatScreenBody(
                 isOwnMessage = selectedMessageIsOwn,
                 showMenu = showMessageContextMenu,
                 onDismiss = { showMessageContextMenu = false },
-                onCopy = { 
+                onCopy = {
                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", selectedMessageText))
                     showMessageContextMenu = false
                 },
-                onDelete = { },
+                onDelete = {
+                    selectedMessageId?.let { msgId ->
+                        coroutineScope.launch {
+                            apiService.deleteGroupMessage(groupId, msgId).onSuccess {
+                                messages = messages.filterNot { it.messageId == msgId }
+                                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                    database.messageDao().deleteMessageById(msgId)
+                                }
+                                Toast.makeText(context, "Message deleted", Toast.LENGTH_SHORT).show()
+                            }.onFailure { e ->
+                                Toast.makeText(context, "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    showMessageContextMenu = false
+                },
                 onReact = { emoji -> selectedMessageId?.let { toggleGroupReaction(it, emoji) } },
                 onReply = { selectedMessageId?.let { replyToGroupMessage(it) } },
                 onEdit = { },
+                onSelect = {
+                    selectedMessageId?.let { msgId ->
+                        isMultiSelectMode = true
+                        selectedMessages = setOf(msgId)
+                    }
+                    showMessageContextMenu = false
+                },
                 currentReactions = messages.find { it.messageId == selectedMessageId }?.reactions ?: emptyMap(),
                 hasPublicMedia = hasPublicMedia,
                 onDownload = {
@@ -1643,8 +1809,112 @@ private fun GroupChatScreenBody(
                 }
             )
         }
-        
-        // ✅ NEW: Floating votes overlay (visible on all tabs)
+
+        if (showForwardDialog) {
+            val selectedMessagesContent = messages
+                .filter { it.messageId in selectedMessages }
+                .sortedByDescending { it.timestamp }
+            AlertDialog(
+                onDismissRequest = { showForwardDialog = false },
+                title = {
+                    Text(
+                        "Forward ${selectedMessagesContent.size} message(s) to:",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 400.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (friendsList.isEmpty()) {
+                            Text(
+                                "No friends found. Add friends first.",
+                                color = Color.White.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        } else {
+                            friendsList.forEach { friend ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            if (isForwarding) return@clickable
+                                            isForwarding = true
+                                            coroutineScope.launch {
+                                                var successCount = 0
+                                                selectedMessagesContent.forEach { msg ->
+                                                    try {
+                                                        val fwdContent = "\uD83D\uDD01 Forwarded from ${msg.senderUsername}:\n\n${msg.message}"
+                                                        apiService.sendGroupMessage(groupId, fwdContent).onSuccess { successCount++ }
+                                                    } catch (_: Exception) {}
+                                                }
+                                                isForwarding = false
+                                                showForwardDialog = false
+                                                isMultiSelectMode = false
+                                                selectedMessages = emptySet()
+                                                val toastMsg = if (successCount > 0)
+                                                    "Forwarded $successCount message(s) to group"
+                                                else
+                                                    "Failed to forward messages"
+                                                Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = apiService.resolveAvatarUrl(friend.avatar),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            friend.name.ifEmpty { friend.username },
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 15.sp
+                                        )
+                                        if (friend.name.isNotEmpty() && friend.username.isNotEmpty()) {
+                                            Text(
+                                                "@${friend.username}",
+                                                color = Color.White.copy(alpha = 0.5f),
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+                                    if (isForwarding) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            color = Color(0xFF9D4EDD),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showForwardDialog = false }) {
+                        Text("Cancel", color = Color(0xFF9D4EDD))
+                    }
+                },
+                containerColor = Color(0xFF1A1A2E),
+                textContentColor = Color.White,
+                titleContentColor = Color(0xFF9D4EDD)
+            )
+        }
+
         if (activeVotes.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -1663,7 +1933,7 @@ private fun GroupChatScreenBody(
                 )
             }
         }
-        
+
         if (showLeaveConfirm) {
             AlertDialog(
                 onDismissRequest = { showLeaveConfirm = false },
@@ -1673,39 +1943,37 @@ private fun GroupChatScreenBody(
                     Button(onClick = {
                         coroutineScope.launch {
                             isLeaving = true
-                            android.util.Log.d("GROUP_LEAVE", "🔴 Starting leave group API call for groupId=$groupId")
+                            android.util.Log.d("GROUP_LEAVE", " Starting leave group API call for groupId=$groupId")
                             apiService.leaveGroup(groupId).onSuccess {
-                                android.util.Log.d("GROUP_LEAVE", "✅ Leave group API succeeded! Response received")
-                                // ✅ IMPROVED: Wait for backend to process, then refresh
-                                kotlinx.coroutines.delay(500)  // Allow backend to process
-                                android.util.Log.d("GROUP_LEAVE", "✅ 500ms delay completed, triggering refresh...")
-                                GroupRefreshManager.triggerRefresh()  // Notify home screen to refresh groups
-                                kotlinx.coroutines.delay(100)  // Brief delay for refresh to start
-                                android.util.Log.d("GROUP_LEAVE", "✅ Refresh signal sent, navigating away...")
+                                android.util.Log.d("GROUP_LEAVE", " Leave group API succeeded! Response received")
+                                kotlinx.coroutines.delay(500)
+                                android.util.Log.d("GROUP_LEAVE", " 500ms delay completed, triggering refresh...")
+                                GroupRefreshManager.triggerRefresh()
+                                kotlinx.coroutines.delay(100)
+                                android.util.Log.d("GROUP_LEAVE", " Refresh signal sent, navigating away...")
                                 onNavigateBack()
                                 onGroupLeft()
                             }.onFailure { error ->
                                 val errorMsg = error.message ?: "Unknown error"
-                                android.util.Log.e("GROUP_LEAVE", "❌ Failed to leave group: $errorMsg", error)
+                                android.util.Log.e("GROUP_LEAVE", " Failed to leave group: $errorMsg", error)
                                 android.util.Log.e("GROUP_LEAVE", "Error type: ${error::class.simpleName}")
                                 isLeaving = false
                                 showLeaveConfirm = false
-                                // ✅ NEW: Show error to user as toast
                                 android.widget.Toast.makeText(
                                     context,
-                                    "❌ Cannot leave: $errorMsg",
+                                    " Cannot leave: $errorMsg",
                                     android.widget.Toast.LENGTH_LONG
                                 ).show()
                             }
                         }
-                    }, enabled = !isLeaving, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { 
+                    }, enabled = !isLeaving, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
                         Text(if (isLeaving) "Leaving..." else "Leave")
                     }
                 },
                 dismissButton = { TextButton(onClick = { showLeaveConfirm = false }) { Text("Cancel") } }
             )
         }
-        
+
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
@@ -1722,20 +1990,19 @@ private fun GroupChatScreenBody(
                                 isDeleting = false
                             }
                         }
-                    }, enabled = !isDeleting, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { 
+                    }, enabled = !isDeleting, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
                         Text(if (isDeleting) "Deleting..." else "Delete")
                     }
                 },
                 dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
             )
         }
-        
-        // ✅ NEW: Media sharing mode selection dialog
+
         if (showMediaModeDialog) {
             AlertDialog(
                 onDismissRequest = { showMediaModeDialog = false },
                 title = { Text("Share Media As:") },
-                text = { 
+                text = {
                     Text(
                         "Choose how to share this media in the group:\n\n" +
                         "• PUBLIC: Shared with all members, viewable immediately\n\n" +
@@ -1750,8 +2017,8 @@ private fun GroupChatScreenBody(
                             mediaPickerLauncher.launch("*/*")
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00AA00))
-                    ) { 
-                        Text("Public") 
+                    ) {
+                        Text("Public")
                     }
                 },
                 dismissButton = {
@@ -1762,27 +2029,64 @@ private fun GroupChatScreenBody(
                             mediaPickerLauncher.launch("*/*")
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAA8800))
-                    ) { 
-                        Text("Protected") 
+                    ) {
+                        Text("Protected")
                     }
                 }
             )
         }
-        
+
         val clipboardManager = LocalClipboardManager.current
         if (showShareInvite) {
-            val inviteCode = if (!loadedGroup.inviteCode.isNullOrEmpty() && loadedGroup.inviteCode != "undefined") loadedGroup.inviteCode else groupId
-            val webLink = loadedGroup.inviteLink ?: "https://example.com/group/invite/$inviteCode"
+            val deepLink = "freetime://group/invite/$groupId"
+            var webLink by remember { mutableStateOf("https://freetime.app/group/invite/${loadedGroup.inviteCode ?: groupId}") }
+            var isLoadingLink by remember { mutableStateOf(true) }
+
+            LaunchedEffect(showShareInvite) {
+                isLoadingLink = true
+                try {
+                    val result = apiService.generateExpiringInviteLink(groupId, 3600000L)
+                    result.onSuccess { link ->
+                        webLink = link.shareLink.ifEmpty { "https://freetime.app/group/invite/${loadedGroup.inviteCode ?: groupId}" }
+                    }
+                } catch (_: Exception) {}
+                isLoadingLink = false
+            }
+
             AlertDialog(
                 onDismissRequest = { showShareInvite = false },
                 title = { Text("Share Group Invite") },
-                text = { Text("Join my group '${loadedGroup.name}' on FreeTime!\n\n$webLink") },
+                text = {
+                    Column {
+                        Text("Join my group '${loadedGroup.name}' on FreeTime!", color = Color.White, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(8.dp))
+                        Surface(color = Color.White.copy(0.05f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = deepLink,
+                                color = Color(0xFF00D4FF),
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        if (!isLoadingLink) {
+                            Spacer(Modifier.height(4.dp))
+                            Surface(color = Color.White.copy(0.05f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = webLink,
+                                    color = Color.Gray,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                    }
+                },
                 confirmButton = {
                     Row {
                         Button(onClick = {
                             val shareIntent = android.content.Intent().apply {
                                 action = android.content.Intent.ACTION_SEND
-                                putExtra(android.content.Intent.EXTRA_TEXT, "Join my group '${loadedGroup.name}' on FreeTime!\n\n$webLink")
+                                putExtra(android.content.Intent.EXTRA_TEXT, "Join my group '${loadedGroup.name}' on FreeTime!\n\n$deepLink\n\n$webLink")
                                 type = "text/plain"
                             }
                             context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Group Invite"))
@@ -1790,7 +2094,7 @@ private fun GroupChatScreenBody(
                         }) { Text("Share") }
                         Spacer(Modifier.width(8.dp))
                         Button(onClick = {
-                            clipboardManager.setText(AnnotatedString(webLink))
+                            clipboardManager.setText(AnnotatedString("$deepLink\n\n$webLink"))
                             Toast.makeText(context, "Link copied!", Toast.LENGTH_SHORT).show()
                             showShareInvite = false
                         }) { Text("Copy Link") }
@@ -1798,38 +2102,40 @@ private fun GroupChatScreenBody(
                 },
                 dismissButton = {
                     TextButton(onClick = { showShareInvite = false }) { Text("Cancel") }
-                }
+                },
+                containerColor = Color(0xFF1A1A2E),
+                textContentColor = Color.White,
+                titleContentColor = Color(0xFF00D4FF)
             )
         }
-        
-        // ✅ NEW: Invite Members Dialog
+
         if (showInviteDialog) {
             var isLoadingFriends by remember { mutableStateOf(true) }
             var friendsLoadError by remember { mutableStateOf("") }
-            
+
             LaunchedEffect(Unit) {
                 try {
                     isLoadingFriends = true
                     friendsLoadError = ""
                     apiService.getFriendsNotInGroup(groupId).onSuccess { friends ->
                         friendsList = friends
-                        android.util.Log.d("FREETIME_INVITE", "✅ Loaded ${friends.size} friends not in group")
+                        android.util.Log.d("FREETIME_INVITE", " Loaded ${friends.size} friends not in group")
                         isLoadingFriends = false
                     }.onFailure { error ->
                         friendsLoadError = error.message ?: "Unknown error"
-                        android.util.Log.e("FREETIME_INVITE", "❌ Failed to load friends: ${error.message}", error)
+                        android.util.Log.e("FREETIME_INVITE", " Failed to load friends: ${error.message}", error)
                         Toast.makeText(context, "Failed to load friends: ${error.message}", Toast.LENGTH_SHORT).show()
                         isLoadingFriends = false
                     }
                 } catch (e: Exception) {
                     friendsLoadError = e.message ?: "Unknown error"
-                    android.util.Log.e("FREETIME_INVITE", "❌ Exception loading friends: ${e.message}", e)
+                    android.util.Log.e("FREETIME_INVITE", " Exception loading friends: ${e.message}", e)
                     isLoadingFriends = false
                 }
             }
-            
+
             AlertDialog(
-                onDismissRequest = { 
+                onDismissRequest = {
                     showInviteDialog = false
                     selectedFriendsForInvite = setOf()
                     friendsList = emptyList()
@@ -1873,7 +2179,7 @@ private fun GroupChatScreenBody(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { 
+                                            .clickable {
                                                 selectedFriendsForInvite = if (selectedFriendsForInvite.contains(friend)) {
                                                     selectedFriendsForInvite - friend
                                                 } else {
@@ -1908,21 +2214,21 @@ private fun GroupChatScreenBody(
                                 Toast.makeText(context, "Please select at least one friend", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            
+
                             coroutineScope.launch {
                                 isInvitingSending = true
                                 val selectedUserIds = selectedFriendsForInvite.map { it.userId }
-                                android.util.Log.d("FREETIME_INVITE", "📤 Sending invitations to: ${selectedFriendsForInvite.joinToString(", ") { it.username }}")
-                                
+                                android.util.Log.d("FREETIME_INVITE", " Sending invitations to: ${selectedFriendsForInvite.joinToString(", ") { it.username }}")
+
                                 val inviteResult = apiService.inviteToGroup(groupId, selectedUserIds)
                                 inviteResult.onSuccess { result ->
-                                    android.util.Log.d("FREETIME_INVITE", "✅ Invitations sent successfully: $result")
+                                    android.util.Log.d("FREETIME_INVITE", " Invitations sent successfully: $result")
                                     Toast.makeText(context, "Invitations sent to ${selectedFriendsForInvite.size} friend${if (selectedFriendsForInvite.size != 1) "s" else ""}!", Toast.LENGTH_SHORT).show()
                                     showInviteDialog = false
                                     selectedFriendsForInvite = setOf()
                                     friendsList = emptyList()
                                 }.onFailure { error ->
-                                    android.util.Log.e("FREETIME_INVITE", "❌ Failed to send invitations: ${error.message}", error)
+                                    android.util.Log.e("FREETIME_INVITE", " Failed to send invitations: ${error.message}", error)
                                     Toast.makeText(context, "Failed to send invitations: ${error.message}", Toast.LENGTH_LONG).show()
                                 }
                                 isInvitingSending = false
@@ -1941,17 +2247,17 @@ private fun GroupChatScreenBody(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { 
+                    TextButton(onClick = {
                         showInviteDialog = false
                         selectedFriendsForInvite = setOf()
                         friendsList = emptyList()
-                    }) { 
-                        Text("Cancel") 
+                    }) {
+                        Text("Cancel")
                     }
                 }
             )
         }
-        
+
         val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
             if (uri != null) {
                 coroutineScope.launch {
@@ -1969,7 +2275,7 @@ private fun GroupChatScreenBody(
                 }
             }
         }
-        
+
         LaunchedEffect(showGroupPictureUpload) {
             if (showGroupPictureUpload) {
                 imagePickerLauncher.launch("image/*")
@@ -2024,7 +2330,7 @@ private fun GroupChatScreenBody(
                                             mediaShareMode = "public"
                                         )
                                     )
-                                    errorMessage = "✓ GIF sent to group"
+                                    errorMessage = " GIF sent to group"
                                 }.onFailure {
                                     errorMessage = "Failed to send GIF message: ${it.message}"
                                 }
@@ -2052,7 +2358,7 @@ private fun GroupChatScreenBody(
 fun GroupChatHeader(group: GroupInfo, onNavigateBack: () -> Unit, isCurrentUserAdmin: Boolean, onUploadClick: () -> Unit, onShareInvite: () -> Unit) {
     val accentColor = LocalDisplaySettings.current.getAccentColor()
     Row(Modifier.fillMaxWidth().background(Color(0xFF0F0F1E)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Default.ArrowBack, null, tint = accentColor) }
+        IconButton(onClick = onNavigateBack, modifier = Modifier.scaleOnPressEffect()) { Icon(Icons.AutoMirrored.Default.ArrowBack, null, tint = accentColor) }
         Spacer(Modifier.width(8.dp))
         Box(Modifier.size(40.dp).clip(CircleShape).background(accentColor.copy(0.2f)).border(1.dp, accentColor, CircleShape), contentAlignment = Alignment.Center) {
             Text(group.name.take(1), color = accentColor, fontWeight = FontWeight.Bold)
@@ -2075,7 +2381,6 @@ fun GroupChatHeader(group: GroupInfo, onNavigateBack: () -> Unit, isCurrentUserA
             Text("${group.members.size} members", color = Color.Gray, fontSize = 12.sp)
         }
         if (isCurrentUserAdmin) IconButton(onClick = onUploadClick) { Icon(Icons.Default.CameraAlt, null, tint = accentColor) }
-        // ✅ FIX: Only admins can share the invite on other socials
         if (isCurrentUserAdmin) {
             IconButton(onClick = onShareInvite) { Icon(Icons.Default.Share, null, tint = accentColor) }
         }
@@ -2093,8 +2398,9 @@ fun GroupTabBar(selectedTab: String, onTabSelected: (String) -> Unit, memberCoun
                 colors = ButtonDefaults.buttonColors(containerColor = if(selected) accentColor.copy(0.2f) else Color.Transparent, contentColor = if(selected) accentColor else Color.Gray),
                 shape = RoundedCornerShape(8.dp),
                 border = if(selected) BorderStroke(1.dp, accentColor) else null,
+                contentPadding = PaddingValues(0.dp),
                 modifier = Modifier.height(36.dp).weight(1f)
-            ) { Text(label, fontSize = 12.sp) }
+            ) { Text(label, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
         }
     }
 }
@@ -2102,12 +2408,14 @@ fun GroupTabBar(selectedTab: String, onTabSelected: (String) -> Unit, memberCoun
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GroupMessagesTab(
-    messages: List<GroupMessage>, 
-    currentUserId: String, 
+    show: Boolean = true,
+    messages: List<GroupMessage>,
+    currentUserId: String,
     token: String,
-    typingUsers: Map<String, String>, 
-    error: String, 
-    modifier: Modifier,
+    typingUsers: Map<String, String>,
+    errorMessage: String,
+    isLoadingMessages: Boolean = false,
+    accentColor: Color = Color.Cyan,
     onMessageLongPress: (messageId: String, messageText: String, isOwn: Boolean) -> Unit = { _, _, _ -> },
     onApproveRequest: (requestId: String) -> Unit = {},
     onDenyRequest: (requestId: String) -> Unit = {},
@@ -2116,44 +2424,61 @@ fun GroupMessagesTab(
     onVote: (String, String) -> Unit = { _, _ -> },
     mediaDownloadApprovals: Map<String, com.freetime.app.services.WebSocketManager.MediaDownloadResponseData> = emptyMap(),
     downloadAndSaveMediaFile: (com.freetime.app.services.WebSocketManager.MediaDownloadResponseData) -> Unit = {},
-    apiService: FreeTimeApiService? = null,
-    isInputFocused: Boolean = false
+    isInputFocused: Boolean = false,
+    isMultiSelectMode: Boolean = false,
+    selectedMessages: Set<String> = emptySet(),
+    onToggleSelection: (String) -> Unit = {},
+    onClearMultiSelect: () -> Unit = {},
+    onForward: () -> Unit = {},
+    onDeleteSelected: () -> Unit = {},
+    allSelectedAreOwn: Boolean = false
 ) {
+    if (!show) return
+    if (isLoadingMessages) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = accentColor) }
+        return
+    }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    
-    // Scroll to bottom when new messages arrive (only if user hasn't scrolled up)
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty() && !listState.isScrollInProgress) {
             try {
                 listState.animateScrollToItem(messages.lastIndex)
             } catch (e: Exception) {
-                // Ignore scroll exceptions - they can happen during configuration changes
             }
         }
     }
-    
-    // Scroll to bottom when keyboard opens
+
     LaunchedEffect(isInputFocused) {
         if (isInputFocused && messages.isNotEmpty()) {
             try {
                 listState.animateScrollToItem(messages.lastIndex)
             } catch (e: Exception) {
-                // Ignore scroll exceptions
             }
         }
     }
-    
-    Box(modifier = modifier.fillMaxSize()) {
+
+    Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Spacer(Modifier.height(if (activeVotes.isNotEmpty()) 120.dp else 16.dp)) }
+            item { Spacer(Modifier.height(if (activeVotes.isNotEmpty() || isMultiSelectMode) 120.dp else 16.dp)) }
             items(messages, key = { it.messageId }) { msg ->
             val isMe = msg.senderId == currentUserId
+            val isSelected = selectedMessages.contains(msg.messageId)
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .background(
+                        if (isSelected) Color(0xFF9D4EDD).copy(alpha = 0.2f)
+                        else Color.Transparent
+                    )
                     .pointerInput(msg.messageId) {
                         detectTapGestures(
+                            onTap = {
+                                if (isMultiSelectMode) {
+                                    onToggleSelection(msg.messageId)
+                                }
+                            },
                             onLongPress = {
                                 onMessageLongPress(msg.messageId, msg.message, isMe)
                             }
@@ -2162,6 +2487,14 @@ fun GroupMessagesTab(
                 horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
                 verticalAlignment = Alignment.Bottom
             ) {
+                if (isMultiSelectMode) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onToggleSelection(msg.messageId) },
+                        modifier = Modifier.padding(end = 4.dp),
+                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF9D4EDD))
+                    )
+                }
                 if (!isMe && msg.senderId != "__SYSTEM__") {
                     Box(
                         Modifier
@@ -2199,25 +2532,21 @@ fun GroupMessagesTab(
                     border = BorderStroke(1.dp, if(isMe) LocalDisplaySettings.current.getAccentColor().copy(0.5f) else Color.DarkGray)
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {
-                        // ✅ FIXED: Show reply context if this message is replying to another
-                        // CRITICAL: Only show reply if it's not a media message itself
-                        // This prevents regular text messages after media from being shown as replies to media
                         val isMediaMessage = msg.message?.startsWith("[Media:") == true
                         if (!isMediaMessage &&
                             ((!msg.replyToMessageId.isNullOrEmpty() && msg.replyToMessageId != "null") ||
                             (!msg.replyToUsername.isNullOrEmpty() && msg.replyToUsername != "null") ||
                             (!msg.replyToText.isNullOrEmpty() && msg.replyToText != "null"))) {
-                            // ✅ FIXED: Use defaults if fields are missing
                             val replyUsername = if (msg.replyToUsername.isNullOrEmpty() || msg.replyToUsername == "null") "Unknown" else msg.replyToUsername
                             val replyTextContent = if (msg.replyToText == "null" || msg.replyToText.isNullOrEmpty()) "(Message)" else msg.replyToText
-                            
+
                             Surface(
                                 color = Color.White.copy(alpha = 0.05f),
                                 shape = RoundedCornerShape(4.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 6.dp)
-                                    .clickable { 
+                                    .clickable {
                                         val targetId = msg.replyToMessageId
                                         if (!targetId.isNullOrEmpty() && targetId != "null") {
                                             val index = messages.indexOfFirst { it.messageId == targetId || it.messageId == "msg_$targetId" }
@@ -2254,22 +2583,19 @@ fun GroupMessagesTab(
                                 }
                             }
                         }
-                        
-                        // ✅ NEW: Extract mediaId from message content if msg.mediaId is null
-                        // Messages come as: "[Media: UUID|key] filename.ext" format
+
                         val directMediaId = msg.mediaId?.takeIf { it.isNotEmpty() && it != "null" }
                         val extractedMediaId = if (directMediaId == null) extractMediaIdFromContent(msg.message) else null
                         val messageMediaId = directMediaId ?: extractedMediaId
                         val resolvedMediaName = msg.mediaName ?: extractMediaNameFromContent(msg.message)
                         val effectiveMediaType = if (messageMediaId != null) inferMediaTypeFromName(msg.mediaType, resolvedMediaName) else null
-                        
-                        // ✅ CRITICAL FIX: Show media UI if we have a mediaId (either from field or extracted from content)
+
                         if (messageMediaId != null && effectiveMediaType != null) {
                             val context = LocalContext.current
                             val isPublicMedia = msg.mediaShareMode == "public"
                             val isImage = effectiveMediaType == "image" || resolvedMediaName?.lowercase()?.endsWith(".gif") == true
                             val isVideo = effectiveMediaType == "video"
-                            
+
                             if (isPublicMedia && isImage) {
                                 val imageUrl = "${com.freetime.app.BuildConfig.MAIN_SERVER_URL.trimEnd('/')}/api/media/$messageMediaId/download"
                                 Log.d("GROUP_CHAT_IMAGE", "Loading public image URL: $imageUrl, token present: ${!token.isNullOrEmpty()}")
@@ -2291,11 +2617,10 @@ fun GroupMessagesTab(
                                     }
                                 )
                             } else if (isPublicMedia) {
-                                // Match private chat: compact label, no download button (only via long-press context menu)
                                 val fileLabel = when {
-                                    isVideo -> "🎥 Video: ${resolvedMediaName ?: "video"}"
-                                    resolvedMediaName != null -> "📁 File: $resolvedMediaName"
-                                    else -> "📁 File"
+                                    isVideo -> " Video: ${resolvedMediaName ?: "video"}"
+                                    resolvedMediaName != null -> " File: $resolvedMediaName"
+                                    else -> " File"
                                 }
                                 Text(
                                     text = fileLabel,
@@ -2321,16 +2646,16 @@ fun GroupMessagesTab(
                                                         val extractedId = extractMediaIdFromContent(msg.message)
                                                         val mediaIdToUse = if (cleanMediaId != null && cleanMediaId != "null") cleanMediaId else extractedId
                                                         if (mediaIdToUse.isNullOrEmpty()) {
-                                                            coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "❌ Media ID not found", Toast.LENGTH_SHORT).show() }
+                                                            coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Media ID not found", Toast.LENGTH_SHORT).show() }
                                                             return@launch
                                                         }
                                                         val approval = mediaDownloadApprovals[mediaIdToUse]
                                                         if (approval != null && approval.approved) {
                                                             approval.toMediaDownloadApproval()?.let {
                                                                 freshApiService.downloadAndDecryptApprovedMedia(it).onSuccess {
-                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "✅ Protected media downloaded!", Toast.LENGTH_SHORT).show() }
+                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Protected media downloaded!", Toast.LENGTH_SHORT).show() }
                                                                 }.onFailure {
-                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "❌ Failed: ${it.message}", Toast.LENGTH_SHORT).show() }
+                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Failed: ${it.message}", Toast.LENGTH_SHORT).show() }
                                                                 }
                                                             }
                                                         } else {
@@ -2342,24 +2667,24 @@ fun GroupMessagesTab(
                                                                     effectiveFileName = "$effectiveFileName$extension"
                                                                 }
                                                                 freshApiService.downloadMediaFile(mediaIdToUse, effectiveFileName, inferMediaTypeFromName(msg.mediaType, resolvedMediaName) ?: "application/octet-stream", mediaKeyFromMessage).onSuccess {
-                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "✅ Media decrypted & saved!", Toast.LENGTH_SHORT).show() }
+                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Media decrypted & saved!", Toast.LENGTH_SHORT).show() }
                                                                 }.onFailure {
-                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "❌ Failed: ${it.message}", Toast.LENGTH_SHORT).show() }
+                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Failed: ${it.message}", Toast.LENGTH_SHORT).show() }
                                                                 }
                                                             } else {
                                                                 if (!isMe) {
                                                                     onRequestDownload(mediaIdToUse)
-                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "🔒 Request sent to file owner!", Toast.LENGTH_SHORT).show() }
+                                                                    coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Request sent to file owner!", Toast.LENGTH_SHORT).show() }
                                                                 }
                                                             }
                                                         }
                                                     } catch (e: Exception) {
-                                                        coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "❌ Error: ${e.message}", Toast.LENGTH_SHORT).show() }
+                                                        coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Error: ${e.message}", Toast.LENGTH_SHORT).show() }
                                                     }
                                                 }
                                             } else {
                                                 onRequestDownload(messageMediaId)
-                                                coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, "🔒 Request sent to file owner!", Toast.LENGTH_SHORT).show() }
+                                                coroutineScope.launch(Dispatchers.Main) { Toast.makeText(context, " Request sent to file owner!", Toast.LENGTH_SHORT).show() }
                                             }
                                         },
                                     contentAlignment = Alignment.Center
@@ -2374,7 +2699,7 @@ fun GroupMessagesTab(
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(fileLabel, color = LocalDisplaySettings.current.getAccentColor(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text("🔓 Approved - tap to download", color = Color.LightGray, fontSize = 9.sp)
+                                            Text(" Approved - tap to download", color = Color.LightGray, fontSize = 9.sp)
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Button(onClick = {
                                                 coroutineScope.launch(Dispatchers.IO) {
@@ -2391,7 +2716,7 @@ fun GroupMessagesTab(
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(fileLabel, color = LocalDisplaySettings.current.getAccentColor(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text(if (isMe) "🔒 Protected - Tap to share" else "🔒 Protected - Tap to request", color = Color.LightGray, fontSize = 9.sp)
+                                            Text(if (isMe) " Protected - Tap to share" else " Protected - Tap to request", color = Color.LightGray, fontSize = 9.sp)
                                         }
                                     }
                                 }
@@ -2408,7 +2733,6 @@ fun GroupMessagesTab(
                             )
                         }
 
-                        // ✅ NEW: Show pending download requests for media (only for sender)
                         if (isMe && msg.pendingRequests.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Surface(
@@ -2454,7 +2778,7 @@ fun GroupMessagesTab(
                                 }
                             }
                         }
-                        
+
                         if (msg.reactions.isNotEmpty()) {
                             FlowRow(
                                 modifier = Modifier.padding(top = 6.dp),
@@ -2490,14 +2814,53 @@ fun GroupMessagesTab(
         if (typingUsers.isNotEmpty()) {
             item { Text("${typingUsers.values.joinToString()} is typing...", color = Color.Gray, fontSize = 11.sp, fontStyle = FontStyle.Italic) }
         }
+        }
+
+        if (isMultiSelectMode) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
+                color = Color(0xFF1A1A2E),
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        IconButton(onClick = onClearMultiSelect) {
+                            Icon(Icons.Default.Close, "Close", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        Text(
+                            "${selectedMessages.size}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 16.sp
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+                        IconButton(onClick = onForward) {
+                            Icon(Icons.Default.Forward, "Forward", tint = CyberpunkTheme.CyberCyan, modifier = Modifier.size(22.dp))
+                        }
+                        if (allSelectedAreOwn) {
+                            IconButton(onClick = onDeleteSelected) {
+                                Icon(Icons.Default.Delete, "Delete", tint = Color(0xFFFF6B6B), modifier = Modifier.size(22.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
-}
-
-// ✅ FIX: Resolve relative avatar/picture paths from the backend into full URLs
-// against the real server base (BuildConfig.MAIN_SERVER_URL), instead of the
-// placeholder "example.com" domain. Keeps query-string cache busters intact.
 private fun resolveAvatarUrl(url: String?): String? {
     if (url.isNullOrEmpty() || url == "null" || url == "undefined") return null
     return when {
@@ -2508,7 +2871,6 @@ private fun resolveAvatarUrl(url: String?): String? {
 }
 
 private fun mapToGroupInfo(groupId: String, apiGroup: Group): GroupInfo {
-
     fun sanitizeCode(code: String?): String? {
         return if (code.isNullOrEmpty() || code == "undefined" || code == "null") null else code
     }
@@ -2516,11 +2878,12 @@ private fun mapToGroupInfo(groupId: String, apiGroup: Group): GroupInfo {
     val cleanInviteCode = sanitizeCode(apiGroup.inviteCode)
     val cleanInviteLink = sanitizeCode(apiGroup.inviteLink)
 
+    val baseUrl = com.freetime.app.BuildConfig.MAIN_SERVER_URL.trimEnd('/')
     val finalInviteLink = when {
         !cleanInviteLink.isNullOrEmpty() && cleanInviteLink.contains("http") -> cleanInviteLink
         !sanitizeCode(apiGroup.webInviteLink).isNullOrEmpty() && sanitizeCode(apiGroup.webInviteLink)!!.contains("http") -> sanitizeCode(apiGroup.webInviteLink)
-        !cleanInviteCode.isNullOrEmpty() -> "https://example.com/group/invite/$cleanInviteCode"
-        else -> "https://example.com/group/invite/$groupId"
+        !cleanInviteCode.isNullOrEmpty() -> "$baseUrl/api/groups/web/invite/$cleanInviteCode"
+        else -> "$baseUrl/api/groups/web/invite/$groupId"
     }
 
     Log.d("GROUP_CHAT", "Loading group: ${apiGroup.name}, inviteCode=${cleanInviteCode ?: "NULL"}, inviteLink=$finalInviteLink")

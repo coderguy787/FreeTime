@@ -23,6 +23,7 @@ fun DownloadProgressBar(
     progressColor: Color = CyberpunkTheme.PrimaryPurple,
     textColor: Color = CyberpunkTheme.GhostGray
 ) {
+    // download progress bar
     val animatedProgress by animateFloatAsState(
         targetValue = progress.coerceIn(0f, 1f),
         label = "downloadProgress"

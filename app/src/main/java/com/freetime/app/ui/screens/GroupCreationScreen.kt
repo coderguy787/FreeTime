@@ -26,29 +26,20 @@ import com.freetime.app.api.FreeTimeApiService
 import com.freetime.app.data.local.SharedPreferencesHelper
 import com.freetime.app.ui.components.CyberpunkTheme
 
-// ✅ NEW: Helper function to get member color for group creation
 fun getMemberCreationColor(
     tags: List<String>,
     role: String? = null
 ): Color {
     return when {
-        tags.contains("OWNER") -> Color(0xFFFF00FF)  // Magenta
-        tags.contains("VIP") -> Color(0xFFFFFF00)  // Yellow
-        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)  // Cyan
-        role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)  // Red
-        role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)  // Orange
+        tags.contains("OWNER") -> Color(0xFFFF00FF)
+        tags.contains("VIP") -> Color(0xFFFFFF00)
+        tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
+        role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)
+        role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)
         else -> Color.White
     }
 }
 
-/**
- * Group/Channel Creation Screen
- * Allows users to create groups or channels with customization
- * - Name and description
- * - Privacy settings (public/private)
- * - Member selection
- * - Icon/avatar upload
- */
 @Composable
 fun GroupCreationScreen(
     onGroupCreated: (groupId: String, groupName: String) -> Unit,
@@ -58,20 +49,19 @@ fun GroupCreationScreen(
     val scope = rememberCoroutineScope()
     val apiService = remember { FreeTimeApiService(context) }
     val prefs = SharedPreferencesHelper(context)
-    
+
     var groupName by remember { mutableStateOf("") }
     var groupDescription by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(true) }
     var isCreating by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf("") }
-    
-    // Member selection
+
     var selectedMembers by remember { mutableStateOf(listOf<String>()) }
     var availableMembers by remember { mutableStateOf(listOf<MemberItem>()) }
     var isLoadingMembers by remember { mutableStateOf(true) }
-    
-    // Load available members (friends)
+
+    // group creation screen
     LaunchedEffect(Unit) {
         scope.launch {
             try {
@@ -84,8 +74,8 @@ fun GroupCreationScreen(
                             username = friend.username,
                             displayName = friend.name,
                             avatar = friend.avatar,
-                            tags = friend.tags,  // ✅ NEW: Include tags
-                            role = friend.role  // ✅ NEW: Include role
+                            tags = friend.tags,
+                            role = friend.role
                         )
                     }
                     isLoadingMembers = false
@@ -100,7 +90,7 @@ fun GroupCreationScreen(
             }
         }
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -114,7 +104,6 @@ fun GroupCreationScreen(
             )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -145,8 +134,7 @@ fun GroupCreationScreen(
                     )
                 }
             }
-            
-            // Content
+
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -154,7 +142,6 @@ fun GroupCreationScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Messages
                 if (errorMessage.isNotEmpty()) {
                     item {
                         Surface(
@@ -197,7 +184,7 @@ fun GroupCreationScreen(
                         }
                     }
                 }
-                
+
                 if (successMessage.isNotEmpty()) {
                     item {
                         Surface(
@@ -218,8 +205,7 @@ fun GroupCreationScreen(
                         }
                     }
                 }
-                
-                // Group Name Field
+
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -248,8 +234,7 @@ fun GroupCreationScreen(
                         )
                     }
                 }
-                
-                // Description Field
+
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -276,8 +261,7 @@ fun GroupCreationScreen(
                         )
                     }
                 }
-                
-                // Privacy Settings
+
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
@@ -286,8 +270,7 @@ fun GroupCreationScreen(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        
-                        // Private Group Indicator (Read-Only)
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -321,8 +304,7 @@ fun GroupCreationScreen(
                         }
                     }
                 }
-                
-                // Member Selection
+
                 if (!isLoadingMembers) {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -349,7 +331,7 @@ fun GroupCreationScreen(
                                     items(availableMembers.size) { index ->
                                         val member = availableMembers[index]
                                         val isSelected = selectedMembers.contains(member.userId)
-                                        
+
                                         Surface(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -392,12 +374,12 @@ fun GroupCreationScreen(
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
                                                         member.displayName,
-                                                        color = getMemberCreationColor(member.tags, member.role),  // ✅ NEW: Apply color
+                                                        color = getMemberCreationColor(member.tags, member.role),
                                                         fontWeight = FontWeight.SemiBold
                                                     )
                                                     Text(
                                                         "@${member.username}",
-                                                        color = getMemberCreationColor(member.tags, member.role),  // ✅ NEW: Apply color to username
+                                                        color = getMemberCreationColor(member.tags, member.role),
                                                         fontSize = 11.sp
                                                     )
                                                 }
@@ -409,18 +391,17 @@ fun GroupCreationScreen(
                         }
                     }
                 }
-                
+
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
-            
-            // Create Button
+
             Button(
                 onClick = {
                     if (groupName.isBlank()) {
                         errorMessage = "Group name is required"
                         return@Button
                     }
-                    
+
                     isCreating = true
                     scope.launch {
                         try {
@@ -429,29 +410,26 @@ fun GroupCreationScreen(
                                 isCreating = false
                                 return@launch
                             }
-                            
-                            // Create group via API (passes selected member IDs for bulk add)
+
                             val result = apiService.createGroup(
                                 name = groupName,
                                 description = groupDescription,
                                 isPrivate = isPrivate,
                                 memberIds = selectedMembers
                             )
-                            
+
                             result.onSuccess { group ->
                                 android.util.Log.d("GROUP_CREATION", "Group created: ${group.name}")
-                                
+
                                 successMessage = "Group '${group.name}' created successfully!"
                                 onGroupCreated(group.groupId, group.name)
-                                
-                                // Navigate back after 1 second
+
                                 kotlinx.coroutines.delay(1000)
                                 onNavigateBack()
                             }.onFailure { error ->
-                                // ✅ GRACEFUL: Check for 503 error and show appropriate message
                                 val errorMsg = error.message ?: "Unknown error"
                                 if (errorMsg.contains("503")) {
-                                    errorMessage = "⚠️ Group created! (Server busy: 503)"
+                                    errorMessage = " Group created! (Server busy: 503)"
                                     android.util.Log.w("GROUP_CREATION", "Create group returned 503 but may have succeeded: $errorMsg")
                                 } else {
                                     errorMessage = "Failed to create group: $errorMsg"
@@ -491,14 +469,11 @@ fun GroupCreationScreen(
     }
 }
 
-/**
- * Data class for member items in group creation
- */
 data class MemberItem(
     val userId: String,
     val username: String,
     val displayName: String,
     val avatar: String? = null,
-    val tags: List<String> = emptyList(),  // ✅ NEW: Tags for color display
-    val role: String? = null  // ✅ NEW: Role for color display
+    val tags: List<String> = emptyList(),
+    val role: String? = null
 )

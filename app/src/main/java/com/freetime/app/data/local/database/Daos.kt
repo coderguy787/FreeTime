@@ -3,10 +3,6 @@ package com.freetime.app.data.local.database
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Data Access Objects for the local encrypted database
- */
-
 @Dao
 interface ChatDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -45,9 +41,12 @@ interface MessageDao {
     @Delete
     suspend fun deleteMessage(message: MessageEntity)
 
+    @Query("DELETE FROM messages WHERE messageId = :messageId")
+    suspend fun deleteMessageById(messageId: String)
+
     @Query("DELETE FROM messages WHERE chatId = :chatId")
     suspend fun deleteAllMessagesInChat(chatId: String)
-    
+
     @Query("DELETE FROM messages WHERE chatId = :chatId")
     suspend fun deleteAllMessagesForChat(chatId: String)
 
@@ -74,10 +73,11 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE chatId IN (SELECT chatId FROM chats WHERE participantId = :groupId)")
     suspend fun getGroupMessagesSync(groupId: String): List<MessageEntity>
-    
+
     @Query("SELECT * FROM messages WHERE syncState = :syncState ORDER BY timestamp DESC")
     fun getMessagesBySyncState(syncState: String): Flow<List<MessageEntity>>
 
+    // update the local message id with the server one after sending
     @Query("UPDATE messages SET messageId = :newId WHERE messageId = :oldId")
     suspend fun updateMessageId(oldId: String, newId: String)
 }
@@ -299,58 +299,37 @@ interface DeleteApprovalDao {
 }
 
 @Dao
-interface CallHistoryDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCall(call: CallHistoryEntity)
+interface OfflineQueueDao {
+    @Insert
+    suspend fun insert(entry: OfflineQueueEntity): Long
 
     @Update
-    suspend fun updateCall(call: CallHistoryEntity)
+    suspend fun update(entry: OfflineQueueEntity)
 
     @Delete
-    suspend fun deleteCall(call: CallHistoryEntity)
+    suspend fun delete(entry: OfflineQueueEntity)
 
-    @Query("SELECT * FROM call_history WHERE callId = :callId")
-    suspend fun getCallById(callId: String): CallHistoryEntity?
+    @Query("SELECT * FROM offline_queue WHERE status = 'pending' ORDER BY createdAt ASC")
+    suspend fun getPendingMessages(): List<OfflineQueueEntity>
 
-    @Query("SELECT * FROM call_history WHERE participantId = :participantId ORDER BY startTime DESC LIMIT :limit")
-    fun getCallHistory(participantId: String, limit: Int = 100): Flow<List<CallHistoryEntity>>
+    @Query("SELECT * FROM offline_queue WHERE status = 'pending' ORDER BY createdAt ASC")
+    fun getPendingMessagesFlow(): Flow<List<OfflineQueueEntity>>
 
-    @Query("SELECT * FROM call_history WHERE callType = 'video' ORDER BY startTime DESC")
-    fun getVideoCallHistory(): Flow<List<CallHistoryEntity>>
+    @Query("UPDATE offline_queue SET status = 'sent', retryCount = retryCount + 1 WHERE id = :id")
+    suspend fun markSent(id: Long)
 
-    @Query("SELECT * FROM call_history WHERE status = 'missed' ORDER BY startTime DESC")
-    fun getMissedCalls(): Flow<List<CallHistoryEntity>>
+    @Query("UPDATE offline_queue SET status = 'failed', lastError = :error, retryCount = retryCount + 1 WHERE id = :id")
+    suspend fun markFailed(id: Long, error: String)
 
-    @Query("DELETE FROM call_history WHERE callId = :callId")
-    suspend fun deleteCallById(callId: String)
+    @Query("UPDATE offline_queue SET status = 'pending' WHERE status = 'failed' AND retryCount < :maxRetries")
+    suspend fun retryFailed(maxRetries: Int = 3)
 
-    @Query("SELECT * FROM call_history WHERE participantId = :participantId")
-    suspend fun getCallsForChat(participantId: String): List<CallHistoryEntity>?
+    @Query("DELETE FROM offline_queue WHERE status = 'sent' AND createdAt < :olderThan")
+    suspend fun cleanupOldSent(olderThan: Long)
 
-    @Query("SELECT * FROM call_history WHERE participantId = :groupId AND isGroupCall = 1")
-    suspend fun getGroupCalls(groupId: String): List<CallHistoryEntity>?
-}
+    @Query("DELETE FROM offline_queue WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
-@Dao
-interface SyncStateDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertSync(sync: SyncStateEntity)
-
-    @Update
-    suspend fun updateSync(sync: SyncStateEntity)
-
-    @Delete
-    suspend fun deleteSync(sync: SyncStateEntity)
-
-    @Query("SELECT * FROM sync_state WHERE isSynced = 0 ORDER BY createdAt ASC")
-    fun getUnsynced(): Flow<List<SyncStateEntity>>
-
-    @Query("UPDATE sync_state SET isSynced = 1, lastSyncAttempt = :timestamp WHERE syncId = :syncId")
-    suspend fun markSynced(syncId: String, timestamp: Long)
-
-    @Query("UPDATE sync_state SET syncRetries = syncRetries + 1 WHERE syncId = :syncId")
-    suspend fun incrementRetries(syncId: String)
-
-    @Query("DELETE FROM sync_state WHERE isSynced = 1 AND lastSyncAttempt < :olderThan")
-    suspend fun cleanupOldSyncedEntries(olderThan: Long)
+    @Query("SELECT COUNT(*) FROM offline_queue WHERE status = 'pending'")
+    fun getPendingCount(): Flow<Int>
 }

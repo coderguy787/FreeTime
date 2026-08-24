@@ -1,4 +1,4 @@
-# FreeTime App ProGuard Rules
+# proguard rules
 
 # Keep all Java classes and methods
 -keepclassmembers class * {
@@ -49,8 +49,6 @@
 -keep class androidx.compose.** { *; }
 -keep @androidx.compose.** interface * { *; }
 
-# Keep WebRTC
--keep class org.webrtc.** { *; }
 
 # Performance optimizations
 -optimizationpasses 5
@@ -63,3 +61,15 @@
 
 # Don't show ProGuard messages
 -dontnote
+
+# ═══════════════════════════════════════════════════════
+# ANTI-TAMPER: Obfuscate security detection code
+# Keep classes functional but scramble string constants
+# ═══════════════════════════════════════════════════════
+-keep class com.freetime.app.security.** { *; }
+-repackageclasses com.freetime.app.security
+-allowaccessmodification
+-optimizationpasses 8
+
+# Obfuscate string literals to hinder static analysis
+-adaptclassstrings com.freetime.app.security.**

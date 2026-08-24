@@ -14,13 +14,6 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/**
- * Peer Network Manager
- * Handles peer-to-peer communication with master-server's peer network
- * - Peer discovery and registration
- * - Direct peer-to-peer data synchronization
- * - Distributed consensus and coordination
- */
 class PeerNetworkManager(
     private val authToken: String,
     private val userId: String,
@@ -31,18 +24,15 @@ class PeerNetworkManager(
     private val onDisconnected: () -> Unit = {},
     private val onError: (String) -> Unit = {}
 ) : WebSocketListener() {
-
     companion object {
         private const val TAG = "PeerNetworkManager"
-        private const val RECONNECT_INTERVAL = 5000L // 5 seconds
+        private const val RECONNECT_INTERVAL = 5000L
         private const val MAX_RECONNECT_ATTEMPTS = 10
-        
-        // Peer Network URL comes from BuildConfig (configured in build.gradle)
+
         fun getPeerNetworkUrl(): String {
             return try {
                 BuildConfig.PEER_SERVER_URL
             } catch (e: Exception) {
-                // Fallback if BuildConfig is not available
                 "wss://example.com:9080"
             }
         }
@@ -53,9 +43,6 @@ class PeerNetworkManager(
     private var isIntentionallyClosed = false
     private val discoveredPeers = mutableMapOf<String, PeerInfo>()
 
-    /**
-     * Connect to Peer Network server
-     */
     fun connect() {
         try {
             val client = ApiClient.getTrustAllOkHttpClient(
@@ -64,6 +51,7 @@ class PeerNetworkManager(
                 writeTimeoutSeconds = 10
             )
 
+            // identity goes in the query string
             val request = Request.Builder()
                 .url("${getPeerNetworkUrl()}?token=$authToken&userId=$userId")
                 .addHeader("Authorization", "Bearer $authToken")
@@ -81,9 +69,6 @@ class PeerNetworkManager(
         }
     }
 
-    /**
-     * Disconnect from Peer Network
-     */
     fun disconnect() {
         try {
             isIntentionallyClosed = true
@@ -95,9 +80,6 @@ class PeerNetworkManager(
         }
     }
 
-    /**
-     * Send data to peer network
-     */
     fun sendPeerData(messageType: String, data: JSONObject) {
         try {
             val message = JSONObject().apply {
@@ -114,9 +96,6 @@ class PeerNetworkManager(
         }
     }
 
-    /**
-     * Request to sync data with specific peer
-     */
     fun syncWithPeer(peerId: String, syncType: String) {
         try {
             val message = JSONObject().apply {
@@ -134,9 +113,6 @@ class PeerNetworkManager(
         }
     }
 
-    /**
-     * Request peer list from network
-     */
     fun requestPeerList() {
         try {
             val message = JSONObject().apply {
@@ -152,17 +128,9 @@ class PeerNetworkManager(
         }
     }
 
-    /**
-     * Get discovered peers
-     */
     fun getDiscoveredPeers(): List<PeerInfo> = discoveredPeers.values.toList()
 
-    /**
-     * Get specific peer info
-     */
     fun getPeerInfo(peerId: String): PeerInfo? = discoveredPeers[peerId]
-
-    // ============== WebSocketListener Callbacks ==============
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
         Log.d(TAG, "Peer Network connected")
@@ -170,7 +138,6 @@ class PeerNetworkManager(
 
         coroutineScope.launch(Dispatchers.Main) {
             onConnected()
-            // Request peer list on connection
             requestPeerList()
         }
     }
@@ -206,11 +173,10 @@ class PeerNetworkManager(
             onDisconnected()
         }
 
-        // Auto-reconnect if not intentional
         if (!isIntentionallyClosed && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             Log.d(TAG, "Attempting to reconnect (attempt ${reconnectAttempts + 1}/$MAX_RECONNECT_ATTEMPTS)")
             reconnectAttempts++
-            
+
             coroutineScope.launch(Dispatchers.Default) {
                 delay(RECONNECT_INTERVAL)
                 connect()
@@ -222,18 +188,15 @@ class PeerNetworkManager(
         Log.e(TAG, "Peer Network failure: ${t.message}")
         onError("Peer Network error: ${t.message}")
 
-        // Auto-reconnect
         if (!isIntentionallyClosed && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             reconnectAttempts++
-            
+
             coroutineScope.launch(Dispatchers.Default) {
                 delay(RECONNECT_INTERVAL)
                 connect()
             }
         }
     }
-
-    // ============== Event Handlers ==============
 
     private fun handlePeerDiscovered(json: JSONObject) {
         try {
@@ -246,10 +209,10 @@ class PeerNetworkManager(
                 dataHash = json.optString("dataHash", ""),
                 version = json.optInt("version", 0)
             )
-            
+
             discoveredPeers[peerId] = peerInfo
             Log.d(TAG, "Peer discovered: $peerId")
-            
+
             coroutineScope.launch(Dispatchers.Main) {
                 onPeerDiscovered(peerInfo)
             }
@@ -279,7 +242,7 @@ class PeerNetworkManager(
                 version = json.optInt("version"),
                 data = json.optJSONObject("data")
             )
-            
+
             coroutineScope.launch(Dispatchers.Main) {
                 onPeerDataReceived(event)
             }
@@ -295,8 +258,8 @@ class PeerNetworkManager(
                 for (i in 0 until peers.length()) {
                     val peerJson = peers.getJSONObject(i)
                     val peerId = peerJson.optString("peerId")
-                    
-                    if (peerId != userId) { // Don't add self
+
+                                    if (peerId != userId) {
                         val peerInfo = PeerInfo(
                             peerId = peerId,
                             username = peerJson.optString("username"),
@@ -306,7 +269,7 @@ class PeerNetworkManager(
                             version = peerJson.optInt("version", 0)
                         )
                         discoveredPeers[peerId] = peerInfo
-                        
+
                         coroutineScope.launch(Dispatchers.Main) {
                             onPeerDiscovered(peerInfo)
                         }
@@ -330,7 +293,7 @@ class PeerNetworkManager(
                 version = json.optInt("version"),
                 data = json.optJSONObject("data")
             )
-            
+
             coroutineScope.launch(Dispatchers.Main) {
                 onPeerDataReceived(event)
             }
@@ -340,11 +303,6 @@ class PeerNetworkManager(
     }
 }
 
-// ============== Data Classes ==============
-
-/**
- * Peer Network Event
- */
 data class PeerNetworkEvent(
     val type: String,
     val senderId: String,
@@ -355,9 +313,6 @@ data class PeerNetworkEvent(
     val data: JSONObject? = null
 )
 
-/**
- * Peer Information
- */
 data class PeerInfo(
     val peerId: String,
     val username: String,
@@ -366,14 +321,9 @@ data class PeerInfo(
     val dataHash: String = "",
     val version: Int = 0
 ) {
-    /**
-     * Check if peer is online
-     */
     fun isOnline(): Boolean = status == "online"
-    
-    /**
-     * Check if peer data is in sync with local version
-     */
+
+    // true once synced with the peer server
     fun isInSync(localVersion: Int, localDataHash: String): Boolean {
         return version >= localVersion && dataHash == localDataHash
     }

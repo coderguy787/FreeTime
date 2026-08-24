@@ -39,6 +39,7 @@ fun FriendRequestPopup(
 
     var currentPopup by remember { mutableStateOf<InAppNotification?>(null) }
 
+    // popup for incoming friend requests
     LaunchedEffect(InAppNotificationStore.notifications.size, dismissCounter) {
         val latest = InAppNotificationStore.notifications.firstOrNull { n ->
             n.type == "friendRequest" && n.id !in shownIds && n.id !in initialIdSet

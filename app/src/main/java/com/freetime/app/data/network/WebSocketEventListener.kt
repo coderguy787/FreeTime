@@ -14,14 +14,6 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/**
- * WebSocket Client Listener
- * Handles real-time events from master-server:
- * - Friend requests
- * - Group voting updates
- * - Channel messages
- * - Media download status
- */
 class WebSocketEventListener(
     private val authToken: String,
     private val coroutineScope: CoroutineScope,
@@ -30,19 +22,15 @@ class WebSocketEventListener(
     private val onDisconnected: () -> Unit = {},
     private val onError: (String) -> Unit = {}
 ) : WebSocketListener() {
-
     companion object {
         private const val TAG = "WebSocketListener"
-        private const val RECONNECT_INTERVAL = 5000L // 5 seconds
+        private const val RECONNECT_INTERVAL = 5000L
         private const val MAX_RECONNECT_ATTEMPTS = 10
-        
-        // WebSocket URL comes from BuildConfig (configured in build.gradle)
-        // This allows it to be environment-specific without code changes
+
         fun getWebSocketUrl(): String {
             return try {
                 BuildConfig.WEBSOCKET_URL
             } catch (e: Exception) {
-                // Fallback if BuildConfig is not available
                 "wss://example.com:8080/ws"
             }
         }
@@ -52,9 +40,6 @@ class WebSocketEventListener(
     private var reconnectAttempts = 0
     private var isIntentionallyClosed = false
 
-    /**
-     * Connect to WebSocket server
-     */
     fun connect() {
         try {
             val client = ApiClient.getTrustAllOkHttpClient(
@@ -79,9 +64,6 @@ class WebSocketEventListener(
         }
     }
 
-    /**
-     * Disconnect WebSocket
-     */
     fun disconnect() {
         try {
             isIntentionallyClosed = true
@@ -92,9 +74,6 @@ class WebSocketEventListener(
         }
     }
 
-    /**
-     * Send message through WebSocket
-     */
     fun sendMessage(message: String) {
         try {
             webSocket?.send(message)
@@ -103,8 +82,6 @@ class WebSocketEventListener(
             onError("Failed to send message: ${e.message}")
         }
     }
-
-    // ============== WebSocketListener Callbacks ==============
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
         Log.d(TAG, "WebSocket connected")
@@ -148,11 +125,10 @@ class WebSocketEventListener(
             onDisconnected()
         }
 
-        // Auto-reconnect if not intentional
         if (!isIntentionallyClosed && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             Log.d(TAG, "Attempting to reconnect (attempt ${reconnectAttempts + 1}/$MAX_RECONNECT_ATTEMPTS)")
             reconnectAttempts++
-            
+
             coroutineScope.launch(Dispatchers.Default) {
                 delay(RECONNECT_INTERVAL)
                 connect()
@@ -164,10 +140,10 @@ class WebSocketEventListener(
         Log.e(TAG, "WebSocket failure: ${t.message}")
         onError("WebSocket error: ${t.message}")
 
-        // Auto-reconnect
+        // stop reconnecting after too many attempts
         if (!isIntentionallyClosed && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             reconnectAttempts++
-            
+
             coroutineScope.launch(Dispatchers.Default) {
                 delay(RECONNECT_INTERVAL)
                 connect()
@@ -175,12 +151,9 @@ class WebSocketEventListener(
         }
     }
 
-    /**
-     * Parse event data based on event type
-     */
+    // convert raw websocket events into typed payloads
     private fun parseEventData(eventType: String, data: JSONObject): Any? {
         return when (eventType) {
-            // Friend events
             "friend.request.received" -> FriendRequestEventData(
                 requestId = data.optString("requestId"),
                 senderId = data.optString("senderId"),
@@ -199,7 +172,6 @@ class WebSocketEventListener(
                 rejectedAt = data.optString("rejectedAt")
             )
 
-            // Group voting events
             "group.vote.initiated" -> GroupVoteInitiatedEventData(
                 voteId = data.optString("voteId"),
                 groupId = data.optString("groupId"),
@@ -222,7 +194,6 @@ class WebSocketEventListener(
                 deletedAt = data.optString("deletedAt")
             )
 
-            // Channel events
             "channel.message.received" -> ChannelMessageEventData(
                 messageId = data.optString("messageId"),
                 channelId = data.optString("channelId"),
@@ -253,7 +224,6 @@ class WebSocketEventListener(
                 demotedBy = data.optString("demotedBy")
             )
 
-            // Media events
             "media.download.requested" -> MediaDownloadRequestedEventData(
                 requestId = data.optString("requestId"),
                 mediaId = data.optString("mediaId"),
@@ -267,7 +237,6 @@ class WebSocketEventListener(
                 mediaId = data.optString("mediaId"),
                 downloadUrl = data.optString("downloadUrl"),
                 expiresAt = data.optString("expiresAt"),
-                // ✅ NEW: Extract encryption details
                 encrypted = data.optBoolean("encrypted", false),
                 encryptionKey = data.optString("encryptionKey", null).takeIf { it?.isNotEmpty() == true },
                 iv = data.optString("iv", null).takeIf { it?.isNotEmpty() == true },
@@ -281,7 +250,6 @@ class WebSocketEventListener(
                 reason = data.optString("reason")
             )
 
-            // ✅ NEW: Profile update events (when friend updates their profile)
             "user:profile-updated", "profileUpdated" -> UserProfileUpdatedEventData(
                 userId = data.optString("userId"),
                 username = data.optString("username"),
@@ -295,7 +263,6 @@ class WebSocketEventListener(
                 lastUpdated = data.optString("lastUpdated")
             )
 
-            // Status events
             "user.online" -> UserStatusEventData(
                 userId = data.optString("userId"),
                 username = data.optString("username"),
@@ -308,39 +275,6 @@ class WebSocketEventListener(
                 status = "offline"
             )
 
-            // Call events
-            "call.incoming" -> CallIncomingEventData(
-                callId = data.optString("callId"),
-                callerId = data.optString("callerId"),
-                callerName = data.optString("callerName"),
-                callType = data.optString("callType"),
-                initiatedAt = data.optString("initiatedAt")
-            )
-
-            "call.missed" -> CallMissedEventData(
-                callId = data.optString("callId"),
-                callerId = data.optString("callerId"),
-                callerName = data.optString("callerName"),
-                missedAt = data.optString("missedAt")
-            )
-
-            "call.ended" -> CallEndedEventData(
-                callId = data.optString("callId"),
-                endedAt = data.optString("endedAt"),
-                duration = data.optString("duration")
-            )
-
-            "call.rejected" -> CallRejectedEventData(
-                callId = data.optString("callId"),
-                rejectedBy = data.optString("rejectedBy"),
-                rejectedAt = data.optString("rejectedAt")
-            )
-
-            "call.accepted" -> CallAcceptedEventData(
-                callId = data.optString("callId"),
-                acceptedAt = data.optString("acceptedAt")
-            )
-
             else -> {
                 Log.w(TAG, "Unknown event type: $eventType")
                 null
@@ -349,9 +283,6 @@ class WebSocketEventListener(
     }
 }
 
-/**
- * WebSocket Event wrapper
- */
 data class WebSocketEvent(
     val id: String,
     val type: String,
@@ -359,9 +290,6 @@ data class WebSocketEvent(
     val data: Any?
 )
 
-// ==================== EVENT DATA CLASSES ====================
-
-// Friend System Events
 data class FriendRequestEventData(
     val requestId: String,
     val senderId: String,
@@ -380,7 +308,6 @@ data class FriendRejectedEventData(
     val rejectedAt: String
 )
 
-// Group Invitation Events
 data class GroupInvitePendingEventData(
     val inviteId: String,
     val groupId: String,
@@ -392,7 +319,6 @@ data class GroupInvitePendingEventData(
     val createdAt: String = ""
 )
 
-// Group Voting Events
 data class GroupVoteInitiatedEventData(
     val voteId: String,
     val groupId: String,
@@ -416,7 +342,6 @@ data class GroupDeletedEventData(
     val deletedAt: String
 )
 
-// Channel Events
 data class ChannelMessageEventData(
     val messageId: String,
     val channelId: String,
@@ -447,7 +372,6 @@ data class ChannelMemberDemotedEventData(
     val demotedBy: String
 )
 
-// Media Download Events
 data class MediaDownloadRequestedEventData(
     val requestId: String,
     val mediaId: String,
@@ -461,7 +385,6 @@ data class MediaDownloadApprovedEventData(
     val mediaId: String,
     val downloadUrl: String,
     val expiresAt: String,
-    // ✅ NEW: Encryption details
     val encrypted: Boolean = false,
     val encryptionKey: String? = null,
     val iv: String? = null,
@@ -475,7 +398,6 @@ data class MediaDownloadDeniedEventData(
     val reason: String
 )
 
-// ✅ NEW: User Profile Update Events (when friend updates their profile)
 data class UserProfileUpdatedEventData(
     val userId: String,
     val username: String = "",
@@ -489,42 +411,9 @@ data class UserProfileUpdatedEventData(
     val lastUpdated: String = ""
 )
 
-// User Status Events
 data class UserStatusEventData(
     val userId: String,
     val username: String? = null,
     val lastSeen: String? = null,
     val status: String
-)
-// Call Events
-data class CallIncomingEventData(
-    val callId: String,
-    val callerId: String,
-    val callerName: String,
-    val callType: String,
-    val initiatedAt: String
-)
-
-data class CallMissedEventData(
-    val callId: String,
-    val callerId: String,
-    val callerName: String,
-    val missedAt: String
-)
-
-data class CallEndedEventData(
-    val callId: String,
-    val endedAt: String,
-    val duration: String
-)
-
-data class CallRejectedEventData(
-    val callId: String,
-    val rejectedBy: String,
-    val rejectedAt: String
-)
-
-data class CallAcceptedEventData(
-    val callId: String,
-    val acceptedAt: String
 )

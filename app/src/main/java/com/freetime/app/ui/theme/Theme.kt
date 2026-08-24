@@ -7,40 +7,37 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 
-// FreeTime Brand Colors - Black, Magenta, and Light Grey ONLY
-val PrimaryMagenta = Color(0xFFFF00FF)     // Magenta - Primary action
-val SecondaryMagenta = Color(0xFFE91E63)   // Secondary magenta
-val Black = Color(0xFF000000)               // Pure black background
-val DarkBlack = Color(0xFF1A1A1A)          // Dark black for surfaces
-val White = Color(0xFFF0F0F0)              // Light grey text (not pure white)
-val LightGray = Color(0xFFF0F0F0)          // Light gray for secondary text
-val DarkGray = Color(0xFF303030)           // Dark gray for borders
-val ErrorRed = Color(0xFFFF00FF)           // Use magenta for error states
-val WarningOrange = Color(0xFFFF00FF)      // Use magenta for warnings
-val SuccessGreen = Color(0xFFFF00FF)       // Use magenta for success
+val PrimaryMagenta = Color(0xFFFF00FF)
+val SecondaryMagenta = Color(0xFFE91E63)
+val Black = Color(0xFF000000)
+val DarkBlack = Color(0xFF1A1A1A)
+val White = Color(0xFFF0F0F0)
+val LightGray = Color(0xFFF0F0F0)
+val DarkGray = Color(0xFF303030)
+val ErrorRed = Color(0xFFFF00FF)
+val WarningOrange = Color(0xFFFF00FF)
+val SuccessGreen = Color(0xFFFF00FF)
 
-// Compatibility aliases for existing code
 val PrimaryPurple = PrimaryMagenta
 val SecondaryBlack = Black
 val AccentLightPurple = SecondaryMagenta
 val DeepPurple = DarkBlack
-val DeepBlack = Color(0xFF000000)          // Very deep black for backgrounds
-val DarkCard = Color(0xFF1A1A1A)           // Dark card/surface color
-val CyberBlue = Color(0xFFFF00FF)          // Magenta accent
-val CyberPurple = Color(0xFFFF00FF)        // Magenta accent
-val DarkBg = Color(0xFF000000)             // Dark background
+val DeepBlack = Color(0xFF000000)
+val DarkCard = Color(0xFF1A1A1A)
+val CyberBlue = Color(0xFFFF00FF)
+val CyberPurple = Color(0xFFFF00FF)
+val DarkBg = Color(0xFF000000)
 
-// CyberpunkTheme object for easy access to colors throughout the app
 object CyberpunkTheme {
     val PrimaryMagenta = Color(0xFFFF00FF)
     val SecondaryMagenta = Color(0xFFE91E63)
     val Black = Color(0xFF000000)
     val DarkBlack = Color(0xFF1A1A1A)
-    val White = Color(0xFFF0F0F0)           // Light grey (not pure white)
+    val White = Color(0xFFF0F0F0)
     val LightGray = Color(0xFFF0F0F0)
-    val MediumGray = Color(0xFF808080)       // Medium gray
+    val MediumGray = Color(0xFF808080)
     val DarkGray = Color(0xFF303030)
-    val GhostGray = Color(0xFF606060)        // Ghost gray
+    val GhostGray = Color(0xFF606060)
     val ErrorRed = Color(0xFFFF00FF)
     val WarningOrange = Color(0xFFFF00FF)
     val SuccessGreen = Color(0xFFFF00FF)
@@ -52,7 +49,7 @@ object CyberpunkTheme {
     val DarkCard = Color(0xFF1A1A1A)
     val CyberBlue = Color(0xFFFF00FF)
     val CyberPurple = Color(0xFFFF00FF)
-    val CyberCyan = Color(0xFFFF00FF)        // Alias to Magenta to follow brand
+    val CyberCyan = Color(0xFFFF00FF)
     val CyberBlack = Color(0xFF000000)
     val DarkBg = Color(0xFF000000)
 }
@@ -99,10 +96,9 @@ private val DarkColors = darkColorScheme(
     onError = White,
     errorContainer = PrimaryMagenta,
     onErrorContainer = White,
-    // Core dark theme colors - Black and Magenta only
-    background = DeepBlack,           // Pure black background
+    background = DeepBlack,
     onBackground = White,
-    surface = DarkCard,               // Dark card surface
+    surface = DarkCard,
     onSurface = White,
     surfaceVariant = DarkGray,
     onSurfaceVariant = LightGray
@@ -113,6 +109,7 @@ fun FreeTimeTheme(
     accentColor: Color = PrimaryMagenta,
     content: @Composable () -> Unit
 ) {
+    // app theme, dark mode only
     val colorScheme = DarkColors.copy(
         primary = accentColor,
         onPrimary = White,

@@ -1,107 +1,56 @@
-# FreeTime - Secure Messaging & VoIP
+# FreeTime
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+encrypted chat app. android client + node backend (api, websocket, peer relay) + admin panel.
+messages are e2e encrypted with aes-256-gcm, keys stay in the android keystore. groups, channels,
+file/image sharing, totp 2fa.
 
-FreeTime is a privacy-first, end-to-end encrypted communication platform featuring real-time messaging, voice/video calls, group chats, and channels. Built with a modern Android client (Jetpack Compose), a Node.js master server, and a distributed peer network.
+no voice/video calling in this version.
 
-## Features
-
-- **End-to-End Encrypted Messaging** — AES-256-GCM encryption with hardware-backed keystore
-- **Voice & Video Calls** — WebRTC-based peer-to-peer calls with STUN/TURN
-- **Group Chats** — Create, manage, and moderate group conversations
-- **Channels** — Broadcast-style channels with subscriber management
-- **Two-Factor Authentication** — TOTP-based 2FA via Speakeasy
-- **Media Sharing** — Encrypted image, video, and file transfers
-- **Distributed Peer Network** — Decentralized message relay and VoIP signaling
-- **Cross-Platform** — Android client + Node.js server infrastructure
-
-## Project Structure
+## layout
 
 ```
-FreeTime/
-├── app/                    # Android client (Kotlin, Jetpack Compose)
-│   ├── src/main/java/      # App source code
-│   └── build.gradle        # Android build configuration
-├── master-server/          # Node.js API, WebSocket, and admin servers
-│   ├── api/                # REST API endpoints
-│   ├── websocket/          # Socket.IO and WebSocket servers
-│   ├── database/           # MongoDB schemas and setup
-│   └── utils/              # Server utilities
-├── peer/                   # Distributed peer server (Node.js)
-├── k8s/                    # Kubernetes deployment manifests
-├── docs/                   # Architecture and API documentation
-└── docker-compose.yml      # Containerized deployment
+app/            android client (kotlin, jetpack compose)
+master-server/  main server: rest api + websocket + admin panel + mongo scripts
+peer/           peer signaling server
+docs/           architecture notes
+windows_client/ old pyqt6 desktop client (not maintained)
 ```
 
-## Quick Start
+## running the backend
 
-### Prerequisites
-
-- Android Studio (for building the client)
-- Node.js 18+ (for servers)
-- MongoDB 6+
-- Redis 7+
-
-### Building the Android App
-
-```bash
-./gradlew :app:assembleDevDebug
-```
-
-The APK will be at `app/build/outputs/apk/dev/debug/freetime.apk`.
-
-### Running the Master Server
+needs node 18+ and mongodb on the same box (debian assumed).
 
 ```bash
 cd master-server
-cp config/.env.example config/.env   # Edit with your settings
 npm install
-npm start
+./start-all.sh        # api :443, websocket :8080, admin :3001, peer :9080
+./stop-all.sh
 ```
 
-### Running the Peer Server
+mongo db name is `freetime`, connection string comes from `.env` (see DEBIAN_DEPLOYMENT_GUIDE.md).
+dev certs live in `master-server/certs/` (`create-self-signed-cert.sh` makes them), swap for real
+ones if you put this on a public domain.
+
+peer server runs separately:
 
 ```bash
 cd peer
-cp config/.env.example config/.env   # Edit with your settings
-npm install
-npm start
+npm install && npm start
 ```
 
-### Docker Deployment
+## building the app
+
+server addresses are gradle properties, defaults point at example.com. set your own in
+`gradle.properties` (SERVER_HOST, SERVER_PORT, PEER_HOST, PEER_PORT).
+
+two flavors: `dev` and `prod`.
 
 ```bash
-docker-compose up -d
+./gradlew assembleProdDebug     # debug apk
+./gradlew installProdDebug      # straight to device
+./gradlew :app:compileDevDebugKotlin :app:compileProdDebugKotlin   # quick compile check
 ```
 
-## Configuration
+## deployment
 
-1. Copy `.env.example` files to `.env` in both `master-server/config/` and `peer/config/`
-2. Set your own `JWT_SECRET`, `MONGODB_URI`, and `ADMIN_PASSWORD`
-3. Configure your domain/IP in `app/gradle.properties`
-4. (Optional) Set up Firebase Cloud Messaging for push notifications
-
-## Security
-
-- All messages are encrypted with AES-256-GCM before storage
-- Media files are encrypted with per-file keys
-- Authentication requires JWT + optional TOTP 2FA
-- Network traffic should use HTTPS/WSS in production
-- See [docs/SECURITY.md](docs/SECURITY.md) for detailed security architecture
-
-## Documentation
-
-- [API Reference](docs/API.md)
-- [Architecture Overview](docs/ARCHITECTURE.md)
-- [Security Architecture](docs/SECURITY.md)
-- [Database Schema](docs/DATABASE.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Development Setup](docs/DEVELOPMENT.md)
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-## Disclaimer
-
-This software is provided for educational and research purposes. Users are responsible for complying with applicable laws and regulations regarding encryption and communication services in their jurisdiction.
+see DEBIAN_DEPLOYMENT_GUIDE.md for the full server setup (firewall, certs, mongo, logs).

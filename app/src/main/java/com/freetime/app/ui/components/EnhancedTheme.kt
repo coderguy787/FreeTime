@@ -24,11 +24,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Enhanced Cyberpunk UI Components - Discord-like styling
- */
-
-// Custom TextField with vibrant Cyberpunk styling
 @Composable
 fun DiscordStyleTextField(
     value: String,
@@ -43,7 +38,7 @@ fun DiscordStyleTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
     var showPassword by remember { mutableStateOf(!isPassword) }
-    
+
     Column(modifier = modifier.fillMaxWidth()) {
         if (label.isNotEmpty()) {
             Text(
@@ -54,25 +49,26 @@ fun DiscordStyleTextField(
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
-        
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            enabled = enabled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
+
+    // themed input field
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(50.dp)
                 .border(
                     width = 2.dp,
                     color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.4f),
                     shape = RoundedCornerShape(8.dp)
                 ),
-            placeholder = { 
+            placeholder = {
                 Text(
-                    placeholder, 
+                    placeholder,
                     color = CyberpunkTheme.GhostGray,
                     fontSize = 14.sp
-                ) 
+                )
             },
             leadingIcon = leadingIcon,
             trailingIcon = if (isPassword) {
@@ -99,9 +95,9 @@ fun DiscordStyleTextField(
                 focusedContainerColor = CyberpunkTheme.DarkBlack,
                 unfocusedContainerColor = CyberpunkTheme.DarkBlack
             ),
-            visualTransformation = if (isPassword && !showPassword) 
-                PasswordVisualTransformation() 
-            else 
+            visualTransformation = if (isPassword && !showPassword)
+                PasswordVisualTransformation()
+            else
                 VisualTransformation.None,
             shape = RoundedCornerShape(8.dp),
             keyboardOptions = keyboardOptions,
@@ -111,7 +107,6 @@ fun DiscordStyleTextField(
     }
 }
 
-// Enhanced Button with gradient and glow effect
 @Composable
 fun DiscordStyleButton(
     onClick: () -> Unit,
@@ -123,7 +118,7 @@ fun DiscordStyleButton(
     isPrimary: Boolean = true
 ) {
     val isPressed by remember { mutableStateOf(false) }
-    
+
     Button(
         onClick = onClick,
         enabled = enabled && !isLoading,
@@ -180,7 +175,6 @@ fun DiscordStyleButton(
     }
 }
 
-// Card with gradient border - Discord style
 @Composable
 fun DiscordStyleCard(
     modifier: Modifier = Modifier,
@@ -192,7 +186,7 @@ fun DiscordStyleCard(
             .fillMaxWidth()
             .border(
                 width = 1.5.dp,
-                color = if (isPrimary) CyberpunkTheme.PrimaryPurple.copy(alpha = 0.5f) 
+                color = if (isPrimary) CyberpunkTheme.PrimaryPurple.copy(alpha = 0.5f)
                        else CyberpunkTheme.DarkGray.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -206,7 +200,6 @@ fun DiscordStyleCard(
     }
 }
 
-// Section header with accent line - Discord style
 @Composable
 fun DiscordStyleSectionHeader(
     text: String,
@@ -238,7 +231,6 @@ fun DiscordStyleSectionHeader(
     }
 }
 
-// Status badge with animation
 @Composable
 fun StatusBadge(
     text: String,
@@ -254,7 +246,7 @@ fun StatusBadge(
         },
         animationSpec = tween(800)
     )
-    
+
     Box(
         modifier = modifier
             .background(
@@ -281,7 +273,6 @@ enum class BadgeStatus {
     ONLINE, IDLE, OFFLINE, STREAMING
 }
 
-// Animated divider - Discord style
 @Composable
 fun DiscordStyleDivider(
     modifier: Modifier = Modifier

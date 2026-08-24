@@ -9,6 +9,7 @@ object Migration_4_5 : Migration(4, 5) {
         cursor.moveToFirst()
         val hasMessageEntityTable = cursor.getInt(0) > 0
         cursor.close()
+        // table name differs between installs, use whichever exists
         val tableName = if (hasMessageEntityTable) "MessageEntity" else "messages"
         db.execSQL("ALTER TABLE $tableName ADD COLUMN reactions TEXT NOT NULL DEFAULT ''")
     }

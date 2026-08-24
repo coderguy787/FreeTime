@@ -21,24 +21,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Advanced UI Components with Glassmorphism, Animations, and Micro-interactions
- * Features:
- * - Glassmorphism effects (frosted glass look)
- * - Shimmer loading animations
- * - Enhanced cards with depth
- * - Smooth micro-interactions
- * - Better visual hierarchy
- */
-
-/**
- * Glassmorphic Card - Frosted glass effect with blur
- */
 @Composable
 fun GlassmorphicCard(
     modifier: Modifier = Modifier,
-    backgroundColor: Color = Color(0xFFF0F0F0).copy(alpha = 0.1f), // Light grey instead of white
-    borderColor: Color = Color(0xFFF0F0F0).copy(alpha = 0.2f),     // Light grey instead of white
+    backgroundColor: Color = Color(0xFFF0F0F0).copy(alpha = 0.1f),
+    borderColor: Color = Color(0xFFF0F0F0).copy(alpha = 0.2f),
     blurRadius: Float = 20f,
     content: @Composable () -> Unit
 ) {
@@ -59,6 +46,7 @@ fun GlassmorphicCard(
                 shape = RoundedCornerShape(20.dp)
             )
             .clip(RoundedCornerShape(20.dp))
+            // frosted glass card
             .graphicsLayer(
                 alpha = 0.99f,
                 compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
@@ -68,9 +56,6 @@ fun GlassmorphicCard(
     }
 }
 
-/**
- * Shimmer Loading Effect - Elegant loading animation
- */
 @Composable
 fun ShimmerLoadingEffect(
     modifier: Modifier = Modifier,
@@ -90,9 +75,6 @@ fun ShimmerLoadingEffect(
     }
 }
 
-/**
- * Shimmer Skeleton Loader
- */
 @Composable
 fun ShimmerSkeleton(
     modifier: Modifier = Modifier,
@@ -132,9 +114,6 @@ fun ShimmerSkeleton(
     )
 }
 
-/**
- * Enhanced Floating Action Button with Ripple and Glow
- */
 @Composable
 fun GlowingFAB(
     icon: ImageVector,
@@ -153,7 +132,6 @@ fun GlowingFAB(
         modifier = modifier
             .size(60.dp)
             .drawBehind {
-                // Glow effect
                 drawCircle(
                     color = glowColor.copy(alpha = 0.3f),
                     radius = size.minDimension / 2 + 10.dp.toPx(),
@@ -174,15 +152,12 @@ fun GlowingFAB(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = Color(0xFFF0F0F0), // Light grey instead of white
+            tint = Color(0xFFF0F0F0),
             modifier = Modifier.size(28.dp)
         )
     }
 }
 
-/**
- * Elevated Card with Shadow and Hover Effect
- */
 @Composable
 fun ElevatedCard(
     modifier: Modifier = Modifier,
@@ -206,15 +181,12 @@ fun ElevatedCard(
     }
 }
 
-/**
- * Animated Badge - Number badge with animation
- */
 @Composable
 fun AnimatedBadge(
     count: Int,
     modifier: Modifier = Modifier,
     backgroundColor: Color = CyberpunkTheme.PrimaryPurple,
-    textColor: Color = Color(0xFFF0F0F0) // Light grey instead of white
+    textColor: Color = Color(0xFFF0F0F0)
 ) {
     val scale by animateFloatAsState(
         targetValue = if (count > 0) 1f else 0f,
@@ -238,9 +210,6 @@ fun AnimatedBadge(
     }
 }
 
-/**
- * Pulse Animation Effect
- */
 @Composable
 fun PulseEffect(
     modifier: Modifier = Modifier,
@@ -274,9 +243,6 @@ fun PulseEffect(
     )
 }
 
-/**
- * Gradient Text
- */
 @Composable
 fun GradientText(
     text: String,
@@ -294,14 +260,11 @@ fun GradientText(
             text = text,
             fontSize = fontSize,
             fontWeight = fontWeight,
-            color = Color(0xFFF0F0F0) // Light grey instead of white
+            color = Color(0xFFF0F0F0)
         )
     }
 }
 
-/**
- * Smooth Divider with Gradient
- */
 @Composable
 fun GradientDivider(
     modifier: Modifier = Modifier,
@@ -321,28 +284,23 @@ fun GradientDivider(
     )
 }
 
-/**
- * Animated Status Indicator
- */
 @Composable
 fun AnimatedStatusIndicator(
     isOnline: Boolean,
     modifier: Modifier = Modifier,
     size: Float = 12f
 ) {
-    val pulseSize by animateFloatAsState(
-        targetValue = if (isOnline) 0f else 2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = androidx.compose.animation.core.EaseInOutQuad),
-            repeatMode = RepeatMode.Reverse
-        )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isOnline) Color(0xFF00FF00) else Color(0xFF808080),
+        animationSpec = tween(600, easing = androidx.compose.animation.core.EaseInOutCubic),
+        label = "statusColor"
     )
 
     Box(
         modifier = modifier
             .size(size.dp)
             .background(
-                color = if (isOnline) Color(0xFF00FF00) else Color(0xFF808080),
+                color = backgroundColor,
                 shape = RoundedCornerShape(50)
             )
             .border(
@@ -353,9 +311,6 @@ fun AnimatedStatusIndicator(
     )
 }
 
-/**
- * Expandable Section with Smooth Animation
- */
 @Composable
 fun ExpandableSection(
     title: String,
@@ -412,9 +367,6 @@ fun ExpandableSection(
     }
 }
 
-/**
- * Smooth Transition Card for Tab Content
- */
 @Composable
 fun TransitionCard(
     currentValue: Int,
@@ -424,10 +376,10 @@ fun TransitionCard(
     AnimatedContent(
         targetState = currentValue,
         transitionSpec = {
-            (fadeIn(animationSpec = tween(300)) + 
+            (fadeIn(animationSpec = tween(300)) +
              slideInHorizontally { width -> if (targetState != initialState) -width else width })
                 .togetherWith(
-                    fadeOut(animationSpec = tween(300)) + 
+                    fadeOut(animationSpec = tween(300)) +
                     slideOutHorizontally { width -> if (targetState != initialState) width else -width }
                 )
         },
@@ -437,9 +389,6 @@ fun TransitionCard(
     }
 }
 
-/**
- * Circular Progress Indicator with Gradient
- */
 @Composable
 fun GradientCircularProgressIndicator(
     progress: Float,
@@ -450,11 +399,12 @@ fun GradientCircularProgressIndicator(
     Box(
         modifier = modifier
             .size(48.dp)
+            // custom progress indicator
             .drawBehind {
                 val angle = progress * 360f
                 val strokePx = strokeWidth
                 val radiusSize = (size.width - strokePx * 2) / 2
-                
+
                 drawArc(
                     brush = Brush.sweepGradient(
                         colors = gradientColors,

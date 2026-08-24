@@ -14,24 +14,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.theme.CyberpunkTheme
 
-/**
- * Typing Indicator Component
- * Shows animated "User is typing..." message
- */
 @Composable
 fun TypingIndicator(
     userName: String,
     modifier: Modifier = Modifier
 ) {
     var animationState by remember { mutableStateOf(0) }
-    
+
     LaunchedEffect(Unit) {
         while (true) {
             animationState = (animationState + 1) % 3
             kotlinx.coroutines.delay(400)
         }
     }
-    
+
     Row(
         modifier = modifier
             .padding(8.dp),
@@ -43,8 +39,7 @@ fun TypingIndicator(
             fontSize = 13.sp,
             color = Color.Gray
         )
-        
-        // Animated dots
+
         repeat(3) { index ->
             AnimatedVisibility(
                 visible = index <= animationState,
@@ -58,7 +53,7 @@ fun TypingIndicator(
                 )
             }
         }
-        
+
         Text(
             text = " is typing",
             fontSize = 13.sp,
@@ -67,10 +62,6 @@ fun TypingIndicator(
     }
 }
 
-/**
- * Message Status Indicator
- * Shows ✓ (sent), ✓✓ (delivered), ✓✓ (read)
- */
 @Composable
 fun MessageStatusIndicator(
     isRead: Boolean = false,
@@ -80,7 +71,7 @@ fun MessageStatusIndicator(
     size: Float = 14f
 ) {
     if (!isSent) {
-        // Message not sent (may be pending or failed)
+        // message sent/read icons
         Icon(
             imageVector = Icons.Default.DoneAll,
             contentDescription = "Message pending",
@@ -88,7 +79,6 @@ fun MessageStatusIndicator(
             tint = Color.Gray
         )
     } else if (isRead) {
-        // Message read - double checkmark in cyan
         Row(modifier = modifier) {
             Icon(
                 imageVector = Icons.Default.DoneAll,
@@ -98,7 +88,6 @@ fun MessageStatusIndicator(
             )
         }
     } else if (isDelivered) {
-        // Message delivered - double checkmark in gray
         Row(modifier = modifier) {
             Icon(
                 imageVector = Icons.Default.DoneAll,
@@ -108,7 +97,6 @@ fun MessageStatusIndicator(
             )
         }
     } else {
-        // Single checkmark for sent
         Icon(
             imageVector = Icons.Default.Done,
             contentDescription = "Message sent",
@@ -118,10 +106,6 @@ fun MessageStatusIndicator(
     }
 }
 
-/**
- * Read Receipt Info
- * Shows who read the message and when
- */
 @Composable
 fun ReadReceiptInfo(
     readBy: String = "",
@@ -139,14 +123,11 @@ fun ReadReceiptInfo(
     }
 }
 
-/**
- * Format timestamp to readable format
- */
 private fun formatTimestamp(timestamp: Long): String {
     val date = java.util.Date(timestamp)
     val now = java.util.Date()
     val diffSeconds = (now.time - date.time) / 1000
-    
+
     return when {
         diffSeconds < 60 -> "now"
         diffSeconds < 3600 -> "${diffSeconds / 60}m ago"
@@ -158,21 +139,17 @@ private fun formatTimestamp(timestamp: Long): String {
     }
 }
 
-/**
- * Delivery Status Badge
- * Shows small badge with delivery status
- */
 @Composable
 fun DeliveryStatusBadge(
-    status: String, // "sent", "delivered", "read"
+    status: String,
     modifier: Modifier = Modifier
 ) {
     val (backgroundColor, textColor, text) = when (status.lowercase()) {
-        "read" -> Triple(CyberpunkTheme.SecondaryMagenta.copy(alpha = 0.2f), CyberpunkTheme.SecondaryMagenta, "✓✓")
-        "delivered" -> Triple(Color.Gray.copy(alpha = 0.1f), Color.Gray, "✓✓")
-        else -> Triple(Color.Transparent, Color.LightGray, "✓")
+        "read" -> Triple(CyberpunkTheme.SecondaryMagenta.copy(alpha = 0.2f), CyberpunkTheme.SecondaryMagenta, "")
+        "delivered" -> Triple(Color.Gray.copy(alpha = 0.1f), Color.Gray, "")
+        else -> Triple(Color.Transparent, Color.LightGray, "")
     }
-    
+
     Surface(
         modifier = modifier
             .size(width = 32.dp, height = 20.dp),

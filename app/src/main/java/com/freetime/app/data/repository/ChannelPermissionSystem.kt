@@ -17,15 +17,6 @@ import com.google.gson.JsonSyntaxException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Channel Permission System
- * Manages channel-specific permissions:
- * - Admin-only messaging (announcement channels)
- * - Member read-only access
- * - Admin moderation (delete messages)
- * - Member promotion to admin
- * - Permission inheritance from group
- */
 class ChannelPermissionSystem(
     private val database: FreeTimeDatabase,
     private val prefs: SharedPreferencesHelper
@@ -34,9 +25,6 @@ class ChannelPermissionSystem(
         private const val TAG = "ChannelPermissionSystem"
     }
 
-    /**
-     * Check if user can send message in channel
-     */
     suspend fun canSendMessageInChannel(
         channelId: String,
         userId: String
@@ -66,9 +54,6 @@ class ChannelPermissionSystem(
         }
     }
 
-    /**
-     * Send message to channel with permission check
-     */
     suspend fun sendChannelMessage(
         channelId: String,
         content: String
@@ -79,7 +64,7 @@ class ChannelPermissionSystem(
 
             Log.d(TAG, "Sending message to channel: $channelId")
 
-            // Check if user has permission to send message
+            // check permissions locally before calling the server
             val permissionResult = canSendMessageInChannel(channelId, prefs.getUserId() ?: "")
             if (permissionResult.isFailure) {
                 return@withContext Result.failure(Exception("Permission denied"))
@@ -118,9 +103,6 @@ class ChannelPermissionSystem(
         }
     }
 
-    /**
-     * Promote member to admin
-     */
     suspend fun promoteToChannelAdmin(
         channelId: String,
         memberId: String
@@ -153,9 +135,6 @@ class ChannelPermissionSystem(
         }
     }
 
-    /**
-     * Demote admin to regular member
-     */
     suspend fun demoteFromChannelAdmin(
         channelId: String,
         adminId: String
@@ -188,9 +167,6 @@ class ChannelPermissionSystem(
         }
     }
 
-    /**
-     * Get channel members with their roles
-     */
     suspend fun getChannelMembers(
         channelId: String
     ): Result<List<ChannelMember>> = withContext(Dispatchers.IO) {
@@ -219,9 +195,6 @@ class ChannelPermissionSystem(
         }
     }
 
-    /**
-     * Delete message from channel (admin only)
-     */
     suspend fun deleteChannelMessage(
         channelId: String,
         messageId: String,
@@ -254,9 +227,6 @@ class ChannelPermissionSystem(
         }
     }
 
-    /**
-     * Get channel info including permission type
-     */
     suspend fun getChannelInfo(
         channelId: String
     ): Result<ChannelInfo> = withContext(Dispatchers.IO) {
@@ -284,8 +254,6 @@ class ChannelPermissionSystem(
             Result.failure(e)
         }
     }
-
-    // Helper functions
 
     private fun parseMessagePermission(jsonBody: String): ChannelMessagePermission {
         return try {
@@ -316,14 +284,13 @@ class ChannelPermissionSystem(
             val gson = Gson()
             val jsonArray = JsonParser.parseString(jsonBody).asJsonArray
             val members = mutableListOf<ChannelMember>()
-            
+
             for (element in jsonArray) {
                 try {
                     val member = gson.fromJson(element, ChannelMember::class.java)
                     members.add(member)
                 } catch (e: JsonSyntaxException) {
                     Log.e(TAG, "Failed to parse individual channel member", e)
-                    // Continue with other members
                 }
             }
             members
@@ -377,33 +344,24 @@ class ChannelPermissionSystem(
     }
 }
 
-/**
- * Response for message send
- */
 data class ChannelMessageResponse(
     val success: Boolean,
     val message: String,
     val messageId: String?
 )
 
-/**
- * Message permission for a user in a channel
- */
 data class ChannelMessagePermission(
     val canSendMessage: Boolean,
     val reason: String?,
-    val role: String, // "admin", "moderator", "member", "none"
-    val permissionType: String // "admin_only", "public", "private"
+    val role: String,
+    val permissionType: String
 )
 
-/**
- * Channel information
- */
 data class ChannelInfo(
     val channelId: String,
     val name: String,
     val description: String,
-    val type: String, // "public", "private", "admin_only"
+    val type: String,
     val isAdminOnly: Boolean,
     val adminIds: List<String>,
     val memberCount: Int,

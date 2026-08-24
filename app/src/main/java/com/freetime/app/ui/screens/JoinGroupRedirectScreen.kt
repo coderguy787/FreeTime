@@ -16,11 +16,6 @@ import com.freetime.app.ui.components.CyberpunkTheme
 import com.freetime.app.api.FreeTimeApiService
 import kotlinx.coroutines.launch
 
-/**
- * JoinGroupRedirectScreen
- * Automatically joins a group via ID or invite code and redirects to the group chat.
- * This screen is used for handling deep links and web invitation links.
- */
 @Composable
 fun JoinGroupRedirectScreen(
     idOrCode: String,
@@ -33,12 +28,12 @@ fun JoinGroupRedirectScreen(
     var statusMessage by remember { mutableStateOf("Joining group...") }
     var isError by remember { mutableStateOf(false) }
 
+    // handles group invite links
     LaunchedEffect(idOrCode) {
         scope.launch {
             try {
                 android.util.Log.d("JoinGroup", "Attempting to join group with: $idOrCode")
-                
-                // 1. Try to join by code first (common for web links)
+
                 val codeResult = apiService.joinGroupByCode(idOrCode)
                 if (codeResult.isSuccess) {
                     val groupId = codeResult.getOrNull()
@@ -49,7 +44,6 @@ fun JoinGroupRedirectScreen(
                     }
                 }
 
-                // 2. If code fails, try joining by ID (common for internal deep links)
                 val inviteResult = apiService.joinGroupByInvite(idOrCode)
                 if (inviteResult.isSuccess) {
                     val groupId = inviteResult.getOrNull()
@@ -60,13 +54,11 @@ fun JoinGroupRedirectScreen(
                     }
                 }
 
-                // 3. If both fail, maybe the user is already a member? Try to get details.
                 val detailResult = apiService.getGroupDetails(idOrCode)
                 if (detailResult.isSuccess) {
                     android.util.Log.d("JoinGroup", "Already a member or group exists, navigating to chat")
                     onNavigateToGroup(idOrCode)
                 } else {
-                    // Everything failed
                     val error = detailResult.exceptionOrNull()?.message ?: "Unknown error"
                     android.util.Log.e("JoinGroup", "Failed to join group: $error")
                     statusMessage = "Failed to join group: $error"

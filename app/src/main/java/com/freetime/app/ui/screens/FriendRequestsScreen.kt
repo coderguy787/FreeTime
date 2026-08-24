@@ -24,7 +24,6 @@ import com.freetime.app.ui.components.CyberpunkTheme
 import com.freetime.app.api.FreeTimeApiService
 import kotlinx.coroutines.launch
 
-// ✅ NEW: Helper function to get username color based on tags and role
 fun getUsernameColorForFriendRequests(
     tags: List<String>,
     isAdmin: Boolean = false,
@@ -32,17 +31,11 @@ fun getUsernameColorForFriendRequests(
     role: String? = null
 ): Color {
     return when {
-        // Priority 1: OWNER tag → Bright Magenta
         tags.contains("OWNER") -> Color(0xFFFF00FF)
-        // Priority 2: VIP tag → Yellow
         tags.contains("VIP") -> Color(0xFFFFFF00)
-        // Priority 3: BETA TESTER tag → Cyan
         tags.contains("BETA TESTER") -> Color(0xFF00FFFF)
-        // Priority 4: isAdmin or role=="admin" → Red
         isAdmin || role?.uppercase() == "ADMIN" -> Color(0xFFFF0000)
-        // Priority 5: isModerator or role=="moderator" → Orange
         isModerator || role?.uppercase() == "MODERATOR" -> Color(0xFFFF8C00)
-        // Default → White
         else -> CyberpunkTheme.White
     }
 }
@@ -53,23 +46,20 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val apiService = FreeTimeApiService(context)
     val prefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
-    
+
     var pendingRequests by remember { mutableStateOf(listOf<com.freetime.app.api.FriendRequest>()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var processedRequestIds by remember { mutableStateOf(setOf<String>()) }
-    
-    // Notification settings
+
     var notifyFriendRequests by remember { mutableStateOf(prefs.isNotifyFriendRequestsEnabled()) }
     var notifySound by remember { mutableStateOf(prefs.isNotifySoundEnabled()) }
-    
+
     android.util.Log.d("FREETIME_REQUESTS", "FriendRequestsScreen: Loading pending requests")
-    
-    // Load pending friend requests from API
+
     LaunchedEffect(Unit) {
-        // Dismiss in-app friend request notifications when opening this screen
         com.freetime.app.notifications.InAppNotificationStore.removeByType("friendRequest")
-        
+
         isLoading = true
         try {
             val result = apiService.getPendingRequests()
@@ -92,66 +82,46 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
         }
     }
 
-    // ✅ MUTUAL FRIEND AUTO-ACCEPT: Listen for auto-accepted requests and remove them from pending list
+    // pending friend requests list
     DisposableEffect(Unit) {
         val wsManager = com.freetime.app.services.WebSocketManager.getInstance()
         val listener = object : com.freetime.app.services.WebSocketManager.WebSocketListener {
             override fun onFriendRequestAutoAccepted(data: com.freetime.app.services.WebSocketManager.FriendRequestAutoAcceptedData) {
                 android.util.Log.d("FREETIME_REQUESTS", "WebSocket: Friend request auto-accepted from ${data.userId}")
-                
-                // Remove the sender's request from pending list (they auto-accepted our pending request to them)
-                // If User B's pending request to User A is in this list, and User A sent request to B,
-                // then it auto-accepts and we should remove B's pending request to A from the list
+
                 pendingRequests = pendingRequests.filter { it.senderId != data.userId }
-                
+
                 if (pendingRequests.isEmpty()) {
-                    errorMessage = "✅ No more pending requests!"
+                    errorMessage = " No more pending requests!"
                 }
             }
-            
+
             override fun onNewMessage(message: com.freetime.app.services.WebSocketManager.MessageData) {}
             override fun onGroupMessage(message: com.freetime.app.services.WebSocketManager.GroupMessageData) {}
             override fun onChannelMessage(message: com.freetime.app.services.WebSocketManager.ChannelMessageData) {}
             override fun onUserTyping(typingData: com.freetime.app.services.WebSocketManager.TypingData) {}
             override fun onMessageRead(readData: com.freetime.app.services.WebSocketManager.ReadReceiptData) {}
             override fun onConversationAllRead(readData: com.freetime.app.services.WebSocketManager.ConversationReadData) {}
-            override fun onIncomingCall(callData: com.freetime.app.services.WebSocketManager.IncomingCallData) {
-                com.freetime.app.notifications.NotificationHelper.showIncomingCallNotification(
-                    context, 
-                    callData.callerUsername, 
-                    callData.callerId, 
-                    callData.callType,
-                    callId = callData.callId,
-                    callerAvatarUrl = callData.callerAvatar,
-                    offerSdp = callData.sdpOffer
-                )
-            }
-            override fun onCallAnswered(callData: com.freetime.app.services.WebSocketManager.CallAnsweredData) {}
-            override fun onCallRejected(callData: com.freetime.app.services.WebSocketManager.CallRejectedData) {}
-            override fun onCallEnded(callData: com.freetime.app.services.WebSocketManager.CallEndedData) {}
-            override fun onIceCandidate(iceData: com.freetime.app.services.WebSocketManager.IceCandidateData) {}
             override fun onUserStatusChanged(statusData: com.freetime.app.services.WebSocketManager.UserStatusData) {}
             override fun onReactionReceived(reactionData: com.freetime.app.services.WebSocketManager.ReactionData) {}
             override fun onConnectionEstablished() {}
             override fun onConnectionLost() {}
             override fun onError(error: String) {}
         }
-        
+
         wsManager.addListener(listener)
-        
-        // Clean up listener when screen is dismissed
+
         onDispose {
             wsManager.removeListener(listener)
         }
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(CyberpunkTheme.Black)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -175,7 +145,7 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                
+
                 Text(
                     "Friend Requests",
                     color = CyberpunkTheme.White,
@@ -183,7 +153,7 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                
+
                 if (pendingRequests.isNotEmpty()) {
                     Surface(
                         modifier = Modifier
@@ -206,8 +176,7 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                     }
                 }
             }
-            
-            // Notification Settings Card
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -233,8 +202,7 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    
-                    // Friend Request Notifications Toggle
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -273,10 +241,9 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                             )
                         )
                     }
-                    
+
                     Divider(color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.15f))
-                    
-                    // Notification Sound Toggle
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -317,8 +284,7 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                     }
                 }
             }
-            
-            // Error message
+
             if (errorMessage.isNotEmpty()) {
                 Card(
                     modifier = Modifier
@@ -350,8 +316,7 @@ fun FriendRequestsScreen(onBackClick: () -> Unit = {}) {
                     }
                 }
             }
-            
-            // Content
+
             if (isLoading) {
                 Box(
                     modifier = Modifier
@@ -476,13 +441,11 @@ fun FriendRequestItemSimple(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left side - User info
             Row(
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Avatar
                 Box(
                     modifier = Modifier
                         .size(44.dp)
@@ -499,15 +462,14 @@ fun FriendRequestItemSimple(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                
-                // Name and username
+
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
                         request.senderUsername,
-                        color = getUsernameColorForFriendRequests(request.senderTags, request.senderIsAdmin, request.senderIsModerator, request.senderRole),  // ✅ NEW: Apply color
+                        color = getUsernameColorForFriendRequests(request.senderTags, request.senderIsAdmin, request.senderIsModerator, request.senderRole),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1
@@ -520,14 +482,12 @@ fun FriendRequestItemSimple(
                     )
                 }
             }
-            
-            // Right side - Accept and Decline buttons
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Decline button
                 Button(
                     onClick = onDecline,
                     modifier = Modifier
@@ -545,8 +505,7 @@ fun FriendRequestItemSimple(
                         color = CyberpunkTheme.White
                     )
                 }
-                
-                // Accept button
+
                 Button(
                     onClick = onAccept,
                     modifier = Modifier

@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.components.CyberpunkTheme
 
-
 @Composable
 fun TwoFactorAuthScreenEnhanced(
     onBackClick: () -> Unit = {},
@@ -37,6 +36,7 @@ fun TwoFactorAuthScreenEnhanced(
     var code5 by remember { mutableStateOf("") }
     var code6 by remember { mutableStateOf("") }
 
+    // 2fa code input (6 digits)
     val fullCode = "$code1$code2$code3$code4$code5$code6"
     val isComplete = fullCode.length == 6
 
@@ -54,7 +54,6 @@ fun TwoFactorAuthScreenEnhanced(
         ) {
             Spacer(modifier = Modifier.height(12.dp))
 
-            // HEADER
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -94,7 +93,6 @@ fun TwoFactorAuthScreenEnhanced(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // ICON
             Surface(
                 modifier = Modifier
                     .size(64.dp)
@@ -115,7 +113,6 @@ fun TwoFactorAuthScreenEnhanced(
                 }
             }
 
-            // TITLE
             Text(
                 "AUTHENTICATION_REQUIRED",
                 style = MaterialTheme.typography.headlineMedium.copy(
@@ -126,7 +123,6 @@ fun TwoFactorAuthScreenEnhanced(
                 textAlign = TextAlign.Center
             )
 
-            // DESCRIPTION
             Text(
                 "Enter the 6-digit code from your authenticator app",
                 style = MaterialTheme.typography.bodyMedium,
@@ -136,7 +132,6 @@ fun TwoFactorAuthScreenEnhanced(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // CODE INPUT FIELDS
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -178,7 +173,6 @@ fun TwoFactorAuthScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // VERIFY BUTTON
             Surface(
                 modifier = Modifier
                     .fillMaxWidth(0.85f)
@@ -224,7 +218,6 @@ fun TwoFactorAuthScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ALTERNATIVE METHOD
             Text(
                 "Can't access your authenticator?",
                 style = MaterialTheme.typography.labelSmall,
@@ -238,12 +231,11 @@ fun TwoFactorAuthScreenEnhanced(
                     letterSpacing = 0.5.sp
                 ),
                 color = CyberpunkTheme.PrimaryPurple,
-                modifier = Modifier.clickable { /* Show backup codes */ }
+                modifier = Modifier.clickable {  }
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // INFO BOX
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -379,7 +371,6 @@ fun TwoFactorSetupScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // SETUP STEPS
             SetupStep(
                 number = "1",
                 title = "DOWNLOAD_APP",
@@ -415,7 +406,6 @@ fun TwoFactorSetupScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // BACKUP CODES WARNING
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -456,7 +446,6 @@ fun TwoFactorSetupScreenEnhanced(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // ACTION BUTTONS
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -555,5 +544,4 @@ fun SetupStep(
         }
     }
 }
-
 

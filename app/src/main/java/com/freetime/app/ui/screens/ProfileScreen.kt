@@ -55,7 +55,6 @@ fun ProfileScreen(
     val prefs = SharedPreferencesHelper(context)
     val apiService = remember { FreeTimeApiService(context) }
 
-    // Profile state
     var username by remember { mutableStateOf("CYBER_USER") }
     var userId by remember { mutableStateOf("") }
     var userStatus by remember { mutableStateOf("Online") }
@@ -72,12 +71,11 @@ fun ProfileScreen(
     var updateError by remember { mutableStateOf("") }
     var isUploadingImage by remember { mutableStateOf(false) }
 
-    // Avatar picker states
+    // profile editing, avatar uploads on confirm
     var showAvatarOptions by remember { mutableStateOf(false) }
     var pendingImageUri by remember { mutableStateOf<Uri?>(null) }
     var showRemoveConfirm by remember { mutableStateOf(false) }
 
-    // Banner picker states
     var showBannerOptions by remember { mutableStateOf(false) }
     var pendingBannerUri by remember { mutableStateOf<Uri?>(null) }
     var profileBannerUrl by remember { mutableStateOf<String?>(null) }
@@ -85,11 +83,10 @@ fun ProfileScreen(
     var showBannerDeleteConfirm by remember { mutableStateOf(false) }
     var isDeletingBanner by remember { mutableStateOf(false) }
 
-    // Account preferences state
     var statusMessage by remember { mutableStateOf("") }
-    var availabilityStatus by remember { mutableStateOf("available") }  // available/away/busy/offline
-    var preferredLanguage by remember { mutableStateOf("en") }  // en/es/it/de/fr
-    var preferredTheme by remember { mutableStateOf("cyberpunk") }  // dark/light/cyberpunk
+    var availabilityStatus by remember { mutableStateOf("available") }
+    var preferredLanguage by remember { mutableStateOf("en") }
+    var preferredTheme by remember { mutableStateOf("cyberpunk") }
     var isPreferencesSaving by remember { mutableStateOf(false) }
     var preferencesError by remember { mutableStateOf("") }
     var preferencesSuccess by remember { mutableStateOf("") }
@@ -101,10 +98,8 @@ fun ProfileScreen(
         newStatus = userStatus
         newBio = userBio
         newInterests = userInterests
-        // Load existing profile image from prefs as fallback
         profileImageUrl = prefs.getProfileImage()
-        
-        // Load full profile data from API
+
         try {
             val result = apiService.getCurrentUserProfile()
             result.onSuccess { profile ->
@@ -112,6 +107,7 @@ fun ProfileScreen(
                 userId = profile.userId
                 userBio = profile.bio
                 profileImageUrl = profile.avatar
+                profileBannerUrl = profile.banner
                 userStatus = profile.status.ifEmpty { "Online" }
                 userInterests = profile.tags
                 newUsername = profile.username
@@ -127,7 +123,6 @@ fun ProfileScreen(
         }
     }
 
-    // Image picker — sets pendingImageUri for preview before confirming upload
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -137,7 +132,6 @@ fun ProfileScreen(
         }
     }
 
-    // Confirm upload: actually upload the pending image
     val confirmUpload: suspend () -> Unit = {
         val uri = pendingImageUri
         if (uri != null) {
@@ -146,27 +140,23 @@ fun ProfileScreen(
                 val result = apiService.uploadProfileImage(uri)
                 result.fold(
                     onSuccess = { imageUrl ->
-                        // ✅ FIX: Add cache buster to ensure fresh image loads
                         val cacheBustedUrl = if (imageUrl.contains("?")) {
                             "$imageUrl&t=${System.currentTimeMillis()}"
                         } else {
                             "$imageUrl?t=${System.currentTimeMillis()}"
                         }
-                        
+
                         profileImageUrl = cacheBustedUrl
                         prefs.saveProfileImage(cacheBustedUrl)
                         pendingImageUri = null
                         updateError = ""
                         android.widget.Toast.makeText(context, "Photo updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
-                        
-                        // ✅ CRITICAL FIX: Reload profile from server to confirm database persistence
+
                         android.util.Log.d("ProfileScreen", "Image uploaded successfully (cache-busted), reloading profile from server...")
                         try {
                             val profileResult = apiService.getCurrentUserProfile()
                             profileResult.onSuccess { profile ->
-                                // Verify the image URL was persisted on server
                                 if (!profile.avatar.isNullOrEmpty()) {
-                                    // ✅ Ensure absolute URL and add cache buster
                                     val finalImageUrl = apiService.resolveAvatarUrl(profile.avatar)
                                     val finalCacheBustedUrl = if (finalImageUrl?.contains("?") == true) {
                                         "$finalImageUrl&t=${System.currentTimeMillis()}"
@@ -174,20 +164,17 @@ fun ProfileScreen(
                                         "${finalImageUrl}?t=${System.currentTimeMillis()}"
                                     }
                                     profileImageUrl = finalCacheBustedUrl
-                                    android.util.Log.d("ProfileScreen", "✓ Profile image confirmed on server (cache-busted): ${finalCacheBustedUrl}")
+                                    android.util.Log.d("ProfileScreen", " Profile image confirmed on server (cache-busted): ${finalCacheBustedUrl}")
                                 } else {
-                                    android.util.Log.w("ProfileScreen", "⚠️ Profile image NOT found on server after upload!")
+                                    android.util.Log.w("ProfileScreen", " Profile image NOT found on server after upload!")
                                     updateError = "Warning: Image uploaded but not persisted to server database"
                                 }
                             }
                             profileResult.onFailure { error ->
                                 android.util.Log.w("ProfileScreen", "Could not verify image on server: ${error.message}")
-                                // Image upload succeeded locally, so don't show error
-                                // If profile fetch fails, image is still on server - retry will happen automatically
                             }
                         } catch (e: Exception) {
                             android.util.Log.w("ProfileScreen", "Error reloading profile: ${e.message}")
-                            // Non-fatal: image upload is complete, profile sync will happen on next screen visit
                         }
                     },
                     onFailure = { error ->
@@ -209,7 +196,6 @@ fun ProfileScreen(
         }
     }
 
-    // Banner image picker — sets pendingBannerUri for preview before confirming upload
     val bannerPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -219,7 +205,6 @@ fun ProfileScreen(
         }
     }
 
-    // Confirm banner upload: actually upload the pending banner image
     val confirmBannerUpload: suspend () -> Unit = {
         val uri = pendingBannerUri
         if (uri != null) {
@@ -252,9 +237,9 @@ fun ProfileScreen(
                                             "${finalBannerUrl}?t=${System.currentTimeMillis()}"
                                         }
                                         profileBannerUrl = finalCacheBustedUrl
-                                        android.util.Log.d("ProfileScreen", "✓ Profile banner confirmed on server")
+                                        android.util.Log.d("ProfileScreen", " Profile banner confirmed on server")
                                     } else {
-                                        android.util.Log.w("ProfileScreen", "⚠️ Banner NOT found on server after upload!")
+                                        android.util.Log.w("ProfileScreen", " Banner NOT found on server after upload!")
                                         updateError = "Warning: Banner uploaded but not persisted to server database"
                                     }
                                 }
@@ -283,7 +268,6 @@ fun ProfileScreen(
         }
     }
 
-    // ✅ NEW: Delete banner image
     val deleteBannerImage: suspend () -> Unit = {
         isDeletingBanner = true
         try {
@@ -308,7 +292,6 @@ fun ProfileScreen(
         }
     }
 
-    // Preference-saving functions
     suspend fun saveAvailabilityStatus(status: String) {
         isPreferencesSaving = true
         preferencesError = ""
@@ -381,7 +364,6 @@ fun ProfileScreen(
         isPreferencesSaving = false
     }
 
-    // Auto-dismiss preference messages
     if (preferencesSuccess.isNotEmpty()) {
         LaunchedEffect(key1 = preferencesSuccess) {
             try {
@@ -404,7 +386,6 @@ fun ProfileScreen(
         }
     }
 
-    // Animations
     val profileScale by animateFloatAsState(
         targetValue = if (isEditingProfile) 0.95f else 1f,
         animationSpec = tween(300), label = ""
@@ -422,7 +403,6 @@ fun ProfileScreen(
                 .padding(vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ===== CYBERPUNK HEADER =====
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -454,12 +434,10 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ===== AVATAR SECTION =====
             Box(
                 modifier = Modifier.size(156.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Outer glow ring
                 Box(
                     modifier = Modifier
                         .size(156.dp)
@@ -472,7 +450,6 @@ fun ProfileScreen(
                         )
                 )
 
-                // Main avatar circle
                 Box(
                     modifier = Modifier
                         .size(140.dp)
@@ -490,7 +467,6 @@ fun ProfileScreen(
                         ) { showAvatarOptions = true },
                     contentAlignment = Alignment.Center
                 ) {
-                    // Layer 1: initial letter — always visible as fallback
                     Text(
                         text = (username.firstOrNull() ?: '?').toString().uppercase(),
                         style = MaterialTheme.typography.displayLarge.copy(
@@ -500,7 +476,6 @@ fun ProfileScreen(
                         color = CyberpunkTheme.PrimaryPurple
                     )
 
-                    // Layer 2: actual photo (covers the letter when loaded successfully)
                     val imageData: Any? = when {
                         pendingImageUri != null -> pendingImageUri
                         !profileImageUrl.isNullOrEmpty() && profileImageUrl != "null" -> profileImageUrl
@@ -520,7 +495,6 @@ fun ProfileScreen(
                         )
                     }
 
-                    // Layer 3: uploading overlay
                     if (isUploadingImage) {
                         Box(
                             modifier = Modifier
@@ -537,7 +511,6 @@ fun ProfileScreen(
                     }
                 }
 
-                // Edit button (bottom-right, outside the circle)
                 if (!isUploadingImage) {
                     SmallFloatingActionButton(
                         onClick = { showAvatarOptions = true },
@@ -557,7 +530,6 @@ fun ProfileScreen(
                 }
             }
 
-            // Pending-image action bar (confirm / cancel)
             AnimatedVisibility(
                 visible = pendingImageUri != null && !isUploadingImage,
                 enter = fadeIn() + expandVertically(),
@@ -594,7 +566,6 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // ===== PROFILE BANNER SECTION =====
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
@@ -611,13 +582,12 @@ fun ProfileScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Banner image display
                     val bannerImageData: Any? = when {
                         pendingBannerUri != null -> pendingBannerUri
                         !profileBannerUrl.isNullOrEmpty() && profileBannerUrl != "null" -> profileBannerUrl
                         else -> null
                     }
-                    
+
                     if (bannerImageData != null) {
                         AsyncImage(
                             model = ImageRequest.Builder(context)
@@ -649,7 +619,6 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Edit button (bottom-right)
                     SmallFloatingActionButton(
                         onClick = { showBannerOptions = true },
                         modifier = Modifier
@@ -667,7 +636,6 @@ fun ProfileScreen(
                         )
                     }
 
-                    // Uploading overlay
                     if (isUploadingBanner) {
                         Box(
                             modifier = Modifier
@@ -685,7 +653,6 @@ fun ProfileScreen(
                 }
             }
 
-            // Pending-banner action bar (confirm / cancel)
             AnimatedVisibility(
                 visible = pendingBannerUri != null && !isUploadingBanner,
                 enter = fadeIn() + expandVertically(),
@@ -722,12 +689,10 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // ===== USER INFO SECTION =====
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth(0.9f)
             ) {
-                // Username - Terminal style
                 Text(
                     "[$username]",
                     style = MaterialTheme.typography.headlineMedium.copy(
@@ -739,7 +704,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // User ID - Dimmed
                 Text(
                     "ID: $userId",
                     style = MaterialTheme.typography.labelMedium,
@@ -748,7 +712,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Status badge - Pulsing
                 Surface(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
@@ -776,7 +739,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Bio display
                 if (userBio.isNotEmpty()) {
                     Surface(
                         modifier = Modifier
@@ -798,7 +760,6 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // ===== CUSTOMIZATION SECTION =====
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
@@ -816,7 +777,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Avatar options (Discord-like)
                 Text(
                     "Avatar Color Themes:",
                     style = MaterialTheme.typography.labelSmall,
@@ -843,7 +803,7 @@ fun ProfileScreen(
                         } else {
                             Color(item as Long)
                         }
-                        
+
                         Surface(
                             modifier = Modifier
                                 .size(50.dp)
@@ -861,7 +821,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Quick edit buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -900,7 +859,6 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ===== PREFERENCES SECTION =====
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
@@ -927,7 +885,6 @@ fun ProfileScreen(
                         fontWeight = FontWeight.Bold
                     )
 
-                    // Availability Status
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             "Availability Status",
@@ -972,7 +929,6 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Status Message
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             "Status Message (max 500 chars)",
@@ -1024,12 +980,10 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Language & Theme Preferences
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Language
                         Column(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1092,7 +1046,6 @@ fun ProfileScreen(
                             }
                         }
 
-                        // Theme
                         Column(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1144,7 +1097,6 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Status messages
                     if (preferencesSuccess.isNotEmpty()) {
                         Row(
                             modifier = Modifier
@@ -1197,7 +1149,6 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ===== ACTION BUTTONS =====
             Column(
                 modifier = Modifier.fillMaxWidth(0.9f),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1240,7 +1191,6 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // ===== AVATAR OPTIONS DIALOG =====
         if (showAvatarOptions) {
             Dialog(
                 onDismissRequest = { showAvatarOptions = false },
@@ -1268,7 +1218,6 @@ fun ProfileScreen(
                         )
                         Spacer(Modifier.height(12.dp))
 
-                        // Choose from gallery
                         TextButton(
                             onClick = { imagePickerLauncher.launch("image/*") },
                             modifier = Modifier.fillMaxWidth(),
@@ -1291,7 +1240,6 @@ fun ProfileScreen(
 
                         HorizontalDivider(color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.25f))
 
-                        // Remove photo (only when a photo exists)
                         if (!profileImageUrl.isNullOrEmpty() && profileImageUrl != "null") {
                             TextButton(
                                 onClick = {
@@ -1318,7 +1266,6 @@ fun ProfileScreen(
                             HorizontalDivider(color = CyberpunkTheme.PrimaryPurple.copy(alpha = 0.25f))
                         }
 
-                        // Cancel
                         TextButton(
                             onClick = { showAvatarOptions = false },
                             modifier = Modifier.fillMaxWidth(),
@@ -1343,7 +1290,6 @@ fun ProfileScreen(
             }
         }
 
-        // ===== BANNER OPTIONS DIALOG =====
         if (showBannerOptions) {
             Dialog(
                 onDismissRequest = { showBannerOptions = false },
@@ -1371,7 +1317,6 @@ fun ProfileScreen(
                         )
                         Spacer(Modifier.height(12.dp))
 
-                        // Choose from gallery
                         TextButton(
                             onClick = { bannerPickerLauncher.launch("image/*") },
                             modifier = Modifier.fillMaxWidth(),
@@ -1394,7 +1339,6 @@ fun ProfileScreen(
 
                         HorizontalDivider(color = CyberpunkTheme.PrimaryMagenta.copy(alpha = 0.25f))
 
-                        // ✅ NEW: Delete banner (only show if banner exists)
                         if (!profileBannerUrl.isNullOrEmpty() && profileBannerUrl != "null") {
                             TextButton(
                                 onClick = {
@@ -1422,7 +1366,6 @@ fun ProfileScreen(
                             HorizontalDivider(color = CyberpunkTheme.PrimaryMagenta.copy(alpha = 0.25f))
                         }
 
-                        // Cancel
                         TextButton(
                             onClick = { showBannerOptions = false },
                             modifier = Modifier.fillMaxWidth(),
@@ -1447,7 +1390,6 @@ fun ProfileScreen(
             }
         }
 
-        // ===== REMOVE PHOTO CONFIRM DIALOG =====
         if (showRemoveConfirm) {
             AlertDialog(
                 onDismissRequest = { showRemoveConfirm = false },
@@ -1509,7 +1451,6 @@ fun ProfileScreen(
             )
         }
 
-        // ===== DELETE BANNER CONFIRM DIALOG =====
         if (showBannerDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showBannerDeleteConfirm = false },
@@ -1571,7 +1512,6 @@ fun ProfileScreen(
             )
         }
 
-        // Edit Profile Dialog
         if (isEditingProfile) {
             EditProfileDialogCyberpunk(
                 currentUsername = username,
@@ -1585,7 +1525,6 @@ fun ProfileScreen(
                         isSaving = true
                         updateError = ""
                         try {
-                            // Username changes route through the dedicated endpoint (enforces 30-day cooldown)
                             val usernameChanged = newUsername.isNotEmpty() && newUsername != username
                             if (usernameChanged) {
                                 val usernameResult = apiService.updateUsername(newUsername)
@@ -1596,7 +1535,6 @@ fun ProfileScreen(
                                 }
                             }
 
-                            // Update bio, status, and interests via /profile endpoint
                             val result = apiService.updateUserProfile(
                                 bio = newBio,
                                 status = newStatus,
@@ -1626,21 +1564,17 @@ fun ProfileScreen(
                 }
             )
         }
-        
-        // Error message display with proper auto-dismiss
-        // Use a separate LaunchedEffect to handle auto-dismiss independently
+
         if (updateError.isNotEmpty()) {
-            // Auto-dismiss error after 3 seconds
             LaunchedEffect(key1 = updateError) {
                 try {
                     kotlinx.coroutines.delay(3000)
                     updateError = ""
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    // Ignore cancellation - screen was navigated away
                     android.util.Log.d("ProfileScreen", "Error auto-dismiss cancelled")
                 }
             }
-            
+
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1730,7 +1664,6 @@ fun EditProfileDialogCyberpunk(
                     )
                 )
 
-                // Status dropdown
                 var expandedStatus by remember { mutableStateOf(false) }
                 ExposedDropdownMenuBox(
                     expanded = expandedStatus,
@@ -1782,13 +1715,12 @@ fun EditProfileDialogCyberpunk(
                     maxLines = 4
                 )
 
-                // Interests/Tags section
                 Text(
                     "[INTERESTS]",
                     style = MaterialTheme.typography.labelSmall,
                     color = CyberpunkTheme.PrimaryPurple
                 )
-                
+
                 OutlinedTextField(
                     value = interestInput,
                     onValueChange = { interestInput = it },
@@ -1822,7 +1754,6 @@ fun EditProfileDialogCyberpunk(
                     }
                 )
 
-                // Display interests as tags
                 if (interests.isNotEmpty()) {
                     val interestList = interests.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                     @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -1866,7 +1797,6 @@ fun EditProfileDialogCyberpunk(
                     }
                 }
 
-                // Buttons
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1907,5 +1837,4 @@ fun EditProfileDialogCyberpunk(
         }
     }
 }
-
 

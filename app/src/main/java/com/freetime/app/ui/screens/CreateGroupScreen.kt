@@ -59,14 +59,14 @@ fun CreateGroupScreen(
     var errorMessage by remember { mutableStateOf("") }
     var friends by remember { mutableStateOf(listOf<SelectableFriend>()) }
     var isLoadingFriends by remember { mutableStateOf(true) }
-    var currentStep by remember { mutableStateOf(1) } // 1 = details, 2 = select members
+    var currentStep by remember { mutableStateOf(1) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val apiService = remember { FreeTimeApiService(context) }
     val displaySettings = LocalDisplaySettings.current
     val accentColor = displaySettings.getAccentColor()
 
-    // Load friends list
+    // group creation, member picker starts from friends
     LaunchedEffect(Unit) {
         try {
             val result = apiService.getFriends()
@@ -96,7 +96,6 @@ fun CreateGroupScreen(
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top bar
             TopAppBar(
                 title = {
                     Text(
@@ -117,7 +116,6 @@ fun CreateGroupScreen(
             )
 
             if (currentStep == 1) {
-                // Step 1: Group Details
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -166,7 +164,6 @@ fun CreateGroupScreen(
                     }
                 }
             } else {
-                // Step 2: Select Members
                 Column(modifier = Modifier.fillMaxSize()) {
                     val selectedCount = friends.count { it.isSelected }
                     Text(
@@ -215,7 +212,6 @@ fun CreateGroupScreen(
                         )
                     }
 
-                    // Create button
                     Button(
                         onClick = {
                             isLoading = true
@@ -226,11 +222,9 @@ fun CreateGroupScreen(
                                     val result = apiService.createGroup(groupName, groupDescription, selectedMemberIds)
                                     result.fold(
                                         onSuccess = { group ->
-                                            // ✅ SUCCESS: Group created, navigate to it
                                             onGroupCreated(group.groupId)
                                         },
                                         onFailure = { error ->
-                                            // ✅ GRACEFUL: Show error message (API layer handles 503 gracefully)
                                             errorMessage = "Failed to create group: ${error.message}"
                                         }
                                     )
@@ -276,7 +270,6 @@ private fun FriendSelectionItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Avatar
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -304,7 +297,6 @@ private fun FriendSelectionItem(
             )
         }
 
-        // Online status dot
         Box(
             modifier = Modifier
                 .size(10.dp)

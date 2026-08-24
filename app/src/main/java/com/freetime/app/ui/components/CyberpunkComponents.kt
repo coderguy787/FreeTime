@@ -21,47 +21,35 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Modern Design System for FreeTime Android App
- * Color Palette: Discord/WhatsApp/Telegram inspired - Clean, modern look
- * Style: Minimal, Flat, with smooth animations
- */
-
-// ===== COLOR PALETTE - BLACK, MAGENTA, WHITE ONLY =====
 object CyberpunkTheme {
-    // Primary colors - Black and Magenta only
-    val Black = Color(0xFF000000)           // Pure black background
-    val CyberBlack = Color(0xFF1A1A1A)     // Dark black
-    val DarkBlack = Color(0xFF1A1A1A)      // Dark black (alias for CyberBlack)
-    val DarkerGray = Color(0xFF121212)     // Even darker gray for backgrounds
-    val DarkGray = Color(0xFF303030)       // Dark gray for borders
-    val MediumGray = Color(0xFF505050)     // Medium gray
-    val LightGray = Color(0xFFF0F0F0)      // Light gray for secondary text
-    val GhostGray = Color(0xFF808080)      // Disabled text
+    val Black = Color(0xFF000000)
+    val CyberBlack = Color(0xFF1A1A1A)
+    val DarkBlack = Color(0xFF1A1A1A)
+    val DarkerGray = Color(0xFF121212)
+    val DarkGray = Color(0xFF303030)
+    val MediumGray = Color(0xFF505050)
+    val LightGray = Color(0xFFF0F0F0)
+    val GhostGray = Color(0xFF808080)
 
-    // Text colors
-    val TextPrimary = Color(0xFFF0F0F0)    // Main text (light gray/white)
-    val TextSecondary = Color(0xFFB0B0B0)  // Secondary text (medium gray)
-    val TextGhost = Color(0xFF808080)      // Ghost/disabled text (alias for GhostGray)
-    
-    // Magenta accents - All use magenta
-    val PrimaryPurple = Color(0xFFFF00FF)  // Magenta - Primary action
-    val PrimaryMagenta = Color(0xFFFF00FF) // Magenta - Primary action
-    val DeepPurple = Color(0xFFE91E63)     // Secondary magenta
-    val LightPurple = Color(0xFFFF66FF)    // Light magenta
-    
-    // Accent colors
-    val CyberCyan = Color(0xFF00FFFF)      // Bright cyan accent
-    val AquaCyan = Color(0xFF70FFFF)       // Light cyan
-    val DarkCyan = Color(0xFF00A0A0)       // Dark cyan
+    val TextPrimary = Color(0xFFF0F0F0)
+    val TextSecondary = Color(0xFFB0B0B0)
+    val TextGhost = Color(0xFF808080)
 
-    val White = Color(0xFFF5F5F5)          // Clean off-white
-    val ErrorRed = Color(0xFFFF3B3B)       // True red for errors
-    val SuccessGreen = Color(0xFF32CD32)   // Lime green for success
-    val WarningOrange = Color(0xFFFF8C00)  // Dark orange for warnings
-    val SecondaryBlack = Color(0xFF121212) // Slightly lighter black
+    val PrimaryPurple = Color(0xFFFF00FF)
+    val PrimaryMagenta = Color(0xFFFF00FF)
+    val DeepPurple = Color(0xFFE91E63)
+    val LightPurple = Color(0xFFFF66FF)
+
+    val CyberCyan = Color(0xFF00FFFF)
+    val AquaCyan = Color(0xFF70FFFF)
+    val DarkCyan = Color(0xFF00A0A0)
+
+    val White = Color(0xFFF5F5F5)
+    val ErrorRed = Color(0xFFFF3B3B)
+    val SuccessGreen = Color(0xFF32CD32)
+    val WarningOrange = Color(0xFFFF8C00)
+    val SecondaryBlack = Color(0xFF121212)
     }
-// ===== CYBERPUNK BUTTON =====
 @Composable
 fun CyberpunkButton(
     onClick: () -> Unit,
@@ -73,28 +61,18 @@ fun CyberpunkButton(
     variant: ButtonVariant = ButtonVariant.PRIMARY,
     size: ButtonSize = ButtonSize.MEDIUM
 ) {
-    val pulseAnimation = rememberInfiniteTransition()
-    val pulse by pulseAnimation.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutQuad),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
-    
     val (containerColor, contentColor, borderColor) = when (variant) {
         ButtonVariant.PRIMARY -> Triple(CyberpunkTheme.DarkGray, CyberpunkTheme.CyberCyan, CyberpunkTheme.PrimaryPurple)
         ButtonVariant.SECONDARY -> Triple(CyberpunkTheme.Black, CyberpunkTheme.PrimaryPurple, CyberpunkTheme.GhostGray)
         ButtonVariant.ACCENT -> Triple(CyberpunkTheme.DarkGray, CyberpunkTheme.CyberCyan, CyberpunkTheme.CyberCyan)
     }
-    
+
     val (height, padding, fontSize) = when (size) {
         ButtonSize.SMALL -> Triple(32.dp, 8.dp, 12.sp)
         ButtonSize.MEDIUM -> Triple(48.dp, 12.dp, 14.sp)
         ButtonSize.LARGE -> Triple(56.dp, 16.dp, 16.sp)
     }
-    
+
     Button(
         onClick = onClick,
         enabled = enabled && !isLoading,
@@ -160,7 +138,6 @@ enum class ButtonSize {
     SMALL, MEDIUM, LARGE
 }
 
-// ===== CYBERPUNK CARD =====
 @Composable
 fun CyberpunkCard(
     modifier: Modifier = Modifier,
@@ -176,7 +153,6 @@ fun CyberpunkCard(
     }
 }
 
-// ===== CYBERPUNK TOGGLE SWITCH =====
 @Composable
 fun CyberpunkToggle(
     checked: Boolean,
@@ -189,7 +165,8 @@ fun CyberpunkToggle(
         targetValue = if (checked) 24f else 4f,
         animationSpec = tween(durationMillis = 300)
     )
-    
+
+    // tappable settings row
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -224,7 +201,7 @@ fun CyberpunkToggle(
                     )
             )
         }
-        
+
         if (label.isNotEmpty()) {
             Text(
                 label,
@@ -236,7 +213,6 @@ fun CyberpunkToggle(
     }
 }
 
-// ===== CYBERPUNK CHECKBOX =====
 @Composable
 fun CyberpunkCheckbox(
     checked: Boolean,
@@ -276,7 +252,7 @@ fun CyberpunkCheckbox(
                 )
             }
         }
-        
+
         if (label.isNotEmpty()) {
             Text(
                 label,
@@ -288,7 +264,6 @@ fun CyberpunkCheckbox(
     }
 }
 
-// ===== CYBERPUNK TEXT INPUT =====
 @Composable
 fun CyberpunkTextField(
     value: String,
@@ -302,7 +277,7 @@ fun CyberpunkTextField(
     error: String = ""
 ) {
     var showPassword by remember { mutableStateOf(!isPassword) }
-    
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -316,7 +291,7 @@ fun CyberpunkTextField(
                 letterSpacing = 0.5.sp
             )
         }
-        
+
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -351,15 +326,15 @@ fun CyberpunkTextField(
             ),
             shape = RoundedCornerShape(2.dp),
             textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-            visualTransformation = if (isPassword && !showPassword) 
-                androidx.compose.ui.text.input.PasswordVisualTransformation() 
-            else 
+            visualTransformation = if (isPassword && !showPassword)
+                androidx.compose.ui.text.input.PasswordVisualTransformation()
+            else
                 androidx.compose.ui.text.input.VisualTransformation.None
         )
-        
+
         if (error.isNotEmpty()) {
             Text(
-                "⚠ $error",
+                " $error",
                 color = CyberpunkTheme.ErrorRed,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
@@ -368,7 +343,6 @@ fun CyberpunkTextField(
     }
 }
 
-// ===== CYBERPUNK BADGE =====
 @Composable
 fun CyberpunkBadge(
     text: String,
@@ -393,7 +367,6 @@ fun CyberpunkBadge(
     }
 }
 
-// ===== CYBERPUNK DIVIDER =====
 @Composable
 fun CyberpunkDivider(
     modifier: Modifier = Modifier,
@@ -415,7 +388,6 @@ fun CyberpunkDivider(
     )
 }
 
-// ===== CYBERPUNK STATUS INDICATOR =====
 @Composable
 fun CyberpunkStatusIndicator(
     isOnline: Boolean,
@@ -430,7 +402,8 @@ fun CyberpunkStatusIndicator(
             repeatMode = RepeatMode.Reverse
         )
     )
-    
+
+    // online status dot
     Box(
         modifier = modifier
             .size(12.dp)
@@ -450,7 +423,6 @@ fun CyberpunkStatusIndicator(
     )
 }
 
-// ===== CYBERPUNK MESSAGE BUBBLE =====
 @Composable
 fun CyberpunkMessageBubble(
     message: String,
@@ -498,7 +470,6 @@ fun CyberpunkMessageBubble(
     }
 }
 
-// ===== CYBERPUNK LIST ITEM =====
 @Composable
 fun CyberpunkListItem(
     title: String,
@@ -532,7 +503,7 @@ fun CyberpunkListItem(
                 icon()
             }
         }
-        
+
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -551,7 +522,7 @@ fun CyberpunkListItem(
                 )
             }
         }
-        
+
         if (trailing != null) {
             trailing()
         }

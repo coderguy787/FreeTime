@@ -8,7 +8,7 @@ import org.json.JSONObject
 
 data class InAppNotification(
     val id: String = System.currentTimeMillis().toString(),
-    val type: String, // "message", "call", "missedCall", "friendRequest", "friendAccepted", "groupInvite"
+    val type: String,
     val title: String,
     val description: String,
     val time: Long = System.currentTimeMillis(),
@@ -17,10 +17,7 @@ data class InAppNotification(
     val isRead: Boolean = false
 )
 
-/**
- * Notification store with SharedPreferences persistence.
- * FCM handlers add notifications here, and the NotificationCenter UI reads them.
- */
+// keeps the last 100 notifications
 object InAppNotificationStore {
     private val _notifications = mutableStateListOf<InAppNotification>()
     val notifications: List<InAppNotification> get() = _notifications
@@ -40,9 +37,7 @@ object InAppNotificationStore {
 
     @Synchronized
     fun addNotification(notification: InAppNotification) {
-        // UI operations on SnapshotStateList should ideally happen on Main thread,
-        // but SnapshotStateList is thread-safe for reading/writing.
-        _notifications.add(0, notification) // newest first
+        _notifications.add(0, notification)
         while (_notifications.size > MAX_NOTIFICATIONS) {
             _notifications.removeAt(_notifications.size - 1)
         }
@@ -98,8 +93,6 @@ object InAppNotificationStore {
                 put("isRead", n.isRead)
             })
         }
-        // Use commit() instead of apply() for synchronous write to prevent race conditions
-        // Critical data should be written synchronously before returning
         prefs?.edit()?.putString(KEY_NOTIFICATIONS, arr.toString())?.commit()
     }
 

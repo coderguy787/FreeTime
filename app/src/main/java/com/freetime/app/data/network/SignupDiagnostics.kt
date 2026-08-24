@@ -5,58 +5,44 @@ import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Diagnostic utility for troubleshooting signup issues
- * Helps identify connection, server, and request formatting problems
- */
 object SignupDiagnostics {
-    
     private const val TAG = "SIGNUP_DIAGNOSTICS"
-    
+
     data class DiagnosticResult(
         val testName: String,
         val passed: Boolean,
         val message: String,
         val details: Map<String, Any?> = emptyMap()
     )
-    
-    /**
-     * Run comprehensive signup diagnostics
-     */
+
+    // debug helper for signup issues
     suspend fun runFullDiagnostics(): List<DiagnosticResult> {
         return withContext(Dispatchers.IO) {
             val results = mutableListOf<DiagnosticResult>()
-            
-            // Test 1: Server connectivity
+
             results.add(testServerConnectivity())
-            
-            // Test 2: Signup endpoint availability
+
             results.add(testSignupEndpoint())
-            
-            // Test 3: Network configuration
+
             results.add(testNetworkConfiguration())
-            
-            // Test 4: Request serialization
+
             results.add(testRequestSerialization())
-            
+
             results
         }
     }
-    
-    /**
-     * Test basic server connectivity
-     */
+
     private suspend fun testServerConnectivity(): DiagnosticResult {
         return try {
             val baseUrl = ApiClient.getBaseUrl()
             val healthUrl = baseUrl.trimEnd('/') + "/health"
-            
+
             val response = withContext(Dispatchers.IO) {
                 RawSocketHttpClient.post(healthUrl, "{}")
             }
-            
+
             Log.d(TAG, "Health check response: ${response.take(100)}")
-            
+
             if (response.contains("\"status\"")) {
                 DiagnosticResult(
                     testName = "Server Connectivity",
@@ -82,21 +68,18 @@ object SignupDiagnostics {
             )
         }
     }
-    
-    /**
-     * Test signup endpoint availability
-     */
+
     private suspend fun testSignupEndpoint(): DiagnosticResult {
         return try {
             val baseUrl = ApiClient.getBaseUrl()
             val diagnosticUrl = baseUrl.trimEnd('/') + "/api/diagnostic/signup"
-            
+
             val response = withContext(Dispatchers.IO) {
                 RawSocketHttpClient.post(diagnosticUrl, "{}")
             }
-            
+
             Log.d(TAG, "Signup diagnostic response: ${response.take(200)}")
-            
+
             if (response.contains("\"signupEnabled\"")) {
                 DiagnosticResult(
                     testName = "Signup Endpoint",
@@ -122,23 +105,20 @@ object SignupDiagnostics {
             )
         }
     }
-    
-    /**
-     * Test network configuration
-     */
+
     private fun testNetworkConfiguration(): DiagnosticResult {
         return try {
             val baseUrl = ApiClient.getBaseUrl()
             val isLocalhost = baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1")
             val isHttps = baseUrl.startsWith("https")
-            
+
             val details = mapOf(
                 "baseUrl" to baseUrl,
                 "isLocalhost" to isLocalhost,
                 "isHttps" to isHttps,
                 "urlValid" to baseUrl.isNotEmpty()
             )
-            
+
             DiagnosticResult(
                 testName = "Network Configuration",
                 passed = true,
@@ -154,10 +134,7 @@ object SignupDiagnostics {
             )
         }
     }
-    
-    /**
-     * Test request serialization
-     */
+
     private fun testRequestSerialization(): DiagnosticResult {
         return try {
             val deviceFingerprint = DeviceFingerprint(
@@ -169,7 +146,7 @@ object SignupDiagnostics {
                 buildFingerprint = "test",
                 androidId = "test-android-id"
             )
-            
+
             val request = SignUpRequest(
                 username = "testuser",
                 email = "test@example.com",
@@ -178,13 +155,14 @@ object SignupDiagnostics {
                 confirmPassword = "Test@123456",
                 deviceFingerprint = deviceFingerprint
             )
-            
+
+            // local check only
             val json = com.google.gson.Gson().toJson(request)
             val parsed = JSONObject(json)
-            
+
             val hasAllFields = listOf("username", "email", "displayName", "password", "confirmPassword", "deviceFingerprint")
                 .all { parsed.has(it) }
-            
+
             DiagnosticResult(
                 testName = "Request Serialization",
                 passed = hasAllFields,
@@ -206,18 +184,15 @@ object SignupDiagnostics {
             )
         }
     }
-    
-    /**
-     * Log diagnostic results
-     */
+
     fun logResults(results: List<DiagnosticResult>) {
         Log.d(TAG, "===== Signup Diagnostics Results =====")
         results.forEach { result ->
-            val status = if (result.passed) "✓ PASS" else "✗ FAIL"
+            val status = if (result.passed) " PASS" else " FAIL"
             Log.d(TAG, "$status - ${result.testName}")
-            Log.d(TAG, "  Message: ${result.message}")
+            Log.d(TAG, " Message: ${result.message}")
             result.details.forEach { (key, value) ->
-                Log.d(TAG, "  $key: $value")
+                Log.d(TAG, " $key: $value")
             }
         }
         Log.d(TAG, "====================================")

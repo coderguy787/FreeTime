@@ -1,28 +1,10 @@
-/**
- * WebSocket Event Handlers for Enhanced Features
- * Real-time support for:
- * - Message Reactions
- * - Typing Indicators
- * - Online Status Updates
- * - Message Pinning
- * - Presence & Activity
- * - User Status
- */
+const activeUsers = new Map();
+const typingUsers = new Map();
+const userActivity = new Map();
 
-// Map to store active connections
-const activeUsers = new Map(); // userId -> { socket, status, lastActivity }
-const typingUsers = new Map(); // conversationId -> Set of typing users
-const userActivity = new Map(); // userId -> lastActivityTime
-
-/**
- * Setup Enhanced WebSocket Events
- * Call this from the main WebSocket server after connection
- */
 function setupEnhancedEventHandlers(ws, userId, conversationId) {
-    // Track user activity
     updateUserActivity(userId);
-    
-    // Store connection
+
     if (!activeUsers.has(userId)) {
         activeUsers.set(userId, {
             socket: ws,
@@ -32,21 +14,12 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         });
     }
 
-    // ============================================
-    // REACTION EVENTS
-    // ============================================
-    
-    /**
-     * Handle: message:reaction:add
-     * Event data: { messageId, emoji, conversationId, senderId }
-     */
     ws.on('message:reaction:add', (data) => {
         try {
             const { messageId, emoji, conversationId, senderId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
-            // Broadcast reaction to all users in conversation
             broadcastToConversation(conversationId, {
                 type: 'message:reaction:added',
                 messageId,
@@ -61,14 +34,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: message:reaction:remove
-     * Event data: { messageId, emoji, conversationId }
-     */
     ws.on('message:reaction:remove', (data) => {
         try {
             const { messageId, emoji, conversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(conversationId, {
@@ -85,26 +54,17 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    // ============================================
-    // TYPING INDICATOR EVENTS
-    // ============================================
-
-    /**
-     * Handle: typing:start
-     * Event data: { conversationId }
-     */
     ws.on('typing:start', (data) => {
         try {
             const { conversationId } = JSON.parse(data);
-            
+
             if (!typingUsers.has(conversationId)) {
                 typingUsers.set(conversationId, new Set());
             }
-            
+
             typingUsers.get(conversationId).add(userId);
             updateUserActivity(userId);
 
-            // Broadcast typing indicator to conversation
             broadcastToConversation(conversationId, {
                 type: 'user:typing',
                 userId,
@@ -118,14 +78,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: typing:stop
-     * Event data: { conversationId }
-     */
     ws.on('typing:stop', (data) => {
         try {
             const { conversationId } = JSON.parse(data);
-            
+
             if (typingUsers.has(conversationId)) {
                 typingUsers.get(conversationId).delete(userId);
             }
@@ -143,18 +99,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    // ============================================
-    // MESSAGE FEATURE EVENTS
-    // ============================================
-
-    /**
-     * Handle: message:edit
-     * Event data: { messageId, content, conversationId }
-     */
     ws.on('message:edit', (data) => {
         try {
             const { messageId, content, conversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(conversationId, {
@@ -171,14 +119,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: message:delete
-     * Event data: { messageId, conversationId }
-     */
     ws.on('message:delete', (data) => {
         try {
             const { messageId, conversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(conversationId, {
@@ -194,14 +138,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: message:pin
-     * Event data: { messageId, conversationId }
-     */
     ws.on('message:pin', (data) => {
         try {
             const { messageId, conversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(conversationId, {
@@ -217,14 +157,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: message:unpin
-     * Event data: { messageId, conversationId }
-     */
     ws.on('message:unpin', (data) => {
         try {
             const { messageId, conversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(conversationId, {
@@ -240,14 +176,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: message:reply
-     * Event data: { messageId, replyToId, conversationId }
-     */
     ws.on('message:reply', (data) => {
         try {
             const { messageId, replyToId, conversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(conversationId, {
@@ -264,14 +196,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: message:forward
-     * Event data: { messageId, targetConversationId, currentConversationId }
-     */
     ws.on('message:forward', (data) => {
         try {
             const { messageId, targetConversationId, currentConversationId } = JSON.parse(data);
-            
+
             updateUserActivity(userId);
 
             broadcastToConversation(currentConversationId, {
@@ -281,7 +209,6 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
                 timestamp: new Date().toISOString()
             });
 
-            // Also notify target conversation
             broadcastToConversation(targetConversationId, {
                 type: 'message:received:forward',
                 messageId,
@@ -295,25 +222,16 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    // ============================================
-    // PRESENCE & STATUS EVENTS
-    // ============================================
-
-    /**
-     * Handle: user:status:update
-     * Event data: { status, lastSeen }
-     */
     ws.on('user:status:update', (data) => {
         try {
             const { status } = JSON.parse(data);
-            
+
             if (activeUsers.has(userId)) {
                 const userInfo = activeUsers.get(userId);
-                userInfo.status = status; // 'online', 'idle', 'busy', 'offline'
+                userInfo.status = status;
                 userInfo.lastActivity = Date.now();
             }
 
-            // Broadcast status to all active connections
             broadcastGlobal({
                 type: 'user:status:changed',
                 userId,
@@ -327,22 +245,17 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    /**
-     * Handle: user:activity
-     * Any user activity (message, reaction, typing, etc)
-     */
     ws.on('user:activity', (data) => {
         try {
             updateUserActivity(userId);
-            
-            // Mark user as idle after 5 minutes of no activity
+
             if (activeUsers.has(userId)) {
                 const userInfo = activeUsers.get(userId);
                 userInfo.lastActivity = Date.now();
-                
+
                 if (userInfo.status === 'idle') {
                     userInfo.status = 'online';
-                    
+
                     broadcastGlobal({
                         type: 'user:status:changed',
                         userId,
@@ -356,20 +269,11 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         }
     });
 
-    // ============================================
-    // CONNECTION LIFECYCLE
-    // ============================================
-
-    /**
-     * Handle connection close
-     */
     ws.on('close', () => {
         console.log(`[DISCONNECT] User ${userId} disconnected`);
-        
-        // Remove user from active users
+
         activeUsers.delete(userId);
-        
-        // Remove from typing users and prune empty sets
+
         typingUsers.forEach((typingSet, conversationId) => {
             typingSet.delete(userId);
             if (typingSet.size === 0) {
@@ -377,10 +281,8 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
             }
         });
 
-        // Clean up activity tracking
         userActivity.delete(userId);
 
-        // Broadcast offline status
         broadcastGlobal({
             type: 'user:offline',
             userId,
@@ -388,14 +290,10 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
         });
     });
 
-    /**
-     * Handle connection error
-     */
     ws.on('error', (error) => {
         console.error(`[ERROR] User ${userId} WebSocket error:`, error);
     });
 
-    // Broadcast user joined event
     broadcastGlobal({
         type: 'user:online',
         userId,
@@ -405,9 +303,6 @@ function setupEnhancedEventHandlers(ws, userId, conversationId) {
     console.log(`[CONNECT] User ${userId} connected on conversation ${conversationId}`);
 }
 
-/**
- * Broadcast message to all users in a conversation
- */
 function broadcastToConversation(conversationId, message) {
     activeUsers.forEach((userInfo) => {
         if (userInfo.conversationId === conversationId && userInfo.socket.readyState === 1) {
@@ -420,9 +315,6 @@ function broadcastToConversation(conversationId, message) {
     });
 }
 
-/**
- * Broadcast message to all connected users
- */
 function broadcastGlobal(message) {
     activeUsers.forEach((userInfo) => {
         if (userInfo.socket.readyState === 1) {
@@ -435,9 +327,6 @@ function broadcastGlobal(message) {
     });
 }
 
-/**
- * Update user activity timestamp
- */
 function updateUserActivity(userId) {
     if (activeUsers.has(userId)) {
         activeUsers.get(userId).lastActivity = Date.now();
@@ -445,9 +334,6 @@ function updateUserActivity(userId) {
     userActivity.set(userId, Date.now());
 }
 
-/**
- * Get active users in conversation
- */
 function getConversationUsers(conversationId) {
     const users = [];
     activeUsers.forEach((userInfo, userId) => {
@@ -462,26 +348,21 @@ function getConversationUsers(conversationId) {
     return users;
 }
 
-/**
- * Get user online status
- */
 function isUserOnline(userId) {
     const userInfo = activeUsers.get(userId);
     return userInfo && userInfo.status === 'online';
 }
 
-/**
- * Mark idle users after 5 minutes and clean up stale activity entries
- */
+// presence tracking (online/idle)
 setInterval(() => {
     const now = Date.now();
-    const idleTimeout = 5 * 60 * 1000; // 5 minutes
-    const activityStaleTimeout = 24 * 60 * 60 * 1000; // 24 hours for activity cleanup
+    const idleTimeout = 5 * 60 * 1000;
+    const activityStaleTimeout = 24 * 60 * 60 * 1000;
 
     activeUsers.forEach((userInfo, userId) => {
         if (now - userInfo.lastActivity > idleTimeout && userInfo.status === 'online') {
             userInfo.status = 'idle';
-            
+
             broadcastGlobal({
                 type: 'user:status:changed',
                 userId,
@@ -493,13 +374,12 @@ setInterval(() => {
         }
     });
 
-    // Clean up stale activity entries for users no longer connected
     for (const [userId, lastTime] of userActivity.entries()) {
         if (!activeUsers.has(userId) && now - lastTime > activityStaleTimeout) {
             userActivity.delete(userId);
         }
     }
-}, 60000); // Check every minute
+}, 60000);
 
 module.exports = {
     setupEnhancedEventHandlers,

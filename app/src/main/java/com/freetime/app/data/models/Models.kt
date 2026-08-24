@@ -1,13 +1,11 @@
 package com.freetime.app.data.models
 
-// HTTP Response Wrapper
 data class HttpResponse(
     val statusCode: Int,
     val body: String,
     val headers: Map<String, String> = emptyMap()
 )
 
-// Auth Models
 data class LoginRequest(
     val username: String,
     val password: String,
@@ -50,14 +48,12 @@ data class VerifyResponse(
     val username: String = ""
 )
 
-// User Models
 data class UpdateUserRequest(
     val email: String? = null,
     val status: String? = null,
     val profilePicture: String? = null
 )
 
-// Message Models
 data class MessageResponse(
     val _id: String,
     val senderId: String,
@@ -72,19 +68,15 @@ data class MessageResponse(
     val mediaId: String? = null,
     val mediaType: String? = null,
     val mediaName: String? = null,
-    // ✅ NEW: Color-coding fields from backend
     val senderDisplayName: String? = null,
     val senderTags: List<String> = emptyList(),
     val senderIsAdmin: Boolean = false,
     val senderIsModerator: Boolean = false,
     val senderRole: String? = null,
-    // ✅ NEW: Reply support fields
     val replyToMessageId: String? = null,
     val replyToUsername: String? = null,
     val replyToText: String? = null,
-    // ✅ NEW: Reaction support
     val reactions: Map<String, List<String>> = emptyMap(),
-    // ✅ NEW: Message ID alternatives
     val id: String? = null
 )
 
@@ -94,36 +86,6 @@ data class SendMessageRequest(
     val type: String = "text"
 )
 
-// Call Models
-data class InitiateCallRequest(
-    val recipientId: String,
-    val callType: String = "voice",
-    val offer: String = ""
-)
-
-data class CallResponse(
-    val _id: String,
-    val callId: String,
-    val callerId: String,
-    val recipientId: String,
-    val callType: String,
-    val status: String,
-    val startTime: Long = 0,
-    val endTime: Long = 0,
-    val offer: String? = null,
-    val answer: String? = null,
-    val candidates: List<String> = emptyList()
-)
-
-data class AnswerCallRequest(
-    val answer: String
-)
-
-data class UpdateCallStatusRequest(
-    val status: String
-)
-
-// FCM Models
 data class FcmTokenRequest(
     val fcmToken: String,
     val deviceId: String = ""
@@ -134,7 +96,6 @@ data class FcmTokenResponse(
     val message: String
 )
 
-// Signup Models
 data class SignUpRequest(
     val username: String,
     val email: String,
@@ -155,7 +116,6 @@ data class SignUpResponse(
     val error: String? = null
 )
 
-// 2FA Models
 data class SetupAuthenticatorResponse(
     val success: Boolean,
     val message: String,
@@ -215,7 +175,7 @@ data class SendVerificationEmailResponse(
     val error: String? = null
 )
 
-// Updated UserResponse with 2FA fields
+// accept all id field spellings from the api
 data class UserResponse(
     val _id: String = "",
     val id: String = "",
@@ -244,12 +204,11 @@ data class TwoFactorAuth(
     val backupCodesUsed: List<String> = emptyList()
 )
 
-// Channel-related Models
 data class ChannelMember(
     val userId: String,
     val username: String,
     val displayName: String,
-    val role: String, // "admin", "moderator", "member"
+    val role: String,
     val isAdmin: Boolean = false,
     val isMuted: Boolean = false,
     val isActive: Boolean = false,
@@ -265,14 +224,13 @@ data class Channel(
     val isPrivate: Boolean = false
 )
 
-// Voting Models
 data class GroupVote(
     val id: String = "",
     val voteId: String = "",
     val groupId: String = "",
     val question: String = "",
     val voterId: String = "",
-    val voteType: String = "", // "approve", "reject"
+    val voteType: String = "",
     val timestamp: Long = 0L,
     val reason: String? = null,
     val voteCount: Int = 0,
@@ -287,10 +245,9 @@ data class VoteOption(
     val voteCount: Int = 0
 )
 
-// Media Models
 data class MediaEntity(
     val id: String,
-    val type: String, // "image", "video", "document"
+    val type: String,
     val url: String,
     val thumbnailUrl: String? = null,
     val uploadedAt: Long = 0,

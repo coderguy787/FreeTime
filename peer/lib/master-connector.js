@@ -1,19 +1,14 @@
-/**
- * Master Server Connector
- * Handles all communication with the master server
- * Including account verification, 2FA, and metrics reporting
- */
-
 const axios = require('axios');
 
+// client for talking to the master server
 class MasterConnector {
     constructor(config, logger) {
         this.config = config;
         this.logger = logger;
-        
+
         this.baseURL = `${config.MASTER_URL}:${config.MASTER_PORT}`;
         this.apiKey = config.MASTER_API_KEY;
-        
+
         this.client = axios.create({
             baseURL: this.baseURL,
             timeout: 10000,
@@ -32,9 +27,6 @@ class MasterConnector {
         };
     }
 
-    /**
-     * Verify JWT token with master server
-     */
     async verifyToken(token) {
         try {
             const response = await this.client.get('/api/verify-token', {
@@ -53,9 +45,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Verify 2FA TOTP code
-     */
     async verify2FA(userId, totpCode, deviceId) {
         try {
             const response = await this.client.post('/api/verify-peer-2fa', {
@@ -76,9 +65,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Report metrics to master server
-     */
     async reportMetrics(metrics) {
         try {
             await this.client.post('/api/peer/metrics', {
@@ -96,9 +82,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Notify master of peer status change
-     */
     async notifyPeerStatus(status, details = {}) {
         try {
             await this.client.post('/api/peer/status', {
@@ -114,9 +97,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Get user account info
-     */
     async getUserAccount(userId, token) {
         try {
             const response = await this.client.get(`/api/users/${userId}`, {
@@ -133,9 +113,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Check if user exists
-     */
     async userExists(username) {
         try {
             const response = await this.client.get('/api/users/check', {
@@ -152,9 +129,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Register new peer with master (on startup)
-     */
     async registerPeer(capabilities = {}) {
         try {
             const response = await this.client.post('/api/peer/register', {
@@ -179,9 +153,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Deregister peer from master (on shutdown)
-     */
     async deregisterPeer() {
         try {
             await this.client.post('/api/peer/deregister', {
@@ -197,9 +168,6 @@ class MasterConnector {
         }
     }
 
-    /**
-     * Get peer statistics
-     */
     getStats() {
         return {
             ...this.stats,
@@ -207,9 +175,6 @@ class MasterConnector {
         };
     }
 
-    /**
-     * Health check with master
-     */
     async healthCheck() {
         try {
             const response = await this.client.get('/health');

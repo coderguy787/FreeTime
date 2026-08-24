@@ -33,13 +33,11 @@ fun AdminPanelScreen(
     var searchQuery by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Check if user is admin
     val isAdmin = remember { adminRepository.isCurrentUserAdmin() }
 
-    // Load admin data
+    // load admin stats on open
     LaunchedEffect(Unit) {
         try {
-            // Load stats
             val statsResult = adminRepository.getAdminStats()
             statsResult.onSuccess { stat ->
                 stats = stat
@@ -76,7 +74,6 @@ fun AdminPanelScreen(
             .fillMaxSize()
             .background(Color(0xFF1A1A1A))
     ) {
-        // Top Bar
         TopAppBar(
             title = { Text("Admin Panel", fontSize = 20.sp) },
             navigationIcon = {
@@ -102,7 +99,6 @@ fun AdminPanelScreen(
                     .fillMaxSize()
                     .padding(16.dp)
             ) {
-                // Tab Navigation
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -126,7 +122,6 @@ fun AdminPanelScreen(
                     )
                 }
 
-                // Content based on selected tab
                 when (selectedTab) {
                     "overview" -> AdminOverviewTab(stats)
                     "users" -> AdminUsersTab(adminRepository, searchQuery) { query ->
@@ -135,7 +130,6 @@ fun AdminPanelScreen(
                     "settings" -> AdminSettingsTab()
                 }
 
-                // Error Display
                 if (errorMessage != null) {
                     Card(
                         modifier = Modifier
@@ -184,7 +178,6 @@ private fun AdminOverviewTab(stats: Map<String, Any>) {
     ) {
         Text("Dashboard", fontSize = 16.sp, modifier = Modifier.padding(bottom = 12.dp))
 
-        // Statistics Cards
         LazyColumn {
             items(listOf(
                 "Total Users" to (stats["totalUsers"] ?: 0),
@@ -209,11 +202,9 @@ private fun AdminUsersTab(
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // Fetch users on compose
     LaunchedEffect(Unit) {
         try {
             adminRepository.getAllUsersFlow().collect { fetchedUsers ->
-                // Parse users - handle both Map and Any types
                 val parsedUsers = when {
                     fetchedUsers is List<*> -> {
                         fetchedUsers.mapNotNull { user ->
@@ -235,7 +226,6 @@ private fun AdminUsersTab(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Search Field
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchChange,
@@ -247,22 +237,19 @@ private fun AdminUsersTab(
 
         Text("Users List (${users.size} total)", fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
 
-        // Loading/Error Status
         if (isLoading) {
             Text("Loading users...", fontSize = 12.sp, modifier = Modifier.padding(8.dp))
         } else if (error != null) {
             Text(error!!, fontSize = 12.sp, color = Color.Red, modifier = Modifier.padding(8.dp))
         }
 
-        // Users List
         LazyColumn {
             items(users) { user ->
                 val userId = user["_id"] as? String ?: user["id"] as? String ?: "Unknown"
                 val role = user["role"] as? String ?: "USER"
                 val isAdmin = role == "ADMIN"
-                
+
                 UserManagementItem(userId, isAdmin) { _ ->
-                    // Handle user action
                 }
             }
         }
@@ -370,5 +357,4 @@ private fun SettingsField(label: String, value: String) {
         )
     }
 }
-
 

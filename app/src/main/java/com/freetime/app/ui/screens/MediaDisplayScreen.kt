@@ -16,21 +16,18 @@ import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.components.CyberpunkTheme
 import com.freetime.app.ui.composables.DownloadProgressBar
 
-/**
- * MediaDisplayScreen - Full-screen media viewer for images, videos, documents
- * Handles encrypted media decryption and download request workflow
- */
 @Composable
 fun MediaDisplayScreen(
     mediaId: String,
-    mediaType: String,  // "image", "video", "document"
+    mediaType: String,
     fileName: String,
     fileSize: Long,
     onClose: () -> Unit,
     onRequestDownload: (String) -> Unit,
-    onDownloadApproved: (String) -> Unit,  // downloadUrl
-    downloadStatus: String = "pending"      // "pending", "approved", "downloading", "completed", "denied"
+    onDownloadApproved: (String) -> Unit,
+    downloadStatus: String = "pending"
 ) {
+    // media viewer, downloads need sender approval
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0f) }
     var showRequestDialog by remember { mutableStateOf(false) }
@@ -43,7 +40,6 @@ fun MediaDisplayScreen(
         color = CyberpunkTheme.CyberBlack
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Media content area
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -51,7 +47,6 @@ fun MediaDisplayScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -84,7 +79,6 @@ fun MediaDisplayScreen(
                     }
                 }
 
-                // Media placeholder (actual media rendering would go here)
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -99,7 +93,6 @@ fun MediaDisplayScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        // Icon based on media type
                         val icon = when (mediaType) {
                             "image" -> Icons.Filled.Image
                             "video" -> Icons.Filled.Videocam
@@ -141,7 +134,6 @@ fun MediaDisplayScreen(
                     }
                 }
 
-                // Status and download info
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -154,7 +146,6 @@ fun MediaDisplayScreen(
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Status indicator
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -168,10 +159,10 @@ fun MediaDisplayScreen(
 
                             Text(
                                 when (downloadStatus) {
-                                    "approved" -> "✓ Ready"
+                                    "approved" -> " Ready"
                                     "downloading" -> "⋯ Downloading"
-                                    "completed" -> "✓ Complete"
-                                    "denied" -> "✗ Denied"
+                                    "completed" -> " Complete"
+                                    "denied" -> " Denied"
                                     else -> "⧖ Pending Approval"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
@@ -185,7 +176,6 @@ fun MediaDisplayScreen(
                             )
                         }
 
-                        // Download progress bar (if downloading)
                         if (downloadStatus == "downloading") {
                             DownloadProgressBar(
                                 progress = downloadProgress,
@@ -199,7 +189,6 @@ fun MediaDisplayScreen(
                     }
                 }
 
-                // Action buttons
                 when (downloadStatus) {
                     "pending" -> {
                         Button(
@@ -285,7 +274,7 @@ fun MediaDisplayScreen(
 
                     "completed" -> {
                         Button(
-                            onClick = { /* Open file */ },
+                            onClick = { },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp),
@@ -344,7 +333,6 @@ fun MediaDisplayScreen(
         }
     }
 
-    // Request download confirmation dialog
     if (showRequestDialog) {
         AlertDialog(
             onDismissRequest = { showRequestDialog = false },
@@ -393,9 +381,6 @@ fun MediaDisplayScreen(
     }
 }
 
-/**
- * Format file size to human-readable format
- */
 fun formatFileSize(bytes: Long): String {
     return when {
         bytes < 1024 -> "$bytes B"
@@ -404,5 +389,4 @@ fun formatFileSize(bytes: Long): String {
         else -> "${bytes / (1024 * 1024 * 1024)} GB"
     }
 }
-
 

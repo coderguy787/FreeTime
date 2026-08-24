@@ -129,7 +129,6 @@ fun GifPickerDialog(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Backdrop — fills entire area, dismisses on tap
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -140,7 +139,6 @@ fun GifPickerDialog(
                     onClick = onDismiss
                 )
         )
-        // Content panel — positioned at bottom, no clickable so children (TextField, GIF grid) work normally
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -150,7 +148,6 @@ fun GifPickerDialog(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -176,7 +173,6 @@ fun GifPickerDialog(
                     }
                 }
 
-                // Search bar
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -192,6 +188,7 @@ fun GifPickerDialog(
                             searchJob?.cancel()
                             if (newValue.isNotBlank()) {
                                 searchJob = scope.launch {
+                                    // gif search picker
                                     delay(400)
                                     isLoading = true
                                     errorMessage = null
@@ -283,7 +280,6 @@ fun GifPickerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Categories row
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -329,7 +325,6 @@ fun GifPickerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Content area
                 when {
                     isLoading -> {
                         Box(
@@ -357,7 +352,7 @@ fun GifPickerDialog(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    "⚠️",
+                                    "",
                                     fontSize = 36.sp
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))

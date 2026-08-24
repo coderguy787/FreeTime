@@ -3,16 +3,8 @@ package com.freetime.app.testutil
 import com.freetime.app.data.model.*
 import java.util.*
 
-/**
- * Test data builders and factories for unit tests
- * 
- * Provides reusable test fixtures and builders for common test data models
- * allowing tests to quickly create realistic test scenarios.
- */
+// shared test data builders
 object TestDataFactory {
-    
-    // ===== Friend Request Builders =====
-    
     fun createTestFriendRequest(
         id: String = "req_${UUID.randomUUID()}",
         senderId: String = "user_sender_123",
@@ -26,7 +18,7 @@ object TestDataFactory {
             createdAt = createdAt
         )
     }
-    
+
     fun createMultipleFriendRequests(count: Int = 5): List<FriendRequest> {
         return (1..count).map { i ->
             createTestFriendRequest(
@@ -36,9 +28,7 @@ object TestDataFactory {
             )
         }
     }
-    
-    // ===== Friend Builders =====
-    
+
     fun createTestFriend(
         id: String = "user_${UUID.randomUUID()}",
         username: String = "test_user",
@@ -50,7 +40,7 @@ object TestDataFactory {
             isActive = isActive
         )
     }
-    
+
     fun createMultipleFriends(count: Int = 10): List<Friend> {
         return (1..count).map { i ->
             createTestFriend(
@@ -60,7 +50,7 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createActiveFriends(count: Int = 5): List<Friend> {
         return (1..count).map { i ->
             createTestFriend(
@@ -70,7 +60,7 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createInactiveFriends(count: Int = 5): List<Friend> {
         return (1..count).map { i ->
             createTestFriend(
@@ -80,9 +70,7 @@ object TestDataFactory {
             )
         }
     }
-    
-    // ===== Vote Option Builders =====
-    
+
     fun createTestVoteOption(
         id: String = "opt_${UUID.randomUUID()}",
         text: String = "Vote option",
@@ -96,7 +84,7 @@ object TestDataFactory {
             totalVotes = totalVotes
         )
     }
-    
+
     fun createMultipleVoteOptions(
         count: Int = 3,
         totalVotes: Int = 100
@@ -110,9 +98,7 @@ object TestDataFactory {
             )
         }
     }
-    
-    // ===== Group Vote Builders =====
-    
+
     fun createTestGroupVote(
         id: String = "vote_${UUID.randomUUID()}",
         groupId: String = "group_123",
@@ -132,7 +118,7 @@ object TestDataFactory {
             completedAt = completedAt
         )
     }
-    
+
     fun createActiveVotes(count: Int = 3): List<GroupVote> {
         return (1..count).map { i ->
             createTestGroupVote(
@@ -142,7 +128,7 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createCompletedVotes(count: Int = 3): List<GroupVote> {
         return (1..count).map { i ->
             createTestGroupVote(
@@ -152,13 +138,11 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createMixedVotes(activeCount: Int = 2, completedCount: Int = 2): List<GroupVote> {
         return createActiveVotes(activeCount) + createCompletedVotes(completedCount)
     }
-    
-    // ===== Channel Builders =====
-    
+
     fun createTestChannel(
         id: String = "channel_${UUID.randomUUID()}",
         name: String = "Test Channel",
@@ -176,7 +160,7 @@ object TestDataFactory {
             isPrivate = isPrivate
         )
     }
-    
+
     fun createMultipleChannels(count: Int = 5): List<Channel> {
         return (1..count).map { i ->
             createTestChannel(
@@ -186,7 +170,7 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createPrivateChannels(count: Int = 3): List<Channel> {
         return (1..count).map { i ->
             createTestChannel(
@@ -196,9 +180,7 @@ object TestDataFactory {
             )
         }
     }
-    
-    // ===== Channel Member Builders =====
-    
+
     fun createTestChannelMember(
         userId: String = "user_${UUID.randomUUID()}",
         username: String = "test_member",
@@ -214,7 +196,7 @@ object TestDataFactory {
             isActive = isActive
         )
     }
-    
+
     fun createMultipleChannelMembers(
         count: Int = 10,
         moderatorCount: Int = 1
@@ -227,7 +209,7 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createModerators(count: Int = 3): List<ChannelMember> {
         return (1..count).map { i ->
             createTestChannelMember(
@@ -237,7 +219,7 @@ object TestDataFactory {
             )
         }
     }
-    
+
     fun createMutedMembers(count: Int = 5): List<ChannelMember> {
         return (1..count).map { i ->
             createTestChannelMember(
@@ -247,9 +229,7 @@ object TestDataFactory {
             )
         }
     }
-    
-    // ===== WebSocket Event Builders =====
-    
+
     fun createTestWebSocketEvent(
         type: String = "TEST_EVENT",
         data: Map<String, Any> = emptyMap(),
@@ -261,7 +241,7 @@ object TestDataFactory {
             timestamp = timestamp
         )
     }
-    
+
     fun createFriendRequestEvent(
         senderId: String = "user_123",
         senderUsername: String = "sender",
@@ -276,7 +256,7 @@ object TestDataFactory {
             )
         )
     }
-    
+
     fun createVoteUpdatedEvent(
         voteId: String = "vote_789",
         optionId: String = "opt_1",
@@ -291,7 +271,7 @@ object TestDataFactory {
             )
         )
     }
-    
+
     fun createMemberJoinedEvent(
         userId: String = "user_999",
         username: String = "new_member",
@@ -306,7 +286,7 @@ object TestDataFactory {
             )
         )
     }
-    
+
     fun createMemberLeftEvent(
         userId: String = "user_999",
         username: String = "left_member",
@@ -321,7 +301,7 @@ object TestDataFactory {
             )
         )
     }
-    
+
     fun createMultipleWebSocketEvents(count: Int = 10): List<WebSocketEvent> {
         val eventTypes = listOf(
             "FRIEND_REQUEST_RECEIVED",
@@ -329,7 +309,7 @@ object TestDataFactory {
             "MEMBER_JOINED",
             "MEMBER_LEFT"
         )
-        
+
         return (1..count).map { i ->
             createTestWebSocketEvent(
                 type = eventTypes[i % eventTypes.size],
@@ -340,23 +320,19 @@ object TestDataFactory {
     }
 }
 
-/**
- * Test assertion helpers for common test scenarios
- */
 object TestAssertions {
-    
     fun assertFriendRequestValid(request: FriendRequest) {
         assert(request.id.isNotEmpty())
         assert(request.senderId.isNotEmpty())
         assert(request.senderUsername.isNotEmpty())
         assert(request.createdAt > 0)
     }
-    
+
     fun assertFriendValid(friend: Friend) {
         assert(friend.id.isNotEmpty())
         assert(friend.username.isNotEmpty())
     }
-    
+
     fun assertVoteValid(vote: GroupVote) {
         assert(vote.id.isNotEmpty())
         assert(vote.groupId.isNotEmpty())
@@ -364,28 +340,25 @@ object TestAssertions {
         assert(vote.options.isNotEmpty())
         assert(vote.totalMembers > 0)
     }
-    
+
     fun assertChannelValid(channel: Channel) {
         assert(channel.id.isNotEmpty())
         assert(channel.name.isNotEmpty())
         assert(channel.memberCount >= 0)
     }
-    
+
     fun assertChannelMemberValid(member: ChannelMember) {
         assert(member.userId.isNotEmpty())
         assert(member.username.isNotEmpty())
         assert(member.role.isNotEmpty())
     }
-    
+
     fun assertWebSocketEventValid(event: WebSocketEvent) {
         assert(event.type.isNotEmpty())
         assert(event.timestamp > 0)
     }
 }
 
-/**
- * Test data builders with builder pattern for more complex scenarios
- */
 class GroupVoteBuilder {
     private var id: String = "vote_${UUID.randomUUID()}"
     private var groupId: String = "group_123"
@@ -394,7 +367,7 @@ class GroupVoteBuilder {
     private var totalMembers: Int = 50
     private var voteCount: Int = 25
     private var completedAt: Long? = null
-    
+
     fun withId(id: String) = apply { this.id = id }
     fun withGroupId(groupId: String) = apply { this.groupId = groupId }
     fun withQuestion(question: String) = apply { this.question = question }
@@ -404,7 +377,7 @@ class GroupVoteBuilder {
     fun withCompletedAt(timestamp: Long?) = apply { this.completedAt = timestamp }
     fun asActive() = apply { this.completedAt = null }
     fun asCompleted() = apply { this.completedAt = System.currentTimeMillis() }
-    
+
     fun build(): GroupVote {
         return GroupVote(
             id = id,
@@ -425,7 +398,7 @@ class ChannelBuilder {
     private var memberCount: Int = 10
     private var createdAt: Long = System.currentTimeMillis()
     private var isPrivate: Boolean = false
-    
+
     fun withId(id: String) = apply { this.id = id }
     fun withName(name: String) = apply { this.name = name }
     fun withDescription(description: String) = apply { this.description = description }
@@ -433,7 +406,7 @@ class ChannelBuilder {
     fun withCreatedAt(timestamp: Long) = apply { this.createdAt = timestamp }
     fun asPrivate() = apply { this.isPrivate = true }
     fun asPublic() = apply { this.isPrivate = false }
-    
+
     fun build(): Channel {
         return Channel(
             id = id,
@@ -452,7 +425,7 @@ class ChannelMemberBuilder {
     private var role: String = "member"
     private var isMuted: Boolean = false
     private var isActive: Boolean = true
-    
+
     fun withUserId(userId: String) = apply { this.userId = userId }
     fun withUsername(username: String) = apply { this.username = username }
     fun asModeratorRole() = apply { this.role = "moderator" }
@@ -461,7 +434,7 @@ class ChannelMemberBuilder {
     fun asUnmuted() = apply { this.isMuted = false }
     fun asActive() = apply { this.isActive = true }
     fun asInactive() = apply { this.isActive = false }
-    
+
     fun build(): ChannelMember {
         return ChannelMember(
             userId = userId,

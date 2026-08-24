@@ -7,11 +7,6 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-/**
- * FreeTime Local Database
- * Provides Room DAOs for local data persistence
- * Syncs with server-side database on Debian 13 master-server
- */
 @Database(
     entities = [
         ChatEntity::class,
@@ -24,13 +19,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MediaEntity::class,
         DeleteRequestEntity::class,
         DeleteApprovalEntity::class,
-        CallHistoryEntity::class,
-        SyncStateEntity::class
+        OfflineQueueEntity::class
     ],
-    version = 5
+    version = 7
 )
 abstract class FreeTimeDatabase : RoomDatabase() {
-    // DAO Accessors
     abstract fun chatDao(): ChatDao
     abstract fun messageDao(): MessageDao
     abstract fun groupDao(): GroupDao
@@ -41,10 +34,10 @@ abstract class FreeTimeDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
     abstract fun deleteRequestDao(): DeleteRequestDao
     abstract fun deleteApprovalDao(): DeleteApprovalDao
-    abstract fun callHistoryDao(): CallHistoryDao
-    abstract fun syncStateDao(): SyncStateDao
+    abstract fun offlineQueueDao(): OfflineQueueDao
 
     companion object {
+        // single shared database instance
         @Volatile
         private var instance: FreeTimeDatabase? = null
 
@@ -60,7 +53,8 @@ abstract class FreeTimeDatabase : RoomDatabase() {
                 FreeTimeDatabase::class.java,
                 "freetime_local_db"
             )
-                .addMigrations(Migration_1_2, Migration_2_3, Migration_3_4, Migration_4_5)
+                .addMigrations(Migration_1_2, Migration_2_3, Migration_3_4, Migration_4_5, Migration_5_6)
+                // fallback migration, drops local data
                 .fallbackToDestructiveMigration()
                 .build()
         }

@@ -16,15 +16,6 @@ import kotlinx.coroutines.CoroutineScope as KoroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 
-/**
- * WebSocket Event Handler Repository
- * Manages real-time event streams for:
- * - Friend request notifications
- * - Group voting updates
- * - Channel message updates
- * - Media download status
- * - User online/offline status
- */
 class WebSocketEventRepository(
     private val authToken: String,
     private val coroutineScope: KoroutineScope
@@ -35,20 +26,19 @@ class WebSocketEventRepository(
 
     private var eventListener: WebSocketEventListener? = null
 
-    // ============== FRIEND EVENTS ==============
+    // one flow per websocket event type
     private val _friendRequestReceived = MutableLiveData<FriendRequestEventData>()
     val friendRequestReceived: LiveData<FriendRequestEventData> = _friendRequestReceived
 
-    private val _friendRequestAccepted = MutableLiveData<String>() // UserId
+    private val _friendRequestAccepted = MutableLiveData<String>()
     val friendRequestAccepted: LiveData<String> = _friendRequestAccepted
 
-    private val _friendRequestRejected = MutableLiveData<String>() // UserId
+    private val _friendRequestRejected = MutableLiveData<String>()
     val friendRequestRejected: LiveData<String> = _friendRequestRejected
 
-    private val _friendRequestCanceled = MutableLiveData<String>() // UserId
+    private val _friendRequestCanceled = MutableLiveData<String>()
     val friendRequestCanceled: LiveData<String> = _friendRequestCanceled
 
-    // ============== GROUP EVENTS ==============
     private val _groupCreated = MutableLiveData<Map<String, Any>>()
     val groupCreated: LiveData<Map<String, Any>> = _groupCreated
 
@@ -57,12 +47,11 @@ class WebSocketEventRepository(
 
     private val _groupVoteCast = MutableLiveData<Map<String, Any>>()
     val groupVoteCast: LiveData<Map<String, Any>> = _groupVoteCast
-    val voteCast: LiveData<Map<String, Any>> = _groupVoteCast  // Alias for UIViewModels
+    val voteCast: LiveData<Map<String, Any>> = _groupVoteCast
 
-    private val _groupDeleted = MutableLiveData<String>() // GroupId
+    private val _groupDeleted = MutableLiveData<String>()
     val groupDeleted: LiveData<String> = _groupDeleted
 
-    // ============== CHANNEL EVENTS ==============
     private val _channelCreated = MutableLiveData<Map<String, Any>>()
     val channelCreated: LiveData<Map<String, Any>> = _channelCreated
 
@@ -78,7 +67,6 @@ class WebSocketEventRepository(
     private val _memberDemoted = MutableLiveData<Map<String, String>>()
     val memberDemoted: LiveData<Map<String, String>> = _memberDemoted
 
-    // ============== MEDIA EVENTS ==============
     private val _mediaDownloadRequested = MutableLiveData<MediaDownloadRequestedEventData>()
     val mediaDownloadRequested: LiveData<MediaDownloadRequestedEventData> = _mediaDownloadRequested
 
@@ -88,18 +76,15 @@ class WebSocketEventRepository(
     private val _mediaDownloadDenied = MutableLiveData<Map<String, String>>()
     val mediaDownloadDenied: LiveData<Map<String, String>> = _mediaDownloadDenied
 
-    // ============== PROFILE EVENTS ==============
     private val _profileUpdated = MutableLiveData<UserProfileUpdatedEventData>()
     val profileUpdated: LiveData<UserProfileUpdatedEventData> = _profileUpdated
 
-    // ============== STATUS EVENTS ==============
-    private val _userOnline = MutableLiveData<String>() // UserId
+    private val _userOnline = MutableLiveData<String>()
     val userOnline: LiveData<String> = _userOnline
 
-    private val _userOffline = MutableLiveData<String>() // UserId
+    private val _userOffline = MutableLiveData<String>()
     val userOffline: LiveData<String> = _userOffline
 
-    // ============== CONNECTION EVENTS ==============
     private val _connectionState = MutableLiveData<ConnectionState>()
     val connectionState: LiveData<ConnectionState> = _connectionState
 
@@ -110,9 +95,6 @@ class WebSocketEventRepository(
         DISCONNECTED, CONNECTING, CONNECTED, ERROR
     }
 
-    /**
-     * Connect to WebSocket and start listening for events
-     */
     fun connect() {
         try {
             _connectionState.value = ConnectionState.CONNECTING
@@ -133,9 +115,6 @@ class WebSocketEventRepository(
         }
     }
 
-    /**
-     * Disconnect from WebSocket
-     */
     fun disconnect() {
         try {
             eventListener?.disconnect()
@@ -146,14 +125,10 @@ class WebSocketEventRepository(
         }
     }
 
-    /**
-     * Handle incoming WebSocket event
-     */
     private fun handleEvent(event: WebSocketEvent) {
         Log.d(TAG, "Event received: ${event.type}")
 
         when (event.type) {
-            // Friend events
             "friend.request.received" -> {
                 val data = event.data as? FriendRequestEventData
                 if (data != null) {
@@ -175,13 +150,12 @@ class WebSocketEventRepository(
                 }
             }
 
-            // Group voting events
             "group_created" -> {
                 val data = event.data as? Map<*, *>
                 if (data != null) {
                     @Suppress("UNCHECKED_CAST")
                     _groupCreated.value = data as Map<String, Any>
-                    Log.d(TAG, "✓ Group created event received: ${data["name"]}")
+                    Log.d(TAG, " Group created event received: ${data["name"]}")
                 }
             }
 
@@ -207,13 +181,12 @@ class WebSocketEventRepository(
                 }
             }
 
-            // Channel events
             "channel_created" -> {
                 val data = event.data as? Map<*, *>
                 if (data != null) {
                     @Suppress("UNCHECKED_CAST")
                     _channelCreated.value = data as Map<String, Any>
-                    Log.d(TAG, "✓ Channel created event received: ${data["name"]}")
+                    Log.d(TAG, " Channel created event received: ${data["name"]}")
                 }
             }
 
@@ -248,7 +221,6 @@ class WebSocketEventRepository(
                 }
             }
 
-            // Media events
             "media.download.requested" -> {
                 val data = event.data as? MediaDownloadRequestedEventData
                 if (data != null) {
@@ -272,16 +244,14 @@ class WebSocketEventRepository(
                 }
             }
 
-            // Profile update events (when friends update their profile)
             "user:profile-updated", "profileUpdated" -> {
                 val data = event.data as? UserProfileUpdatedEventData
                 if (data != null) {
-                    Log.d(TAG, "📍 Friend profile updated: ${data.userId} (displayName: ${data.displayName}, avatar: ${data.avatar})")
+                    Log.d(TAG, " Friend profile updated: ${data.userId} (displayName: ${data.displayName}, avatar: ${data.avatar})")
                     _profileUpdated.value = data
                 }
             }
 
-            // User status events
             "user.online" -> {
                 val data = event.data as? UserStatusEventData
                 if (data != null) {
@@ -318,16 +288,10 @@ class WebSocketEventRepository(
         _errorState.value = error
     }
 
-    /**
-     * Check if WebSocket is currently connected
-     */
     fun isConnected(): Boolean {
         return _connectionState.value == ConnectionState.CONNECTED
     }
 
-    /**
-     * Get current connection state
-     */
     fun getConnectionState(): ConnectionState {
         return _connectionState.value ?: ConnectionState.DISCONNECTED
     }

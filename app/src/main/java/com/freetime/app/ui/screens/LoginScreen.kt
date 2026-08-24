@@ -76,8 +76,6 @@ import com.freetime.app.ui.components.DiscordStyleDivider
 import com.freetime.app.ui.components.DiscordStyleSectionHeader
 import androidx.compose.material3.ExperimentalMaterial3Api
 
-
-
 suspend fun performLoginViaHttpUrlConnection(
     username: String,
     password: String,
@@ -87,6 +85,7 @@ suspend fun performLoginViaHttpUrlConnection(
     on2FARequired: (tempToken: String, setupRequired: Boolean) -> Unit,
     onError: (String) -> Unit
 ) {
+    // login screen, handles the 2fa branch
     return try {
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Starting login request with rememberMe=$rememberMe")
         val loginRequest = mapOf(
@@ -95,25 +94,25 @@ suspend fun performLoginViaHttpUrlConnection(
             "rememberMe" to rememberMe
         )
         val jsonBody = Gson().toJson(loginRequest)
-        
+
         val baseUrl = ApiClient.getBaseUrl()
         val loginUrl = baseUrl.trimEnd('/') + "/api/login"
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Login URL: $loginUrl")
-        
+
         val responseJson = withContext(Dispatchers.IO) {
             android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Sending request with rememberMe=$rememberMe")
             RawSocketHttpClient.post(loginUrl, jsonBody)
         }
-        
+
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Response received: ${responseJson.take(200)}")
-        
+
         val jsonBodyStart = responseJson.indexOf("{")
         val jsonText = if (jsonBodyStart >= 0) responseJson.substring(jsonBodyStart) else responseJson
         val jsonObject = JSONObject(jsonText)
-        
+
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Parsed JSON, checking requiresTwoFactor")
         val requiresTwoFactor = jsonObject.optBoolean("requiresTwoFactor", false) || jsonObject.optBoolean("twofaRequired", false)
-        
+
         when {
             requiresTwoFactor -> {
                 android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: 2FA required")
@@ -129,15 +128,14 @@ suspend fun performLoginViaHttpUrlConnection(
                 val userId = jsonObject.optJSONObject("user")?.optString("userId", "") ?: ""
                 val prefs = SharedPreferencesHelper(context)
                 android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Saving token: ${token.take(20)}..., userId: $userId")
-                
-                // Always save auth data for current session (needed for API calls)
+
                 prefs.saveAuthData(
                     token = token,
                     userId = userId,
                     username = username,
                     deviceId = android.os.Build.ID
                 )
-                
+
                 if (rememberMe) {
                     android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: rememberMe=true, saving Remember Me token for 30-day persistence")
                     prefs.saveRememberMeToken(token = token, userId = userId, username = username)
@@ -145,18 +143,17 @@ suspend fun performLoginViaHttpUrlConnection(
                 } else {
                     android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: rememberMe=false - session will end on app close/restart")
                 }
-                
-                // 🔔 Register pending FCM token if it exists
+
                 val pendingFcmToken = context.getSharedPreferences("auth", android.content.Context.MODE_PRIVATE)
                     .getString("pending_fcm_token", null)
                 if (!pendingFcmToken.isNullOrEmpty()) {
-                    android.util.Log.d("FREETIME_LOGIN", "📱 Registering pending FCM token after successful login: ${pendingFcmToken.take(20)}...")
+                    android.util.Log.d("FREETIME_LOGIN", " Registering pending FCM token after successful login: ${pendingFcmToken.take(20)}...")
                     try {
                         val fcmRegisterUrl = ApiClient.getBaseUrl().trimEnd('/') + "/api/notifications/register-token"
                         val fcmRegisterBody = mapOf(
                             "fcmToken" to pendingFcmToken
                         ).let { Gson().toJson(it) }
-                        
+
                         withContext(Dispatchers.IO) {
                             RawSocketHttpClient.post(
                                 fcmRegisterUrl,
@@ -164,16 +161,14 @@ suspend fun performLoginViaHttpUrlConnection(
                                 mapOf("Authorization" to "Bearer $token")
                             )
                         }
-                        android.util.Log.d("FREETIME_LOGIN", "✅ Pending FCM token registered successfully")
-                        // Clear the pending token
+                        android.util.Log.d("FREETIME_LOGIN", " Pending FCM token registered successfully")
                         context.getSharedPreferences("auth", android.content.Context.MODE_PRIVATE)
                             .edit().remove("pending_fcm_token").apply()
                     } catch (fcmErr: Exception) {
-                        android.util.Log.w("FREETIME_LOGIN", "⚠️ Failed to register pending FCM token: ${fcmErr.message}")
-                        // Don't fail login if FCM registration fails
+                        android.util.Log.w("FREETIME_LOGIN", " Failed to register pending FCM token: ${fcmErr.message}")
                     }
                 }
-                
+
                 android.util.Log.d("FREETIME_LOGIN", "performLoginViaHttpUrlConnection: Calling onSuccess")
                 onSuccess()
             }
@@ -206,26 +201,26 @@ suspend fun performLoginViaOkHttp(
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Starting login request with rememberMe=$rememberMe")
         val apiService = ApiClient.getInstance()
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: API service obtained")
-        
+
         val loginRequest = LoginRequest(
-            username = username, 
+            username = username,
             password = password,
             deviceId = android.os.Build.ID,
             rememberMe = rememberMe
         )
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Sending login request for user: $username with rememberMe=$rememberMe")
-        
+
         val response = apiService.login(loginRequest)
         android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Response received, code: ${response.code()}, successful: ${response.isSuccessful}")
-        
+
         if (response.isSuccessful && response.body() != null) {
             android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Response is successful, parsing body")
             val loginResponse = response.body()
             android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Response body: $loginResponse")
-            
+
             if (loginResponse != null) {
                 android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Checking 2FA requirement: ${loginResponse.requiresTwoFactor}")
-                
+
                 if (loginResponse.requiresTwoFactor && loginResponse.tempToken != null) {
                     android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: 2FA required, saving temp token")
                     val prefs = SharedPreferencesHelper(context)
@@ -237,15 +232,14 @@ suspend fun performLoginViaOkHttp(
                     val user = loginResponse.user
                     if (user != null) {
                         android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: User data present: ${user.userId}")
-                        
-                        // Always save auth data for current session (needed for API calls)
+
                         prefs.saveAuthData(
                             token = loginResponse.token,
                             userId = user.userId,
                             username = user.username,
                             deviceId = android.os.Build.ID
                         )
-                        
+
                         if (rememberMe) {
                             android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: rememberMe=true, saving Remember Me token for 30-day persistence")
                             prefs.saveRememberMeToken(
@@ -257,23 +251,21 @@ suspend fun performLoginViaOkHttp(
                         } else {
                             android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: rememberMe=false - session will end on app close/restart")
                         }
-                        
-                        // 🔔 Register pending FCM token if it exists
+
                         val pendingFcmToken = context.getSharedPreferences("auth", android.content.Context.MODE_PRIVATE)
                             .getString("pending_fcm_token", null)
                         if (!pendingFcmToken.isNullOrEmpty()) {
-                            android.util.Log.d("FREETIME_LOGIN", "📱 Registering pending FCM token after successful login: ${pendingFcmToken.take(20)}...")
+                            android.util.Log.d("FREETIME_LOGIN", " Registering pending FCM token after successful login: ${pendingFcmToken.take(20)}...")
                             try {
                                 val fcmRegisterUrl = ApiClient.getBaseUrl().trimEnd('/') + "/api/notifications/register-token"
-                                android.util.Log.d("FREETIME_LOGIN", "📡 FCM registration URL: $fcmRegisterUrl")
+                                android.util.Log.d("FREETIME_LOGIN", " FCM registration URL: $fcmRegisterUrl")
                                 val fcmRegisterBody = mapOf(
                                     "fcmToken" to pendingFcmToken
                                 ).let { Gson().toJson(it) }
-                                
+
                                 var registrationSucceeded = false
                                 var lastError: Exception? = null
-                                
-                                // Try with configured URL first
+
                                 try {
                                     withContext(Dispatchers.IO) {
                                         RawSocketHttpClient.post(
@@ -283,15 +275,14 @@ suspend fun performLoginViaOkHttp(
                                         )
                                     }
                                     registrationSucceeded = true
-                                    android.util.Log.d("FREETIME_LOGIN", "✅ Pending FCM token registered successfully via primary URL")
+                                    android.util.Log.d("FREETIME_LOGIN", " Pending FCM token registered successfully via primary URL")
                                 } catch (primaryErr: Exception) {
                                     lastError = primaryErr
-                                    android.util.Log.w("FREETIME_LOGIN", "⚠️ Primary registration failed: ${primaryErr.message}, trying HTTP fallback...")
-                                    
-                                    // Try HTTP fallback if HTTPS fails (for development/self-signed certs)
+                                    android.util.Log.w("FREETIME_LOGIN", " Primary registration failed: ${primaryErr.message}, trying HTTP fallback...")
+
                                     try {
                                         val httpUrl = fcmRegisterUrl.replace("https://", "http://").replace(":443/", ":80/")
-                                        android.util.Log.d("FREETIME_LOGIN", "🔄 Retrying with HTTP fallback: $httpUrl")
+                                        android.util.Log.d("FREETIME_LOGIN", " Retrying with HTTP fallback: $httpUrl")
                                         withContext(Dispatchers.IO) {
                                             RawSocketHttpClient.post(
                                                 httpUrl,
@@ -300,29 +291,26 @@ suspend fun performLoginViaOkHttp(
                                             )
                                         }
                                         registrationSucceeded = true
-                                        android.util.Log.d("FREETIME_LOGIN", "✅ Pending FCM token registered successfully via HTTP fallback")
+                                        android.util.Log.d("FREETIME_LOGIN", " Pending FCM token registered successfully via HTTP fallback")
                                     } catch (httpErr: Exception) {
                                         lastError = httpErr
-                                        android.util.Log.w("FREETIME_LOGIN", "⚠️ HTTP fallback also failed: ${httpErr.message}")
+                                        android.util.Log.w("FREETIME_LOGIN", " HTTP fallback also failed: ${httpErr.message}")
                                     }
                                 }
-                                
+
                                 if (registrationSucceeded) {
-                                    // Clear the pending token
                                     context.getSharedPreferences("auth", android.content.Context.MODE_PRIVATE)
                                         .edit().remove("pending_fcm_token").apply()
                                 } else {
-                                    android.util.Log.e("FREETIME_LOGIN", "❌ FCM token registration failed on all attempts", lastError)
-                                    // Don't fail login if FCM registration fails
+                                    android.util.Log.e("FREETIME_LOGIN", " FCM token registration failed on all attempts", lastError)
                                 }
                             } catch (fcmErr: Exception) {
-                                android.util.Log.e("FREETIME_LOGIN", "❌ Unexpected error during FCM registration: ${fcmErr.message}", fcmErr)
-                                // Don't fail login if FCM registration fails
+                                android.util.Log.e("FREETIME_LOGIN", " Unexpected error during FCM registration: ${fcmErr.message}", fcmErr)
                             }
                         } else {
-                            android.util.Log.w("FREETIME_LOGIN", "⚠️ No pending FCM token found to register")
+                            android.util.Log.w("FREETIME_LOGIN", " No pending FCM token found to register")
                         }
-                        
+
                         android.util.Log.d("FREETIME_LOGIN", "performLoginViaOkHttp: Auth session created, calling onSuccess")
                         onSuccess()
                     } else {
@@ -371,7 +359,7 @@ suspend fun performSignUp(
     setLoading(true)
     try {
         val deviceFingerprint = DeviceFingerprint.generateFingerprint(context)
-        
+
         if (Build.VERSION.SDK_INT >= 34) {
             performSignUpViaRawSocket(
                 username = username,
@@ -423,42 +411,37 @@ suspend fun performSignUpViaRawSocket(
             "password" to password,
             "confirmPassword" to password,
             "deviceFingerprint" to mapOf(
-                // Primary device identifiers for rate limiting
-                "androidId" to deviceFingerprint.androidId,           // ← PRIMARY: Cannot change without factory reset
-                "hardwareSerial" to deviceFingerprint.hardwareSerial, // ← SECONDARY: Cannot change without bootloader
-                
-                // Secondary device info
+                "androidId" to deviceFingerprint.androidId,
+                "hardwareSerial" to deviceFingerprint.hardwareSerial,
+
                 "deviceId" to deviceFingerprint.deviceId,
                 "deviceModel" to deviceFingerprint.deviceModel,
                 "deviceBrand" to deviceFingerprint.deviceBrand,
                 "deviceName" to deviceFingerprint.deviceName,
                 "product" to deviceFingerprint.product,
-                
-                // Build and version info
+
                 "osVersion" to deviceFingerprint.osVersion,
                 "appVersion" to deviceFingerprint.appVersion,
                 "buildFingerprint" to deviceFingerprint.buildFingerprint,
-                
+
                 "timestamp" to deviceFingerprint.timestamp
             )
         )
         val jsonBody = Gson().toJson(signUpRequest)
-        
+
         val baseUrl = ApiClient.getBaseUrl()
         val signupUrl = baseUrl.trimEnd('/') + "/api/signup"
-        
+
         android.util.Log.d("SIGNUP_DEBUG", "Signup URL: $signupUrl")
-        
+
         val responseJson = withContext(Dispatchers.IO) {
             RawSocketHttpClient.post(signupUrl, jsonBody)
         }
-        
+
         android.util.Log.d("SIGNUP_DEBUG", "Raw response (length=${responseJson.length}): ${responseJson.take(500)}")
         android.util.Log.d("SIGNUP_DEBUG", "Response bytes: ${responseJson.toByteArray().size}")
-        
-        // Handle empty response - server may be returning empty body or timeout occurred
+
         if (responseJson.trim().isEmpty()) {
-            // Try OkHttp as fallback for empty response
             android.util.Log.w("SIGNUP_DEBUG", "[CRITICAL] Empty response from RawSocket (length=0), trying OkHttp fallback...")
             android.util.Log.w("SIGNUP_DEBUG", "Raw socket may have timed out or server connection failed")
             performSignUpViaOkHttp(
@@ -474,30 +457,29 @@ suspend fun performSignUpViaRawSocket(
             )
             return@performSignUpViaRawSocket
         }
-        
+
         val jsonBodyStart = responseJson.indexOf("{")
         if (jsonBodyStart == -1) {
-            // Response doesn't contain JSON - might be an error page
             android.util.Log.e("SIGNUP_DEBUG", "No JSON in response (length=${responseJson.length}): ${responseJson.take(200)}")
             onError("Server returned unexpected format. Please try again or contact support.")
             return@performSignUpViaRawSocket
         }
-        
+
         val jsonText = responseJson.substring(jsonBodyStart)
         val jsonObject = JSONObject(jsonText)
-        
+
         android.util.Log.d("SIGNUP_DEBUG", "Parsed JSON: success=${jsonObject.optBoolean("success")}, error=${jsonObject.optString("error")}")
-        
+
         when {
             jsonObject.optBoolean("success", false) -> {
                 val tempToken = jsonObject.optString("tempToken", "")
                 val userId = jsonObject.optString("userId", "")
-                
+
                 if (tempToken.isEmpty()) {
                     onError("Server error: No activation token received")
                     return@performSignUpViaRawSocket
                 }
-                
+
                 val prefs = SharedPreferencesHelper(context)
                 prefs.saveTempToken(token = tempToken, setupRequired = true)
                 on2FASetupRequired(tempToken, userId)
@@ -507,7 +489,6 @@ suspend fun performSignUpViaRawSocket(
                 val debugReason = jsonObject.optString("debug_reason", "")
                 val message = jsonObject.optString("message", "")
                 android.util.Log.w("SIGNUP_DEBUG", "Signup rejected: error=$errorMsg, message=$message, debug_reason=$debugReason")
-                // Show message field if available (more descriptive), otherwise error
                 val displayError = if (message.isNotEmpty() && message != errorMsg) "$errorMsg: $message" else errorMsg
                 onError(displayError)
             }
@@ -547,17 +528,17 @@ suspend fun performSignUpViaOkHttp(
             confirmPassword = password,
             deviceFingerprint = deviceFingerprint
         )
-        
+
         android.util.Log.d("SIGNUP_DEBUG", "Sending signup request via OkHttp for user: $email")
         val response = apiService.signup(request)
-        
+
         android.util.Log.d("SIGNUP_DEBUG", "Signup response code: ${response.code()}")
-        
+
         if (response.isSuccessful && response.body() != null) {
             val signUpResponse = response.body()
             if (signUpResponse != null) {
                 android.util.Log.d("SIGNUP_DEBUG", "Success response: success=${signUpResponse.success}, hasToken=${!signUpResponse.tempToken.isNullOrEmpty()}")
-                
+
                 if (signUpResponse.success && signUpResponse.tempToken != null) {
                     val prefs = SharedPreferencesHelper(context)
                     prefs.saveTempToken(token = signUpResponse.tempToken, setupRequired = true)
@@ -570,16 +551,14 @@ suspend fun performSignUpViaOkHttp(
                 onError("Empty response from server")
             }
         } else {
-            // Handle error response
             val errorBody = response.errorBody()?.string()
             android.util.Log.d("SIGNUP_DEBUG", "Error response: ${response.code()}, body=$errorBody")
-            
+
             try {
                 val errorJson = JSONObject(errorBody ?: "{}")
                 val errorMsg = errorJson.optString("error") ?: errorJson.optString("message") ?: "Registration failed (${response.code()})"
                 onError(errorMsg)
             } catch (e: JSONException) {
-                // Fallback error message if JSON parsing fails
                 onError("Registration failed. Please try again. Error: ${response.code()}")
             }
         }
@@ -611,12 +590,12 @@ fun LoginScreen(
     var acceptedTerms by remember { mutableStateOf(false) }
     var showPassword2 by remember { mutableStateOf(false) }
     var showPassword3 by remember { mutableStateOf(false) }
-    
+
     var show2FAScreen by remember { mutableStateOf(false) }
     var twoFATempToken by remember { mutableStateOf("") }
     var twoFASetupRequired by remember { mutableStateOf(false) }
     var showSignUpFlow by remember { mutableStateOf(false) }
-    
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -670,7 +649,6 @@ fun LoginScreen(
             ) {
                 Spacer(modifier = Modifier.height(30.dp))
 
-                // FreeTime Logo/Branding
                 Image(
                     painter = painterResource(id = R.drawable.freetime_logo),
                     contentDescription = "FreeTime Logo",
@@ -680,7 +658,6 @@ fun LoginScreen(
                     contentScale = ContentScale.Fit
                 )
 
-                // FreeTime Title
                 Text(
                     "FREETIME",
                     style = MaterialTheme.typography.headlineMedium.copy(
@@ -700,7 +677,6 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Tab Selection
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -752,7 +728,6 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Error Message
                 AnimatedVisibility(
                     visible = errorMessage.isNotEmpty(),
                     enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
@@ -767,14 +742,13 @@ fun LoginScreen(
                     ) {
                         Column {
                             Text(
-                                "⚠ $errorMessage",
+                                " $errorMessage",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = CyberpunkTheme.PrimaryPurple,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
-                            
-                            // ✅ NEW: Show force login option if account is in use
+
                             if (errorMessage.contains("account already in use", ignoreCase = true)) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Button(
@@ -783,7 +757,7 @@ fun LoginScreen(
                                             performLogin(
                                                 username, password, context,
                                                 force = true,
-                                                onSuccess = { 
+                                                onSuccess = {
                                                     showLogoutPolicyDialog = true
                                                 },
                                                 on2FARequired = { tempToken, setupRequired ->
@@ -792,8 +766,8 @@ fun LoginScreen(
                                                     show2FAScreen = true
                                                     showSignUpFlow = false
                                                 },
-                                                onError = { 
-                                                    errorMessage = it 
+                                                onError = {
+                                                    errorMessage = it
                                                 },
                                                 setLoading = { isLoading = it }
                                             )
@@ -810,7 +784,6 @@ fun LoginScreen(
                     }
                 }
 
-                // Forms Section
                 if (!isSignUpMode) {
                     ProfessionalLoginForm(
                         username = username,
@@ -832,8 +805,8 @@ fun LoginScreen(
                                     scope.launch {
                                         performLogin(
                                             username, password, context,
-                                            force = false, // Initial attempt not forced
-                                            onSuccess = { 
+                                            force = false,
+                                            onSuccess = {
                                                 android.util.Log.d("FREETIME_LOGIN", "Login button: onSuccess called, showing logout policy dialog")
                                                 showLogoutPolicyDialog = true
                                             },
@@ -845,9 +818,9 @@ fun LoginScreen(
                                                 showSignUpFlow = false
                                                 android.util.Log.d("FREETIME_LOGIN", "Login button: State updated, show2FAScreen=$show2FAScreen")
                                             },
-                                            onError = { 
+                                            onError = {
                                                 android.util.Log.d("FREETIME_LOGIN", "Login button: onError called: $it")
-                                                errorMessage = it 
+                                                errorMessage = it
                                             },
                                             setLoading = { isLoading = it }
                                         )
@@ -883,7 +856,6 @@ fun LoginScreen(
                         }
                     }
                 } else {
-                    // Register Form
                     ProfessionalRegisterForm(
                         username = signUpUsername,
                         onUsernameChange = { signUpUsername = it; errorMessage = "" },
@@ -911,7 +883,6 @@ fun LoginScreen(
                                 !signUpUsername.matches(Regex("^[a-zA-Z0-9_]+$")) -> "Username: letters, numbers, underscores only"
                                 signUpEmail.isEmpty() -> "Email required"
                                 !signUpEmail.contains("@") -> "Invalid email format"
-                                // Display name is optional
                                 signUpPassword.isEmpty() -> "Password required"
                                 signUpPassword.length < 8 -> "Password must be 8+ characters"
                                 !signUpPassword.contains(Regex("[A-Za-z]")) -> "Password needs letters (a-z, A-Z)"
@@ -922,7 +893,7 @@ fun LoginScreen(
                                 !acceptedTerms -> "Accept terms to continue"
                                 else -> ""
                             }
-                            
+
                             if (errorMessage.isEmpty()) {
                                 scope.launch {
                                     performSignUp(
@@ -972,11 +943,10 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
         }
-        
-        // 30-Day Logout Policy Dialog
+
         if (showLogoutPolicyDialog) {
             AlertDialog(
-                onDismissRequest = { 
+                onDismissRequest = {
                     showLogoutPolicyDialog = false
                     onLoginSuccess()
                 },
@@ -998,21 +968,21 @@ fun LoginScreen(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp
                         )
-                        
+
                         Text(
                             "For security reasons, your login session will automatically expire after 30 days of inactivity.",
                             color = CyberpunkTheme.LightGray,
                             fontSize = 13.sp,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        
+
                         Text(
                             "After 30 days, you will be required to log in again to verify your identity and ensure account security.",
                             color = CyberpunkTheme.LightGray,
                             fontSize = 13.sp,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        
+
                         Text(
                             "This helps protect your account from unauthorized access.",
                             color = CyberpunkTheme.PrimaryPurple,
@@ -1023,7 +993,7 @@ fun LoginScreen(
                 },
                 confirmButton = {
                     Button(
-                        onClick = { 
+                        onClick = {
                             android.util.Log.d("FREETIME_LOGIN", "User acknowledged 30-day logout policy")
                             showLogoutPolicyDialog = false
                             onLoginSuccess()
@@ -1084,8 +1054,7 @@ fun ProfessionalLoginForm(
             isPassword = true,
             leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = "Password", tint = CyberpunkTheme.PrimaryPurple) }
         )
-        
-        // Security Warning
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -1118,7 +1087,6 @@ fun ProfessionalLoginForm(
     }
 }
 
-
 @Composable
 fun ProfessionalRegisterForm(
     username: String,
@@ -1146,7 +1114,6 @@ fun ProfessionalRegisterForm(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Password strength indicator
         Text(
             "Password must be 8+ chars: letters, numbers, special (@#\$%)",
             fontSize = 10.sp,
@@ -1278,7 +1245,6 @@ fun ProfessionalRegisterForm(
             shape = RoundedCornerShape(8.dp)
         )
 
-        // Terms & Conditions Agreement Section
         val context = LocalContext.current
         Row(
             modifier = Modifier
@@ -1295,7 +1261,7 @@ fun ProfessionalRegisterForm(
                     uncheckedColor = CyberpunkTheme.LightGray
                 )
             )
-            
+
             Text(
                 text = "Terms & Conditions",
                 color = CyberpunkTheme.PrimaryPurple,
@@ -1315,11 +1281,8 @@ fun ProfessionalRegisterForm(
                     }
             )
         }
-        
+
         Spacer(modifier = Modifier.height(8.dp))
     }
 }
-
-
-
 

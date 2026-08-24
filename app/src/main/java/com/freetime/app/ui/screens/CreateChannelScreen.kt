@@ -16,15 +16,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.components.CyberpunkTheme
 
+// deprecated, channels merged into groups
 @Composable
 fun CreateChannelScreen(
     onChannelCreated: (String) -> Unit,
     onCancel: () -> Unit
 ) {
-    // ⚠️ DEPRECATED: Channel feature is no longer active
-    // This screen exists for legacy code compatibility only
-    // Please use Groups instead for team collaboration
-    
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -37,7 +34,7 @@ fun CreateChannelScreen(
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                "⚠️ Channel Feature Deprecated",
+                " Channel Feature Deprecated",
                 color = Color.Yellow,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold

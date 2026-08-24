@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+// message input shared by group chats
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupMessageInput(

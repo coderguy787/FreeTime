@@ -8,17 +8,15 @@ import com.freetime.app.data.local.SharedPreferencesHelper
 import android.content.Context
 import com.freetime.app.data.network.Friend
 
-/**
- * Chat Repository - Uses real API calls to fetch chats/friends
- */
 class ChatRepository(private val context: Context? = null) {
     private val apiService = ApiClient.getInstance()
-    
+
+    // chat list comes from the friend list
     fun getChats(): Flow<List<Friend>> = flow {
         try {
             val prefs = context?.let { SharedPreferencesHelper(it) }
             val token = prefs?.getToken()
-            
+
             if (!token.isNullOrEmpty()) {
                 val response = apiService.getFriendsList("Bearer $token")
                 if (response.isSuccessful && response.body() != null) {
@@ -33,7 +31,8 @@ class ChatRepository(private val context: Context? = null) {
             emit(emptyList())
         }
     }
-    
+
+    // unused stubs, kept so existing calls compile
     suspend fun getChat(chatId: String) = null
     suspend fun createChat(participantId: String) = Unit
     suspend fun deleteChat(chatId: String) = Unit

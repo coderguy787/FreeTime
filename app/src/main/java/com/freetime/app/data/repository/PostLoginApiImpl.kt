@@ -15,28 +15,19 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import java.util.UUID
 
-/**
- * Post-Login API Implementation
- * Handles all authenticated API calls after user login
- * Manages secure requests with authentication tokens
- * Supports messaging, contacts, calls, and profile operations
- */
-
-// ==================== DATA MODELS ====================
-
 data class SecureMessageResponse(
     val messageId: String,
     val recipientId: String,
     val content: String,
     val timestamp: Long,
-    val status: String, // "sent", "delivered", "read"
+    val status: String,
     val encryptionType: String = "AES-256"
 )
 
 data class SecureContactResponse(
     val userId: String,
     val username: String,
-    val status: String, // "online", "offline", "away"
+    val status: String,
     val isOnline: Boolean,
     val lastSeen: Long?,
     val isFriend: Boolean,
@@ -54,14 +45,6 @@ data class SecureProfileResponse(
     val statusMessage: String?
 )
 
-data class SecureCallResponse(
-    val callId: String,
-    val recipientId: String,
-    val status: String, // "initiated", "ringing", "connected", "ended"
-    val timestamp: Long,
-    val duration: Long? = null
-)
-
 data class TokenResponse(
     val token: String,
     val refreshToken: String?,
@@ -69,22 +52,13 @@ data class TokenResponse(
     val tokenType: String = "Bearer"
 )
 
-// ==================== MESSAGE APIs ====================
-
 class PostLoginApiImpl(private val context: Context) {
     private val prefs = SharedPreferencesHelper(context)
-    
+
     companion object {
         private const val TAG = "PostLoginApiImpl"
     }
 
-    /**
-     * Send a secure message to a recipient
-     * Requires valid authentication token
-     * @param recipientId The ID of the message recipient
-     * @param content The message content to send
-     * @return Result containing the message response
-     */
     suspend fun sendMessage(
         recipientId: String,
         content: String
@@ -92,19 +66,20 @@ class PostLoginApiImpl(private val context: Context) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
+            // message id generated locally, the api accepts it
             val messageId = "msg_${UUID.randomUUID()}"
             val timestamp = System.currentTimeMillis()
-            
+
             val jsonBody = Gson().toJson(mapOf(
                 "recipientId" to recipientId,
                 "content" to content,
                 "messageId" to messageId,
                 "timestamp" to timestamp
             ))
-            
+
             Log.d(TAG, "Sending secure message to $recipientId")
-            
+
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/messages",
                 jsonBody,
@@ -113,7 +88,7 @@ class PostLoginApiImpl(private val context: Context) {
                     "Content-Type" to "application/json"
                 )
             )
-            
+
             return@withContext if (response.statusCode == 200 || response.statusCode == 201) {
                 val messageResponse = parseSecureMessageResponse(response.body)
                 Log.d(TAG, "Message sent successfully: $messageId")
@@ -128,14 +103,6 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    /**
-     * Fetch messages from a specific contact
-     * Supports pagination with limit and offset
-     * @param recipientId The ID of the contact
-     * @param limit Maximum number of messages to fetch (default: 50)
-     * @param offset Number of messages to skip (default: 0)
-     * @return Result containing list of messages
-     */
     suspend fun fetchMessages(
         recipientId: String,
         limit: Int = 50,
@@ -144,14 +111,14 @@ class PostLoginApiImpl(private val context: Context) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
             Log.d(TAG, "Fetching messages from $recipientId (limit: $limit, offset: $offset)")
-            
+
             val response = RawSocketHttpClient.getResponse(
                 "$baseUrl/api/messages/$recipientId?limit=$limit&offset=$offset",
                 mapOf("Authorization" to "Bearer $token")
             )
-            
+
             return@withContext if (response.statusCode == 200) {
                 val messages = parseSecureMessageList(response.body ?: "[]")
                 Log.d(TAG, "Fetched ${messages.size} messages")
@@ -166,19 +133,14 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    /**
-     * Mark a message as read
-     * @param messageId The ID of the message to mark as read
-     * @return Result indicating success
-     */
-    suspend fun markMessageAsRead(messageId: String): Result<Boolean> = 
+    suspend fun markMessageAsRead(messageId: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
             Log.d(TAG, "Marking message as read: $messageId")
-            
+
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/messages/$messageId/read",
                 "{}",
@@ -187,7 +149,7 @@ class PostLoginApiImpl(private val context: Context) {
                     "Content-Type" to "application/json"
                 )
             )
-            
+
             return@withContext if (response.statusCode == 200) {
                 Log.d(TAG, "Message marked as read")
                 Result.success(true)
@@ -201,25 +163,19 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    /**
-     * Delete message history with a contact
-     * Permanently deletes all messages in the conversation
-     * @param recipientId The ID of the contact
-     * @return Result indicating success
-     */
-    suspend fun deleteMessageHistory(recipientId: String): Result<Boolean> = 
+    suspend fun deleteMessageHistory(recipientId: String): Result<Boolean> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
             Log.d(TAG, "Deleting message history with $recipientId")
-            
+
             val response = RawSocketHttpClient.deleteResponse(
                 "$baseUrl/api/messages/$recipientId/delete-history",
                 mapOf("Authorization" to "Bearer $token")
             )
-            
+
             return@withContext if (response.statusCode == 200) {
                 Log.d(TAG, "Message history deleted successfully")
                 Result.success(true)
@@ -233,23 +189,16 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    // ==================== CONTACTS/USERS APIs ====================
-
-    /**
-     * Get list of contacts/friends
-     * @return Result containing list of contacts
-     */
-    suspend fun getContacts(): Result<List<SecureContactResponse>> = 
+    suspend fun getContacts(): Result<List<SecureContactResponse>> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-            
+
             Log.d(TAG, "Fetching contacts list from /api/friends")
-            
-            // Use ApiClient's getFriendsList instead of raw /api/contacts (which doesn't exist on server)
+
             val apiService = ApiClient.getInstance()
             val response = apiService.getFriendsList("Bearer $token")
-            
+
             return@withContext if (response.isSuccessful) {
                 val friends = response.body() ?: emptyList()
                 val contacts = friends.map { friend ->
@@ -276,24 +225,19 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    /**
-     * Get user profile by ID
-     * @param userId The ID of the user to fetch
-     * @return Result containing the user profile
-     */
-    suspend fun getUserProfile(userId: String): Result<SecureProfileResponse> = 
+    suspend fun getUserProfile(userId: String): Result<SecureProfileResponse> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
             Log.d(TAG, "Fetching profile for user: $userId")
-            
+
             val response = RawSocketHttpClient.getResponse(
                 "$baseUrl/api/users/$userId/profile",
                 mapOf("Authorization" to "Bearer $token")
             )
-            
+
             return@withContext if (response.statusCode == 200) {
                 val profile = parseProfileResponse(response.body)
                 Log.d(TAG, "Fetched profile for user: $userId")
@@ -308,23 +252,18 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    /**
-     * Update current user's profile
-     * @param statusMessage New status message
-     * @return Result indicating success
-     */
-    suspend fun updateProfile(statusMessage: String): Result<SecureProfileResponse> = 
+    suspend fun updateProfile(statusMessage: String): Result<SecureProfileResponse> =
         withContext(Dispatchers.IO) {
         try {
             val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
             Log.d(TAG, "Updating user profile")
-            
+
             val jsonBody = Gson().toJson(mapOf(
                 "statusMessage" to statusMessage
             ))
-            
+
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/users/profile/update",
                 jsonBody,
@@ -333,7 +272,7 @@ class PostLoginApiImpl(private val context: Context) {
                     "Content-Type" to "application/json"
                 )
             )
-            
+
             return@withContext if (response.statusCode == 200) {
                 val profile = parseProfileResponse(response.body)
                 Log.d(TAG, "Profile updated successfully")
@@ -348,120 +287,34 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    // ==================== CALL APIs ====================
 
-    /**
-     * Initiate a call with a recipient
-     * @param recipientId The ID of the recipient
-     * @return Result containing call details
-     */
-    suspend fun initiateCall(recipientId: String): Result<SecureCallResponse> = 
-        withContext(Dispatchers.IO) {
-        try {
-            val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-            val baseUrl = ApiClient.getBaseUrl()
-            
-            val callId = "call_${UUID.randomUUID()}"
-            
-            Log.d(TAG, "Initiating call with $recipientId")
-            
-            val jsonBody = Gson().toJson(mapOf(
-                "recipientId" to recipientId,
-                "callId" to callId
-            ))
-            
-            val response = RawSocketHttpClient.postResponse(
-                "$baseUrl/api/calls/initiate",
-                jsonBody,
-                mapOf(
-                    "Authorization" to "Bearer $token",
-                    "Content-Type" to "application/json"
-                )
-            )
-            
-            return@withContext if (response.statusCode == 200 || response.statusCode == 201) {
-                val callResponse = parseCallResponse(response.body)
-                Log.d(TAG, "Call initiated successfully: $callId")
-                Result.success(callResponse)
-            } else {
-                Log.e(TAG, "Failed to initiate call: ${response.statusCode}")
-                Result.failure(Exception("Failed to initiate call"))
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error initiating call", e)
-            Result.failure(e)
-        }
-    }
 
-    /**
-     * End an active call
-     * @param callId The ID of the call to end
-     * @return Result indicating success
-     */
-    suspend fun endCall(callId: String): Result<Boolean> = 
-        withContext(Dispatchers.IO) {
-        try {
-            val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-            val baseUrl = ApiClient.getBaseUrl()
-            
-            Log.d(TAG, "Ending call: $callId")
-            
-            val response = RawSocketHttpClient.postResponse(
-                "$baseUrl/api/calls/$callId/end",
-                "{}",
-                mapOf(
-                    "Authorization" to "Bearer $token",
-                    "Content-Type" to "application/json"
-                )
-            )
-            
-            return@withContext if (response.statusCode == 200) {
-                Log.d(TAG, "Call ended successfully")
-                Result.success(true)
-            } else {
-                Log.e(TAG, "Failed to end call: ${response.statusCode}")
-                Result.failure(Exception("Failed to end call"))
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error ending call", e)
-            Result.failure(e)
-        }
-    }
-
-    // ==================== TOKEN MANAGEMENT ====================
-
-    /**
-     * Refresh authentication token
-     * Called when current token is about to expire
-     * @return Result containing new token
-     */
-    suspend fun refreshToken(): Result<TokenResponse> = 
+    suspend fun refreshToken(): Result<TokenResponse> =
         withContext(Dispatchers.IO) {
         try {
             val refreshToken = prefs.getRefreshToken() ?: return@withContext Result.failure(Exception("No refresh token"))
             val baseUrl = ApiClient.getBaseUrl()
-            
+
             Log.d(TAG, "Refreshing authentication token")
-            
+
             val jsonBody = Gson().toJson(mapOf(
                 "refreshToken" to refreshToken
             ))
-            
+
             val response = RawSocketHttpClient.postResponse(
                 "$baseUrl/api/refresh-token",
                 jsonBody,
                 mapOf("Content-Type" to "application/json")
             )
-            
+
             return@withContext if (response.statusCode == 200) {
                 val tokenResponse = parseTokenResponse(response.body)
-                
-                // Save new token
+
                 prefs.saveToken(tokenResponse.token)
                 if (tokenResponse.refreshToken != null) {
                     prefs.saveRefreshToken(tokenResponse.refreshToken)
                 }
-                
+
                 Log.d(TAG, "Token refreshed successfully")
                 Result.success(tokenResponse)
             } else {
@@ -473,8 +326,6 @@ class PostLoginApiImpl(private val context: Context) {
             Result.failure(e)
         }
     }
-
-    // ==================== HELPER FUNCTIONS ====================
 
     private fun parseSecureMessageResponse(jsonString: String): SecureMessageResponse {
         return try {
@@ -496,7 +347,7 @@ class PostLoginApiImpl(private val context: Context) {
         return try {
             val messages = mutableListOf<SecureMessageResponse>()
             if (jsonString.trim() == "[]") return emptyList()
-            
+
             jsonString.split("},{").forEach { item ->
                 try {
                     val response = SecureMessageResponse(
@@ -522,7 +373,7 @@ class PostLoginApiImpl(private val context: Context) {
         return try {
             val contacts = mutableListOf<SecureContactResponse>()
             if (jsonString.trim() == "[]") return emptyList()
-            
+
             jsonString.split("},{").forEach { item ->
                 try {
                     val contact = SecureContactResponse(
@@ -564,19 +415,6 @@ class PostLoginApiImpl(private val context: Context) {
         }
     }
 
-    private fun parseCallResponse(jsonString: String): SecureCallResponse {
-        return try {
-            SecureCallResponse(
-                callId = extractJsonFieldNonNull(jsonString, "callId", ""),
-                recipientId = extractJsonFieldNonNull(jsonString, "recipientId", ""),
-                status = extractJsonFieldNonNull(jsonString, "status", "initiated"),
-                timestamp = extractJsonFieldNonNull(jsonString, "timestamp", System.currentTimeMillis().toString()).toLongOrNull() ?: System.currentTimeMillis()
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing call response", e)
-            SecureCallResponse("", "", "error", System.currentTimeMillis())
-        }
-    }
 
     private fun parseTokenResponse(jsonString: String): TokenResponse {
         return try {

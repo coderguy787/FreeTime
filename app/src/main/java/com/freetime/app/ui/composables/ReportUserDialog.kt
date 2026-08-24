@@ -23,11 +23,6 @@ import android.widget.Toast
 import com.freetime.app.api.FreeTimeApiService
 import kotlinx.coroutines.launch
 
-/**
- * Report User Dialog
- * Allows users to report another user for abuse/harassment
- * Shows reason selection, optional description, and reports to backend
- */
 @Composable
 fun ReportUserDialog(
     userId: String,
@@ -37,12 +32,12 @@ fun ReportUserDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val apiService = remember { FreeTimeApiService(context) }
-    
+
     var selectedReason by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    
+
     val reportReasons = listOf(
         "Harassment or bullying" to "The user is harassing, insulting, or bullying me or others",
         "Hate speech" to "The user is using hate speech or discriminatory language",
@@ -52,7 +47,8 @@ fun ReportUserDialog(
         "Impersonation" to "The user is impersonating someone else",
         "Other" to "Another reason not listed above"
     )
-    
+
+    // report user dialog
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -73,7 +69,6 @@ fun ReportUserDialog(
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(),
@@ -97,19 +92,17 @@ fun ReportUserDialog(
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
-                // User info
+
                 Text(
                     "Reporting: $userName",
                     fontSize = 14.sp,
                     color = Color(0xFFB0B0B0)
                 )
-                
+
                 Spacer(modifier = Modifier.height(20.dp))
-                
-                // Error message if any
+
                 if (error != null) {
                     Card(
                         modifier = Modifier
@@ -125,8 +118,7 @@ fun ReportUserDialog(
                         )
                     }
                 }
-                
-                // Reason selection
+
                 Text(
                     "Select Reason *",
                     fontSize = 14.sp,
@@ -134,7 +126,7 @@ fun ReportUserDialog(
                     color = Color.White,
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
-                
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -174,10 +166,9 @@ fun ReportUserDialog(
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                // Additional details
+
                 Text(
                     "Additional Details (Optional)",
                     fontSize = 14.sp,
@@ -185,7 +176,7 @@ fun ReportUserDialog(
                     color = Color.White,
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
-                
+
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -202,10 +193,9 @@ fun ReportUserDialog(
                     ),
                     enabled = !isSubmitting
                 )
-                
+
                 Spacer(modifier = Modifier.height(20.dp))
-                
-                // Buttons
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth(),
@@ -223,17 +213,17 @@ fun ReportUserDialog(
                     ) {
                         Text("Cancel", color = Color.White, fontWeight = FontWeight.Bold)
                     }
-                    
+
                     Button(
                         onClick = {
                             if (selectedReason.isEmpty()) {
                                 error = "Please select a reason"
                                 return@Button
                             }
-                            
+
                             isSubmitting = true
                             error = null
-                            
+
                             scope.launch {
                                 try {
                                     Log.d("REPORT_USER", "Reporting user $userId for reason: $selectedReason")
@@ -242,10 +232,10 @@ fun ReportUserDialog(
                                         reason = selectedReason,
                                         description = description
                                     )
-                                    
+
                                     result.fold(
                                         onSuccess = { reportId ->
-                                            Log.d("REPORT_USER", "✅ User reported successfully: $reportId")
+                                            Log.d("REPORT_USER", " User reported successfully: $reportId")
                                             Toast.makeText(
                                                 context,
                                                 "Report submitted successfully",
@@ -254,7 +244,7 @@ fun ReportUserDialog(
                                             onDismiss()
                                         },
                                         onFailure = { ex ->
-                                            Log.e("REPORT_USER", "❌ Failed to report user: ${ex.message}")
+                                            Log.e("REPORT_USER", " Failed to report user: ${ex.message}")
                                             error = ex.message ?: "Failed to submit report"
                                         }
                                     )
@@ -282,10 +272,9 @@ fun ReportUserDialog(
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
-                // Info text
+
                 Text(
                     "Your report helps us keep FreeTime safe. All reports are reviewed by our moderation team.",
                     fontSize = 12.sp,

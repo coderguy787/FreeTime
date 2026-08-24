@@ -21,11 +21,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.components.CyberpunkTheme
 
-
 data class SearchResult(val id: String, val title: String, val description: String, val type: String)
 
 @Composable
 fun SearchResultsScreenEnhanced(query: String = "security", onBackClick: () -> Unit = {}) {
+    // demo screens, search results are hardcoded
     val results = listOf(
         SearchResult("1", "Encryption Setup Guide", "Complete guide for E2E encryption", "GUIDE"),
         SearchResult("2", "Security Settings", "Configure your security preferences", "SETTING"),
@@ -36,7 +36,6 @@ fun SearchResultsScreenEnhanced(query: String = "security", onBackClick: () -> U
         .fillMaxSize()
         .background(CyberpunkTheme.CyberBlack)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // HEADER
             Surface(modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
@@ -103,7 +102,7 @@ fun SearchResultCard(result: SearchResult) {
                 else -> Icons.Filled.Person
             }, contentDescription = result.type,
                 tint = CyberpunkTheme.PrimaryPurple, modifier = Modifier.size(20.dp))
-            
+
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(result.title, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     color = CyberpunkTheme.PrimaryPurple)
@@ -203,5 +202,4 @@ fun CreateChannelScreenEnhanced(onCancel: () -> Unit = {}, onCreate: (String) ->
         shape = RoundedCornerShape(8.dp)
     )
 }
-
 

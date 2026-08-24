@@ -82,7 +82,7 @@ fun HomeScreenEnhanced(
     val scope = rememberCoroutineScope()
     val deviceSize = rememberDeviceSize(context)
 
-    // Real data from API
+    // home screen with recent chats
     var feedPosts by remember { mutableStateOf(listOf<FeedPost>()) }
     var contacts by remember { mutableStateOf(listOf<Friend>()) }
     var friendRequests by remember { mutableStateOf(listOf<com.freetime.app.data.network.FriendRequest>()) }
@@ -91,35 +91,33 @@ fun HomeScreenEnhanced(
     var isLoadingRequests by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var selectedConversation by remember { mutableStateOf<Friend?>(null) }
-    var messages by remember { mutableStateOf(listOf<Pair<String, String>>()) } // Pair of userId, messageText
+    var messages by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var currentMessageInput by remember { mutableStateOf("") }
 
-    // Fetch contacts from API when screen loads
     LaunchedEffect(Unit) {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken()
-        
+
         if (token.isNullOrEmpty()) {
             errorMessage = "User token missing. Please log in again."
             return@LaunchedEffect
         }
-        
+
         isLoadingContacts = true
         isLoadingRequests = true
         try {
             val response = ApiClient.getInstance().getFriendsList("Bearer $token")
             if (response.isSuccessful && response.body() != null) {
                 contacts = response.body() ?: emptyList()
-                errorMessage = "" // Clear error on success
+                errorMessage = ""
             } else {
                 errorMessage = "Failed to load contacts: ${response.code()}"
             }
-            
+
             val requestsResponse = ApiClient.getInstance().getPendingFriendRequests("Bearer $token")
             if (requestsResponse.isSuccessful && requestsResponse.body() != null) {
                 friendRequests = requestsResponse.body() ?: emptyList()
             } else {
-                // Don't override previous error, just append
                 if (errorMessage.isEmpty()) {
                     errorMessage = "Failed to load friend requests: ${requestsResponse.code()}"
                 }
@@ -138,7 +136,6 @@ fun HomeScreenEnhanced(
             .background(CyberpunkTheme.CyberBlack)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ===== ERROR MESSAGE BANNER =====
             FloatingUpAnimation(
                 delayMillis = 0,
                 durationMillis = 4000
@@ -179,7 +176,6 @@ fun HomeScreenEnhanced(
                 }
             }
 
-            // ===== CYBERPUNK HEADER =====
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -212,14 +208,12 @@ fun HomeScreenEnhanced(
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(onClick = { 
-                            // Refresh feed - reload posts
+                        IconButton(onClick = {
                             isLoadingPosts = true
                             scope.launch {
                                 try {
-                                    // Simulate refresh delay
                                     kotlinx.coroutines.delay(800)
-                                    errorMessage = "✓ Feed refreshed successfully"
+                                    errorMessage = " Feed refreshed successfully"
                                 } finally {
                                     isLoadingPosts = false
                                 }
@@ -232,10 +226,9 @@ fun HomeScreenEnhanced(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        IconButton(onClick = { 
-                            // Toggle settings visibility
+                        IconButton(onClick = {
                             selectedTab = "PROFILE"
-                            errorMessage = "✓ Settings opened"
+                            errorMessage = " Settings opened"
                         }) {
                             Icon(
                                 Icons.Filled.Settings,
@@ -248,7 +241,6 @@ fun HomeScreenEnhanced(
                 }
             }
 
-            // ===== TAB SELECTOR - WhatsApp-style pill buttons =====
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -272,7 +264,7 @@ fun HomeScreenEnhanced(
                         animationSpec = tween(400, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)),
                         label = "tab_text_color_$tab"
                     )
-                    
+
                     Surface(
                         modifier = Modifier
                             .weight(1f)
@@ -306,7 +298,6 @@ fun HomeScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ===== CONTENT TABS WITH SMOOTH TRANSITIONS =====
             TabTransitionAnimation(
                 selectedTab = selectedTab,
                 modifier = Modifier
@@ -315,11 +306,9 @@ fun HomeScreenEnhanced(
             ) {
                 when (selectedTab) {
                 "CHATS" -> {
-                    // Combined view: Feed, Contacts, and Messages
                     var chatSubTab by remember { mutableStateOf("CHATS") }
-                    
+
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // Sub-tab selector for chats view
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -343,7 +332,7 @@ fun HomeScreenEnhanced(
                                     animationSpec = tween(350, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)),
                                     label = "subtab_text_$subTab"
                                 )
-                                
+
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
@@ -376,7 +365,6 @@ fun HomeScreenEnhanced(
 
                         when (chatSubTab) {
                             "CHATS" -> {
-                                // Direct messages list - navigates to chat screen
                                 LazyColumn(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -514,7 +502,6 @@ fun HomeScreenEnhanced(
                 }
 
                 "ADD FRIENDS" -> {
-                    // Friend requests tab
                     if (isLoadingRequests) {
                         Box(
                             modifier = Modifier
@@ -584,7 +571,7 @@ fun HomeScreenEnhanced(
                                                     )
                                                     if (response.isSuccessful) {
                                                         friendRequests = friendRequests.filter { it.id != request.id }
-                                                        errorMessage = "✓ Accepted friend request from ${request.senderName}"
+                                                        errorMessage = " Accepted friend request from ${request.senderName}"
                                                     } else {
                                                         errorMessage = "Failed to accept request: ${response.code()}"
                                                     }
@@ -608,7 +595,7 @@ fun HomeScreenEnhanced(
                                                     )
                                                     if (response.isSuccessful) {
                                                         friendRequests = friendRequests.filter { it.id != request.id }
-                                                        errorMessage = "✓ Declined friend request from ${request.senderName}"
+                                                        errorMessage = " Declined friend request from ${request.senderName}"
                                                     } else {
                                                         errorMessage = "Failed to reject request: ${response.code()}"
                                                     }
@@ -616,7 +603,7 @@ fun HomeScreenEnhanced(
                                                     errorMessage = "Authentication token missing"
                                                 }
                                             } catch (e: Exception) {
-                                                errorMessage = "Error rejecting request:  ${e.localizedMessage ?: e.message}"
+                                                errorMessage = "Error rejecting request: ${e.localizedMessage ?: e.message}"
                                             }
                                         }
                                     }
@@ -628,7 +615,6 @@ fun HomeScreenEnhanced(
                 }
 
                 "PROFILE" -> {
-                    // Profile and settings view
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
@@ -682,10 +668,10 @@ fun HomeScreenEnhanced(
                                             style = MaterialTheme.typography.headlineSmall,
                                             color = CyberpunkTheme.PrimaryPurple
                                         )
-                                        
-                                        SettingRow(label = "Username", value = "User", onClick = { /* Edit */ })
-                                        SettingRow(label = "Email", value = "user@freetime.com", onClick = { /* Edit */ })
-                                        SettingRow(label = "Privacy", value = "Public", onClick = { /* Edit */ })
+
+                                        SettingRow(label = "Username", value = "User", onClick = { })
+                                        SettingRow(label = "Email", value = "user@freetime.com", onClick = { })
+                                        SettingRow(label = "Privacy", value = "Public", onClick = { })
                                     }
                                 }
                                 }
@@ -710,7 +696,7 @@ fun HomeScreenEnhanced(
 @Composable
 fun CreatePostCard(onPostClick: () -> Unit) {
     var isPressed by remember { mutableStateOf(false) }
-    
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -719,7 +705,7 @@ fun CreatePostCard(onPostClick: () -> Unit) {
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
-            ) { 
+            ) {
                 isPressed = true
                 onPostClick()
             },
@@ -794,7 +780,6 @@ fun FeedPostCard(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-            // Author info
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -832,7 +817,7 @@ fun FeedPostCard(
                 }
 
                 IconButton(
-                    onClick = { /* More options */ },
+                    onClick = { },
                     modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
@@ -844,7 +829,6 @@ fun FeedPostCard(
                 }
             }
 
-            // Post content
             Text(
                 post.content,
                 style = MaterialTheme.typography.bodySmall,
@@ -852,7 +836,6 @@ fun FeedPostCard(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Optional: Add mascot decoration for rich content
             if (post.content.contains("share", ignoreCase = true) || post.content.contains("happy", ignoreCase = true)) {
                 Surface(
                     modifier = Modifier
@@ -878,14 +861,12 @@ fun FeedPostCard(
                 }
             }
 
-            // Interaction buttons
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(32.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Likes
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -922,7 +903,6 @@ fun FeedPostCard(
                     }
                 }
 
-                // Comments
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -955,7 +935,6 @@ fun FeedPostCard(
                     }
                 }
 
-                // Share
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -982,7 +961,7 @@ fun FeedPostCard(
         }
     }
 }
-                        
+
 @Composable
 fun ContactCardCyberpunk(
     name: String,
@@ -1034,7 +1013,6 @@ fun ContactCardCyberpunk(
                 )
             }
 
-            // Status indicator
             Surface(
                 modifier = Modifier.size(12.dp),
                 shape = CircleShape,
@@ -1207,16 +1185,16 @@ fun AnimatedLogoutButton(onLogoutClick: () -> Unit) {
         animationSpec = spring(dampingRatio = 0.6f),
         label = "logoutScale"
     )
-    
+
     var isHovered by remember { mutableStateOf(false) }
     val backgroundColor by animateColorAsState(
         targetValue = if (isHovered) Color(0xFFFF5555) else Color(0xFFFF6B6B),
         animationSpec = tween(300),
         label = "logoutBg"
     )
-    
+
     Button(
-        onClick = { 
+        onClick = {
             isPressed = true
             onLogoutClick()
         },

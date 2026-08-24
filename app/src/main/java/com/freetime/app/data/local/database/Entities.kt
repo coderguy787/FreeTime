@@ -3,15 +3,6 @@ package com.freetime.app.data.local.database
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/**
- * Database Entities - API-first architecture
- * 
- * Using server-side database on Debian 13 master-server as primary data source
- * App receives all data via REST API - local entities are stubs for Room integration
- * All data models are in ApiModels.kt for API responses
- */
-
-// Chat-related entities
 @Entity(tableName = "chats")
 data class ChatEntity(
     @PrimaryKey val chatId: String = "",
@@ -25,12 +16,12 @@ data class ChatEntity(
     val isMuted: Boolean = false
 )
 
-// Message-related entities
 @Entity(tableName = "messages")
 data class MessageEntity(
     @PrimaryKey val messageId: String = "",
     val chatId: String = "",
     val senderId: String = "",
+    // message content is stored encrypted
     val contentEncrypted: String = "",
     val mediaUrl: String? = null,
     val timestamp: Long = 0L,
@@ -43,10 +34,10 @@ data class MessageEntity(
     val replyToText: String? = null,
     val mediaType: String? = null,
     val mediaName: String? = null,
+    // reactions kept as json (sqlite has no map type)
     val reactions: String = ""
 )
 
-// Group-related entities
 @Entity(tableName = "groups")
 data class GroupEntity(
     @PrimaryKey val groupId: String = "",
@@ -72,7 +63,6 @@ data class GroupMemberEntity(
     val isActive: Boolean = true
 )
 
-// Channel-related entities
 @Entity(tableName = "channels")
 data class ChannelEntity(
     @PrimaryKey val channelId: String = "",
@@ -85,7 +75,6 @@ data class ChannelEntity(
     val avatar: String? = null
 )
 
-// Friend system entities
 @Entity(tableName = "friend_requests")
 data class FriendRequestEntity(
     @PrimaryKey val requestId: String = "",
@@ -105,8 +94,8 @@ data class FriendEntity(
     val displayName: String? = null,
     val avatar: String? = null,
     val bio: String? = null,
-    val tags: String = "[]", // JSON array string for tags
-    val status: String? = null, // 'online', 'idle', 'busy', 'offline'
+    val tags: String = "[]",
+    val status: String? = null,
     val privacyLevel: String = "public",
     val email: String? = null,
     val connectedAt: Long = 0L,
@@ -116,7 +105,6 @@ data class FriendEntity(
     val isOnline: Boolean = false
 )
 
-// Media entity
 @Entity(tableName = "media")
 data class MediaEntity(
     @PrimaryKey val mediaId: String = "",
@@ -130,7 +118,6 @@ data class MediaEntity(
     val expiresAt: Long? = null
 )
 
-// Delete request/approval entities
 @Entity(tableName = "delete_requests")
 data class DeleteRequestEntity(
     @PrimaryKey val requestId: String = "",
@@ -153,32 +140,3 @@ data class DeleteApprovalEntity(
     val approvedAt: Long = 0L
 )
 
-// Call history entity
-@Entity(tableName = "call_history")
-data class CallHistoryEntity(
-    @PrimaryKey val callId: String = "",
-    val participantId: String = "",
-    val initiatorId: String = "",
-    val recipientId: String = "",
-    val callType: String = "",
-    val duration: Long = 0L,
-    val startTime: Long = 0L,
-    val startedAt: Long = 0L,
-    val endedAt: Long? = null,
-    val status: String = "completed",
-    val isGroupCall: Boolean = false
-)
-
-// Sync state entity
-@Entity(tableName = "sync_state")
-data class SyncStateEntity(
-    @PrimaryKey val syncId: String = "",
-    val id: String = "sync_state",
-    val isSynced: Boolean = false,
-    val createdAt: Long = 0L,
-    val lastSyncTime: Long = 0L,
-    val lastSyncAttempt: Long = 0L,
-    val syncRetries: Int = 0,
-    val pendingCount: Int = 0,
-    val failedCount: Int = 0
-)

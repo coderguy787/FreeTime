@@ -11,50 +11,30 @@ import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
-/**
- * Repository for message operations
- * Handles real API calls for messages with encryption/decryption
- */
 class MessageRepository(
     private val database: FreeTimeDatabase,
     private val encryptionManager: EncryptionManager,
     private val context: Context? = null
 ) {
-    // Get the message DAO from the database
     private val messageDao = database.messageDao()
     private val apiService = ApiClient.getInstance()
 
-    /**
-     * Get all messages for a specific chat
-     */
     fun getMessagesForChat(chatId: String, limit: Int = 100): Flow<List<MessageEntity>> {
         return messageDao.getMessagesByChatId(chatId, limit)
     }
 
-    /**
-     * Get unread messages for a chat
-     */
     fun getUnreadMessages(chatId: String): Flow<List<MessageEntity>> {
         return messageDao.getUnreadMessages(chatId)
     }
 
-    /**
-     * Get the latest message in a chat
-     */
     suspend fun getLatestMessage(chatId: String): MessageEntity? {
         return messageDao.getLatestMessage(chatId)
     }
 
-    /**
-     * Get a specific message by ID
-     */
     suspend fun getMessageById(messageId: String): MessageEntity? {
         return messageDao.getMessageById(messageId)
     }
 
-    /**
-     * Send a new message with encryption
-     */
     suspend fun sendMessage(
         chatId: String,
         senderId: String,
@@ -65,8 +45,8 @@ class MessageRepository(
         replyToText: String? = null
     ): String {
         val messageId = "msg_${System.currentTimeMillis()}"
-        
-        // Encrypt message content
+
+        // encrypted per chat and sender
         val encryptedContent = encryptionManager.encrypt(
             content,
             associatedData = "$chatId:$senderId"
@@ -87,14 +67,11 @@ class MessageRepository(
             replyToUsername = replyToUsername,
             replyToText = replyToText
         )
-        
+
         messageDao.insertMessage(message)
         return messageId
     }
 
-    /**
-     * Decrypt a message for display
-     */
     fun decryptMessage(message: MessageEntity): String {
         return try {
             encryptionManager.decrypt(
@@ -102,64 +79,38 @@ class MessageRepository(
                 associatedData = "${message.chatId}:${message.senderId}"
             )
         } catch (e: Exception) {
+            // show a placeholder instead of crashing on bad data
             "[Message decryption failed]"
         }
     }
 
-    /**
-     * Mark message as read
-     */
     suspend fun markAsRead(messageId: String) {
         val message = messageDao.getMessageById(messageId) ?: return
         messageDao.updateMessage(message.copy(isRead = true))
     }
 
-    /**
-     * Delete a message locally (soft delete for current user)
-     */
     suspend fun deleteMessageLocally(messageId: String) {
         val message = messageDao.getMessageById(messageId) ?: return
         messageDao.updateMessage(message.copy(deletedLocally = true))
     }
 
-    /**
-     * Delete message for all users
-     */
     suspend fun deleteMessage(messageId: String) {
         val message = messageDao.getMessageById(messageId) ?: return
         messageDao.deleteMessage(message)
     }
 
-    /**
-     * Update local message ID to server-assigned ID to prevent poll-duplicates
-     * Uses a single UPDATE to avoid DELETE+INSERT triggering two reactive Flow emissions
-     */
     suspend fun updateMessageId(oldId: String, newId: String) {
         messageDao.updateMessageId(oldId, newId)
     }
 
-    /**
-     * Get all pending messages to sync
-     */
     suspend fun getAllPendingMessages(): List<MessageEntity> {
         return messageDao.getMessagesBySyncState("pending").first()
     }
 
-    /**
-     * Get all messages that failed to sync
-     */
     suspend fun getAllFailedMessages(): List<MessageEntity> {
         return messageDao.getMessagesBySyncState("failed").first()
     }
 
-    /**
-     * Fetch messages from API for a specific recipient/chat.
-     * Announcements are stored server-side as plaintext and are not encrypted with local keys,
-     * so we preserve their content as-is by encrypting them locally with the correct associated data.
-     *
-     * Also consolidates any local messages that have the same sender+decrypted-content but a different
-     * messageId (e.g., local UUID vs server-assigned ID) to prevent duplicates.
-     */
     suspend fun fetchMessagesFromAPI(recipientId: String, limit: Int = 100): List<MessageEntity> {
         return try {
             val prefs = context?.let { SharedPreferencesHelper(it) }
@@ -175,10 +126,6 @@ class MessageRepository(
                             encryptionManager.encrypt(content, "$recipientId:$senderId")
                         } else ""
 
-                        // Consolidate: if a local message has the same sender + decrypted content but
-                        // a different ID, update its ID to the server's ID before inserting.
-                        // NOTE: matching is done on DECRYPTED content because the local message was
-                        // encrypted with a random IV (AES-GCM), so ciphertext will never match.
                         val serverId = messageResponse._id
                         if (serverId.isNotEmpty()) {
                             consolidateLocalMessageId(recipientId, senderId, content, serverId)
@@ -212,10 +159,6 @@ class MessageRepository(
         }
     }
 
-    /**
-     * Find a local message with the same sender + decrypted content but a different messageId
-     * (e.g., local UUID not yet replaced by the server-assigned ID) and update its ID.
-     */
     private suspend fun consolidateLocalMessageId(
         chatId: String,
         senderId: String,
@@ -228,8 +171,6 @@ class MessageRepository(
             for (local in localMessages) {
                 if (local.messageId == serverMessageId) continue
                 if (local.senderId != senderId) continue
-                // Skip messages already holding a server-assigned ID (Mongo ObjectId = 24 hex chars) —
-                // only local UUIDs (e.g. "msg_...") need consolidation.
                 if (local.messageId.length == 24 && local.messageId.all { it.isDigit() || it in 'a'..'f' }) continue
                 val decrypted = try {
                     encryptionManager.decrypt(local.contentEncrypted, "${local.chatId}:${local.senderId}")
@@ -242,13 +183,9 @@ class MessageRepository(
                 }
             }
         } catch (e: Exception) {
-            // Non-critical - fall through to plain insert
         }
     }
 
-    /**
-     * Send message to API (real endpoint call)
-     */
     suspend fun sendMessageToAPI(
         recipientId: String,
         content: String
@@ -256,12 +193,12 @@ class MessageRepository(
         return try {
             val prefs = context?.let { SharedPreferencesHelper(it) }
             val token = prefs?.getToken() ?: throw Exception("User not authenticated")
-            
+
             val request = SendMessageRequest(
                 recipientId = recipientId,
                 content = content
             )
-            
+
             val response = apiService.sendMessage(request, "Bearer $token")
             if (response.isSuccessful && response.body() != null) {
                 response.body()?._id ?: throw Exception("Message ID is null in response")
@@ -273,23 +210,14 @@ class MessageRepository(
         }
     }
 
-    /**
-     * Delete all messages for a chat
-     */
     suspend fun deleteAllMessagesForChat(chatId: String) {
         messageDao.deleteAllMessagesForChat(chatId)
     }
 
-    /**
-     * Get message count for a chat
-     */
     suspend fun getMessageCount(chatId: String): Int {
         return messageDao.getMessageCountInChat(chatId)
     }
 
-    /**
-     * Update message sync state
-     */
     suspend fun updateSyncState(messageId: String, syncState: String) {
         val message = messageDao.getMessageById(messageId) ?: return
         messageDao.updateMessage(message.copy(syncState = syncState))

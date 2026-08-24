@@ -48,7 +48,6 @@ import androidx.compose.foundation.BorderStroke
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 
-
 @Composable
 fun SettingsScreenEnhanced(
     onLogoutClick: () -> Unit = {},
@@ -63,7 +62,7 @@ fun SettingsScreenEnhanced(
     val prefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
     val apiService = remember { FreeTimeApiService(context) }
 
-    // Load dark mode preference on startup
+    // app settings
     LaunchedEffect(Unit) {
         darkModeEnabled = prefs.isDarkModeEnabled()
     }
@@ -71,10 +70,9 @@ fun SettingsScreenEnhanced(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (darkModeEnabled) Color(0xFF0A0A0A) else Color(0xFFF0F0F0)) // Light grey instead of white
+            .background(if (darkModeEnabled) Color(0xFF0A0A0A) else Color(0xFFF0F0F0))
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ===== MODERN HEADER =====
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -125,7 +123,6 @@ fun SettingsScreenEnhanced(
                 }
             }
 
-            // Help dialog
             if (showHelpDialog) {
                 AlertDialog(
                     onDismissRequest = { showHelpDialog = false },
@@ -151,7 +148,6 @@ fun SettingsScreenEnhanced(
                 )
             }
 
-            // ===== HORIZONTAL TABS =====
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -205,7 +201,6 @@ fun SettingsScreenEnhanced(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ===== CONTENT BASED ON SELECTED TAB =====
             when (selectedTab) {
                 "PERSONALIZE" -> PersonalizationContent()
                 "ACCOUNT" -> AccountSettingsContent(
@@ -228,27 +223,22 @@ fun SettingsScreenEnhanced(
 fun PersonalizationContent() {
     val context = LocalContext.current
     val prefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
-    
-    // Initialize state from SharedPreferences
+
     var fontSizeIndex by remember { mutableStateOf(1) }
     var animationSpeedIndex by remember { mutableStateOf(1) }
-    var compactModeEnabled by remember { mutableStateOf(false) }
-    
-    // Load all settings from SharedPreferences on first compose
+
     LaunchedEffect(Unit) {
         try {
             fontSizeIndex = prefs.getFontSizeIndex()
             animationSpeedIndex = prefs.getAnimationSpeedIndex()
-            compactModeEnabled = prefs.isCompactModeEnabled()
         } catch (e: Exception) {
             android.util.Log.e("PersonalizationContent", "Error loading settings", e)
         }
     }
-    
+
     val fontSizes = listOf("Small", "Medium", "Large")
     val animationSpeeds = listOf("Slow", "Normal", "Fast")
-    
-    // Get current font size multiplier
+
     fun getFontSizeMultiplier(): Float {
         return when (fontSizeIndex) {
             0 -> 0.85f
@@ -257,14 +247,12 @@ fun PersonalizationContent() {
             else -> 1.0f
         }
     }
-    
-    val spacingMultiplier = if (compactModeEnabled) 0.7f else 1.0f
 
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp * spacingMultiplier),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
         item {
@@ -282,8 +270,7 @@ fun PersonalizationContent() {
                     fontSizeIndex = newIndex
                     prefs.setFontSizeIndex(newIndex)
                 },
-                fontSizeMultiplier = getFontSizeMultiplier(),
-                spacingMultiplier = spacingMultiplier
+                fontSizeMultiplier = getFontSizeMultiplier()
             )
         }
 
@@ -298,30 +285,12 @@ fun PersonalizationContent() {
                     animationSpeedIndex = newIndex
                     prefs.setAnimationSpeedIndex(newIndex)
                 },
-                fontSizeMultiplier = getFontSizeMultiplier(),
-                spacingMultiplier = spacingMultiplier
+                fontSizeMultiplier = getFontSizeMultiplier()
             )
         }
 
         item {
-            SettingsToggleItem(
-                icon = Icons.Filled.ViewStream,
-                title = "Compact Mode",
-                description = "Reduce spacing and padding for more content",
-                checked = compactModeEnabled,
-                onCheckedChange = { newState ->
-                    compactModeEnabled = newState
-                    prefs.setCompactModeEnabled(newState)
-                },
-                fontSizeMultiplier = getFontSizeMultiplier(),
-                spacingMultiplier = spacingMultiplier
-            )
-        }
-        
-
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -415,7 +384,7 @@ fun SettingsDropdownItem(
             ) {
                 options.forEachIndexed { index, option ->
                     DropdownMenuItem(
-                        text = { 
+                        text = {
                             Text(
                                 option,
                                 fontSize = 12.sp * fontSizeMultiplier
@@ -470,14 +439,16 @@ fun AccountSettingsContent(
     var profileLoadError by remember { mutableStateOf("") }
     var lastSaveTime by remember { mutableStateOf<Long?>(null) }
     var pronouns by remember { mutableStateOf("") }
+    var bannerUrl by remember { mutableStateOf<String?>(null) }
+    var isUploadingBanner by remember { mutableStateOf(false) }
     var showPhotoCropDialog by remember { mutableStateOf(false) }
     var selectedPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    
+
     val context = LocalContext.current
     val apiService = remember { FreeTimeApiService(context) }
     val prefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
     val scope = rememberCoroutineScope()
-    
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -487,7 +458,6 @@ fun AccountSettingsContent(
         }
     }
 
-    // Cooldown logic (same as before)
     fun canChangeUsername(): Boolean {
         if (lastUsernameChange == null) return true
         val daysSinceChange = (System.currentTimeMillis() - lastUsernameChange!!) / (1000 * 60 * 60 * 24)
@@ -523,6 +493,7 @@ fun AccountSettingsContent(
                     currentDisplayName = profile.displayName
                     bio = profile.bio
                     profileImageUrl = profile.avatar
+                    bannerUrl = profile.banner
                     userTags = profile.tags
                     originalTags = profile.tags
                     userRole = profile.role ?: "User"
@@ -530,9 +501,7 @@ fun AccountSettingsContent(
                     originalPronouns = profile.pronouns
                     lastUsernameChange = profile.lastUsernameChangeAt?.toLongOrNull()
                     lastDisplayNameChange = profile.lastDisplayNameChangeAt?.toLongOrNull()
-                    // Sync cached username so chat screens see the latest value
                     prefs.setUsername(profile.username)
-                    // Populate editing fields with current values
                     newDisplayName = profile.displayName
                     newUsername = profile.username
                     newBio = profile.bio
@@ -545,15 +514,99 @@ fun AccountSettingsContent(
                 profileLoadError = "Error loading profile: ${e.message}"
             } finally {
                 isLoadingProfile = false
+        }
+    }
+}
+
+@Composable
+fun ProfileBackgroundPicker() {
+    val context = LocalContext.current
+    val prefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
+    val scope = rememberCoroutineScope()
+    val currentBg = remember { mutableStateOf(prefs.getProfileBackground()) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+
+                val file = java.io.File(context.filesDir, "profile_background.jpg")
+                file.outputStream().use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                }
+                currentBg.value = file.absolutePath
+                prefs.setProfileBackground(file.absolutePath)
+                scope.launch {
+                    Toast.makeText(context, "Profile background set", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                scope.launch {
+                    Toast.makeText(context, "Failed to set background", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
-    
+
+    Column {
+        if (currentBg.value != null) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .clip(RoundedCornerShape(10.dp)),
+                color = CyberpunkTheme.DarkGray
+            ) {
+                AsyncImage(
+                    model = currentBg.value,
+                    contentDescription = "Profile Background",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { launcher.launch("image/*") },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = CyberpunkTheme.PrimaryPurple)
+            ) {
+                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (currentBg.value != null) "Change" else "Set Background", fontSize = 12.sp)
+            }
+            if (currentBg.value != null) {
+                OutlinedButton(
+                    onClick = {
+                        currentBg.value = null
+                        prefs.setProfileBackground(null)
+                        scope.launch {
+                            Toast.makeText(context, "Background removed", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    border = BorderStroke(1.dp, Color(0xFFFF4444).copy(alpha = 0.6f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF4444))
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Remove", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
     LaunchedEffect(Unit) {
         loadProfile()
     }
 
-    // Show loading indicator while profile is loading
     if (isLoadingProfile) {
         Box(
             modifier = Modifier
@@ -569,7 +622,6 @@ fun AccountSettingsContent(
         }
     }
 
-    // Show error if profile failed to load
     if (profileLoadError.isNotEmpty() && !isLoadingProfile) {
         Box(
             modifier = Modifier
@@ -602,7 +654,6 @@ fun AccountSettingsContent(
         }
     }
 
-    // Show profile content only if loaded successfully
     if (!isLoadingProfile && profileLoadError.isEmpty()) {
         LazyColumn(
             modifier = Modifier
@@ -611,7 +662,6 @@ fun AccountSettingsContent(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            // MODERN AVATAR SECTION
             item {
             Box(
                 modifier = Modifier
@@ -645,8 +695,7 @@ fun AccountSettingsContent(
                                 )
                             }
                         }
-                        
-                        // Edit overlay button
+
                         IconButton(
                             onClick = { imagePickerLauncher.launch("image/*") },
                             modifier = Modifier
@@ -662,7 +711,7 @@ fun AccountSettingsContent(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        
+
                         if (isUploadingImage) {
                             CircularProgressIndicator(
                                 modifier = Modifier
@@ -673,7 +722,7 @@ fun AccountSettingsContent(
                             )
                         }
                     }
-                    
+
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "@$currentUsername",
@@ -707,15 +756,14 @@ fun AccountSettingsContent(
             )
         }
 
-        // Display Name Editor
         item {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .border(
-                        1.dp, 
-                        if (displayNameError.isNotEmpty()) Color.Red else CyberpunkTheme.DarkGray, 
+                        1.dp,
+                        if (displayNameError.isNotEmpty()) Color.Red else CyberpunkTheme.DarkGray,
                         RoundedCornerShape(12.dp)
                     ),
                 color = CyberpunkTheme.DarkGray.copy(alpha = 0.5f)
@@ -741,7 +789,7 @@ fun AccountSettingsContent(
 
                     TextField(
                         value = newDisplayName,
-                        onValueChange = { 
+                        onValueChange = {
                             newDisplayName = it
                             displayNameError = ""
                             isEditingProfile = true
@@ -762,15 +810,14 @@ fun AccountSettingsContent(
             }
         }
 
-        // Username Editor
         item {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .border(
-                        1.dp, 
-                        if (usernameError.isNotEmpty()) Color.Red else CyberpunkTheme.DarkGray, 
+                        1.dp,
+                        if (usernameError.isNotEmpty()) Color.Red else CyberpunkTheme.DarkGray,
                         RoundedCornerShape(12.dp)
                     ),
                 color = CyberpunkTheme.DarkGray.copy(alpha = 0.5f)
@@ -795,7 +842,7 @@ fun AccountSettingsContent(
                     }
                     TextField(
                         value = newUsername,
-                        onValueChange = { 
+                        onValueChange = {
                             newUsername = it
                             usernameError = ""
                             isEditingProfile = true
@@ -816,7 +863,6 @@ fun AccountSettingsContent(
             }
         }
 
-        // Bio Editor
         item {
             Surface(
                 modifier = Modifier
@@ -832,7 +878,7 @@ fun AccountSettingsContent(
                     Text("Bio", color = CyberpunkTheme.White, fontWeight = FontWeight.Bold)
                     TextField(
                         value = newBio,
-                        onValueChange = { 
+                        onValueChange = {
                             newBio = it
                             isEditingProfile = true
                             hasChanges = true
@@ -849,7 +895,6 @@ fun AccountSettingsContent(
             }
         }
 
-        // Pronouns Editor
         item {
             Surface(
                 modifier = Modifier
@@ -884,7 +929,6 @@ fun AccountSettingsContent(
             }
         }
 
-        // Tags Display (Read-Only)
         item {
             Surface(
                 modifier = Modifier
@@ -904,7 +948,6 @@ fun AccountSettingsContent(
                         fontSize = 12.sp
                     )
 
-                    // Display tags as read-only chips
                     if (userTags.isNotEmpty()) {
                         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
                         androidx.compose.foundation.layout.FlowRow(
@@ -938,7 +981,116 @@ fun AccountSettingsContent(
             }
         }
 
-        // Profile Picture Upload
+        item {
+            val bannerPickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: Uri? ->
+                if (uri != null) {
+                    isUploadingBanner = true
+                    scope.launch {
+                        try {
+                            val inputStream = context.contentResolver.openInputStream(uri)
+                            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                            inputStream?.close()
+                            val baos = java.io.ByteArrayOutputStream()
+                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, baos)
+                            val byteArray = baos.toByteArray()
+                            val mimeType = "image/jpeg"
+                            val result = apiService.uploadProfileBanner(byteArray, mimeType)
+                            result.onSuccess { url ->
+                                bannerUrl = url.ifEmpty { null }
+                                Toast.makeText(context, "Banner updated", Toast.LENGTH_SHORT).show()
+                                loadProfile()
+                            }.onFailure { e ->
+                                Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            isUploadingBanner = false
+                        }
+                    }
+                }
+            }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, CyberpunkTheme.DarkGray, RoundedCornerShape(12.dp)),
+                color = CyberpunkTheme.DarkGray.copy(alpha = 0.5f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Banner", color = CyberpunkTheme.White, fontWeight = FontWeight.Bold)
+                    if (!bannerUrl.isNullOrEmpty() && bannerUrl != "null") {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            color = CyberpunkTheme.MediumGray
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(apiService.resolveAvatarUrl(bannerUrl))
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Current Banner",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { bannerPickerLauncher.launch("image/*") },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberpunkTheme.PrimaryPurple),
+                            enabled = !isUploadingBanner
+                        ) {
+                            if (isUploadingBanner) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = CyberpunkTheme.White, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (!bannerUrl.isNullOrEmpty() && bannerUrl != "null") "Change" else "Set Banner", fontSize = 12.sp)
+                            }
+                        }
+                        if (!bannerUrl.isNullOrEmpty() && bannerUrl != "null") {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            val result = apiService.deleteBanner()
+                                            result.onSuccess {
+                                                bannerUrl = null
+                                                Toast.makeText(context, "Banner removed", Toast.LENGTH_SHORT).show()
+                                            }.onFailure { e ->
+                                                Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                border = BorderStroke(1.dp, Color(0xFFFF4444).copy(alpha = 0.6f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF4444))
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Remove", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Surface(
                 modifier = Modifier
@@ -998,7 +1150,6 @@ fun AccountSettingsContent(
             }
         }
 
-        // Accept/Cancel Buttons
         if (isEditingProfile || hasChanges) {
             item {
                 Row(
@@ -1008,7 +1159,6 @@ fun AccountSettingsContent(
                     ElevatedButton(
                         onClick = {
                             scope.launch {
-                                // ===== CRITICAL: Validate profile is loaded before saving =====
                                 if (profileLoadError.isNotEmpty()) {
                                     android.util.Log.e("FREETIME_SETTINGS", "Cannot save: profile load failed - $profileLoadError")
                                     Toast.makeText(context, "Cannot save: Profile failed to load. Please refresh.", Toast.LENGTH_LONG).show()
@@ -1019,7 +1169,7 @@ fun AccountSettingsContent(
                                     Toast.makeText(context, "Cannot save: Profile data not fully loaded. Please refresh.", Toast.LENGTH_LONG).show()
                                     return@launch
                                 }
-                                
+
                                 isLoadingProfile = true
                                 val errors = mutableListOf<String>()
                                 try {
@@ -1028,9 +1178,6 @@ fun AccountSettingsContent(
                                             .exceptionOrNull()?.let { errors.add("Display name: ${it.message}") }
                                     }
                                     if (newBio != bio) {
-
-
-                                
                                         apiService.updateBio(newBio)
                                             .exceptionOrNull()?.let { errors.add("Bio: ${it.message}") }
                                     }
@@ -1039,7 +1186,6 @@ fun AccountSettingsContent(
                                         usernameResult.exceptionOrNull()?.let { errors.add("Username: ${it.message}") }
                                         if (usernameResult.isSuccess) prefs.setUsername(newUsername)
                                     }
-                                    // Save pronouns via profile update (tags are admin-only)
                                     if (pronouns != originalPronouns) {
                                         apiService.updateUserProfile(pronouns = pronouns)
                                             .exceptionOrNull()?.let { errors.add("Pronouns: ${it.message}") }
@@ -1091,27 +1237,12 @@ fun AccountSettingsContent(
                 }
             }
         }
-        
-        item {
-            SettingsSectionHeader("Preferences")
-        }
-
-        item {
-            SettingsToggleItem(
-                icon = Icons.Filled.Notifications,
-                title = "Push Notifications",
-                description = "Enable real-time message alerts",
-                checked = notificationsEnabled,
-                onCheckedChange = onNotificationsChange
-            )
-        }
 
         item {
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
-    // Photo Upload Confirmation Dialog
     if (showPhotoCropDialog && selectedPhotoUri != null) {
         AlertDialog(
             onDismissRequest = {
@@ -1128,7 +1259,6 @@ fun AccountSettingsContent(
                         color = CyberpunkTheme.LightGray,
                         fontSize = 13.sp
                     )
-                    // Preview of selected image
                     if (selectedPhotoUri != null) {
                         Surface(
                             modifier = Modifier
@@ -1150,27 +1280,22 @@ fun AccountSettingsContent(
             confirmButton = {
                 Button(
                     onClick = {
-                        // Read image bytes from URI and upload
                         selectedPhotoUri?.let { uri ->
                             scope.launch {
                                 isUploadingImage = true
                                 try {
-                                    // Read image file from URI
                                     val inputStream = context.contentResolver.openInputStream(uri)
                                     val imageBytes = inputStream?.readBytes() ?: return@launch
                                     inputStream.close()
-                                    
-                                    // Determine MIME type from URI
+
                                     val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                                    
-                                    // Upload to server
+
                                     val result = apiService.uploadProfileImage(imageBytes, mimeType)
                                     result.onSuccess { imageUrl ->
                                         profileImageUrl = imageUrl
                                         Toast.makeText(context, "Photo updated successfully!", Toast.LENGTH_SHORT).show()
                                         showPhotoCropDialog = false
                                         selectedPhotoUri = null
-                                        // Refresh profile to sync with server
                                         loadProfile()
                                     }.onFailure { error ->
                                         val msg = error.message ?: "Failed to update the photo!"
@@ -1212,10 +1337,9 @@ fun AccountSettingsContent(
             textContentColor = CyberpunkTheme.White
         )
         }
-    } // End of if (!isLoadingProfile && profileLoadError.isEmpty())
+    }
 }
 
-// ===== PRIVACY SETTINGS CONTENT =====
 @Composable
 fun PrivacySettingsContent() {
     val context = LocalContext.current
@@ -1231,7 +1355,6 @@ fun PrivacySettingsContent() {
 
     fun privacyValue(enabled: Boolean): String = if (enabled) "friends" else "nobody"
 
-    // Load settings from server
     LaunchedEffect(Unit) {
         try {
             val userId = prefs.getUserId()
@@ -1600,7 +1723,6 @@ fun SecuritySettingsContent(
                             android.util.Log.e("SecuritySettings", "Logout API error: ${e.message}")
                         } finally {
                             isLoadingLogout = false
-                            // Always clear local data and navigate to login regardless of API result
                             val prefs = com.freetime.app.data.local.SharedPreferencesHelper(context)
                             prefs.clearAuthData()
                             Toast.makeText(context, "Logged out successfully", Toast.LENGTH_SHORT).show()
@@ -1631,7 +1753,6 @@ fun SecuritySettingsContent(
         }
     }
 
-    // Delete Account dialog — must be OUTSIDE LazyColumn to render reliably
     if (showDeleteConfirmation) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
@@ -1713,14 +1834,12 @@ fun NotificationsContent() {
     val prefs = remember { com.freetime.app.data.local.SharedPreferencesHelper(context) }
     val scope = rememberCoroutineScope()
 
-    // Notification toggle states from prefs
     var notifyMessages by remember { mutableStateOf(prefs.isNotifyMessagesEnabled()) }
     var notifyFriendRequests by remember { mutableStateOf(prefs.isNotifyFriendRequestsEnabled()) }
     var notifyGroupUpdates by remember { mutableStateOf(prefs.isNotifyGroupUpdatesEnabled()) }
     var notifyVibration by remember { mutableStateOf(prefs.isNotifyVibrationEnabled()) }
     var notifySound by remember { mutableStateOf(prefs.isNotifySoundEnabled()) }
 
-    // Reload preferences when tab regains focus
     LaunchedEffect(Unit) {
         notifyMessages = prefs.isNotifyMessagesEnabled()
         notifyFriendRequests = prefs.isNotifyFriendRequestsEnabled()
@@ -1736,7 +1855,6 @@ fun NotificationsContent() {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
-        // Notification Type Toggles
         item {
             SettingsSectionHeader("Notification Types")
         }
@@ -1874,13 +1992,11 @@ fun FriendRequestNotificationCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // User Info Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Avatar
                 Surface(
                     modifier = Modifier
                         .size(40.dp)
@@ -1897,7 +2013,6 @@ fun FriendRequestNotificationCard(
                     )
                 }
 
-                // User Name
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1919,7 +2034,6 @@ fun FriendRequestNotificationCard(
                 }
             }
 
-            // Action Buttons
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2038,7 +2152,7 @@ fun AboutContent() {
                     ) {
                         Column {
                             Text("Version", color = CyberpunkTheme.LightGray, fontSize = 11.sp)
-                            Text("1.0.0", color = CyberpunkTheme.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(com.freetime.app.BuildConfig.VERSION_NAME, color = CyberpunkTheme.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                         Column {
                             Text("Build", color = CyberpunkTheme.LightGray, fontSize = 11.sp)
@@ -2240,8 +2354,6 @@ fun ShareContent(context: android.content.Context) {
     }
 }
 
-// ===== HELPER COMPOSABLES =====
-
 @Composable
 fun ThemeOption(
     label: String,
@@ -2271,7 +2383,7 @@ fun ThemeOption(
                 modifier = Modifier.size(32.dp),
                 shape = RoundedCornerShape(8.dp),
                 color = if (label == "Dark") CyberpunkTheme.DarkGray
-                        else if (label == "Light") Color(0xFFF0F0F0) // Light grey instead of white
+                        else if (label == "Light") Color(0xFFF0F0F0)
                         else CyberpunkTheme.MediumGray,
                 shadowElevation = 4.dp
             ) {}
@@ -2403,8 +2515,6 @@ fun ShareOption(
         }
     }
 }
-
-// ===== HELPER FUNCTIONS FOR COMPOSABLES =====
 
 @Composable
 fun SettingsSectionHeader(
@@ -2585,6 +2695,4 @@ fun SettingsDangerItem(
         }
     }
 }
-
-
 

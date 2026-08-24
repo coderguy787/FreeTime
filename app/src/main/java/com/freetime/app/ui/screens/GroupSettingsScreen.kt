@@ -31,9 +31,8 @@ import com.freetime.app.api.Group
 import com.freetime.app.api.UserData
 import com.freetime.app.ui.theme.LocalDisplaySettings
 import kotlinx.coroutines.launch
-import com.freetime.app.utils.GroupRefreshManager  // ✅ NEW: Import global refresh manager
+import com.freetime.app.utils.GroupRefreshManager
 
-// ✅ NEW: Helper function to get member color for group settings
 fun getGroupSettingsMemberColor(
     tags: List<String>,
     role: String? = null,
@@ -74,12 +73,11 @@ fun GroupSettingsScreen(
     var isDeleting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf("") }
-    
-    // Form states
+
     var groupName by remember { mutableStateOf("") }
     var groupDescription by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
-    
+
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showLeaveConfirm by remember { mutableStateOf(false) }
     var isLeaving by remember { mutableStateOf(false) }
@@ -88,9 +86,8 @@ fun GroupSettingsScreen(
     var isGeneratingCode by remember { mutableStateOf(false) }
     var isRevokingCode by remember { mutableStateOf(false) }
     var isAdmin by remember { mutableStateOf(false) }
-    var expandedMemberId by remember { mutableStateOf<String?>(null) }  // ✅ FIX: Track which member's menu is open
-    
-    // Group picture upload launcher
+    var expandedMemberId by remember { mutableStateOf<String?>(null) }
+
     var isUploadingPicture by remember { mutableStateOf(false) }
     val groupPictureLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -105,7 +102,6 @@ fun GroupSettingsScreen(
                         val result = apiService.uploadGroupPicture(groupId, bytes)
                         result.fold(
                             onSuccess = { pictureUrl ->
-                                // Refresh group data to get updated picture URL
                                 apiService.getGroupDetails(groupId).onSuccess { loadedGroup ->
                                     group = loadedGroup
                                     onGroupUpdated(loadedGroup)
@@ -126,15 +122,14 @@ fun GroupSettingsScreen(
             }
         }
     }
-    
-    // Add Friends state
+
     var showAddFriends by remember { mutableStateOf(false) }
     var friendsNotInGroup by remember { mutableStateOf(emptyList<UserData>()) }
     var loadingFriendsForGroup by remember { mutableStateOf(false) }
     var selectedFriendsToAdd by remember { mutableStateOf(setOf<String>()) }
     var isAddingFriendsToGroup by remember { mutableStateOf(false) }
 
-    // Load group data
+    // group settings, admin options for admins only
     LaunchedEffect(groupId) {
         isLoading = true
         try {
@@ -148,7 +143,6 @@ fun GroupSettingsScreen(
                     inviteCode = loadedGroup.inviteCode ?: ""
                     inviteLink = loadedGroup.inviteLink ?: ""
                     val currentUserId: String = prefs.getUserId() ?: ""
-                    // ✅ FIX: Combine both admins and adminIds (server sends both)
                     val adminList = (loadedGroup.admins + loadedGroup.adminIds).distinct()
                     isAdmin = adminList.contains(currentUserId)
                 },
@@ -162,20 +156,19 @@ fun GroupSettingsScreen(
             isLoading = false
         }
     }
-    
+
     fun updateGroup() {
         if (groupName.isBlank()) {
             errorMessage = "Group name cannot be empty"
             return
         }
-        
+
         isUpdating = true
         coroutineScope.launch {
             try {
                 val result = apiService.updateGroupDetails(groupId, groupName, groupDescription, isPrivate)
                 result.fold(
                     onSuccess = {
-                        // Refresh group data
                         apiService.getGroupDetails(groupId).onSuccess { loadedGroup ->
                             group = loadedGroup
                             onGroupUpdated(loadedGroup)
@@ -200,12 +193,11 @@ fun GroupSettingsScreen(
             try {
                 val result = apiService.deleteGroup(groupId)
                 result.fold(
-                    onSuccess = { 
-                        // ✅ IMPROVED: Wait for backend to process, then refresh
-                        kotlinx.coroutines.delay(500)  // Allow backend to process
-                        GroupRefreshManager.triggerRefresh()  // Notify home screen to refresh groups
-                        kotlinx.coroutines.delay(100)  // Brief delay for refresh to start
-                        onGroupDeleted() 
+                    onSuccess = {
+                        kotlinx.coroutines.delay(500)
+                        GroupRefreshManager.triggerRefresh()
+                        kotlinx.coroutines.delay(100)
+                        onGroupDeleted()
                     },
                     onFailure = { error ->
                         android.util.Log.e("GROUP_DELETE", "Failed to delete group: ${error.message}")
@@ -227,12 +219,11 @@ fun GroupSettingsScreen(
             try {
                 val result = apiService.leaveGroup(groupId)
                 result.fold(
-                    onSuccess = { 
-                        // ✅ IMPROVED: Wait for backend to process, then refresh
-                        kotlinx.coroutines.delay(500)  // Allow backend to process
-                        GroupRefreshManager.triggerRefresh()  // Notify home screen to refresh groups
-                        kotlinx.coroutines.delay(100)  // Brief delay for refresh to start
-                        onGroupLeft() 
+                    onSuccess = {
+                        kotlinx.coroutines.delay(500)
+                        GroupRefreshManager.triggerRefresh()
+                        kotlinx.coroutines.delay(100)
+                        onGroupLeft()
                     },
                     onFailure = { error ->
                         android.util.Log.e("GROUP_LEAVE", "Failed to leave group: ${error.message}")
@@ -322,7 +313,7 @@ fun GroupSettingsScreen(
 
     fun addSelectedFriends() {
         if (selectedFriendsToAdd.isEmpty()) return
-        
+
         isAddingFriendsToGroup = true
         coroutineScope.launch {
             try {
@@ -362,7 +353,7 @@ fun GroupSettingsScreen(
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = accentColor)
             }
             Text("Group Settings", fontSize = 22.sp, color = accentColor)
-            
+
             if (isAdmin) {
                 IconButton(
                     onClick = { groupPictureLauncher.launch("image/*") },
@@ -386,7 +377,7 @@ fun GroupSettingsScreen(
             }
             Text(errorMessage, color = Color.Red, modifier = Modifier.padding(vertical = 8.dp))
         }
-        
+
         if (successMessage.isNotBlank()) {
             LaunchedEffect(successMessage) {
                 kotlinx.coroutines.delay(3000)
@@ -411,7 +402,7 @@ fun GroupSettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text("Group Information", fontWeight = FontWeight.Bold, color = Color.Gray)
-                
+
                 OutlinedTextField(
                     value = groupName,
                     onValueChange = { groupName = it },
@@ -425,7 +416,7 @@ fun GroupSettingsScreen(
                     ),
                     enabled = isAdmin
                 )
-                
+
                 OutlinedTextField(
                     value = groupDescription,
                     onValueChange = { groupDescription = it },
@@ -437,9 +428,9 @@ fun GroupSettingsScreen(
                         focusedBorderColor = accentColor,
                         unfocusedBorderColor = Color.Gray
                     ),
-                    enabled = true // ✅ ALLOW: Both admins and members can edit description
+                    enabled = true
                 )
-                
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -456,8 +447,7 @@ fun GroupSettingsScreen(
                         )
                     )
                 }
-                
-                // ✅ UPDATE: Show button for both admins and members
+
                 Button(
                     onClick = { updateGroup() },
                     modifier = Modifier.fillMaxWidth(),
@@ -470,11 +460,11 @@ fun GroupSettingsScreen(
                         Text(buttonText, color = Color.Black)
                     }
                 }
-                
+
                 HorizontalDivider(color = Color.DarkGray)
-                
+
                 Text("Invitations", fontWeight = FontWeight.Bold, color = Color.Gray)
-                
+
                 if (inviteCode.isNotEmpty()) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -530,7 +520,7 @@ fun GroupSettingsScreen(
                 ) {
                     Text("Members (${group?.members?.size ?: 0})", fontWeight = FontWeight.Bold, color = Color.Gray)
                     if (isAdmin) {
-                        TextButton(onClick = { 
+                        TextButton(onClick = {
                             showAddFriends = true
                             loadFriendsNotInGroup()
                         }) {
@@ -542,8 +532,7 @@ fun GroupSettingsScreen(
                 }
 
                 HorizontalDivider(color = Color.DarkGray)
-                
-                // ✅ Members List Display
+
                 if (group?.members.isNullOrEmpty()) {
                     Text("No members", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
                 } else {
@@ -555,7 +544,7 @@ fun GroupSettingsScreen(
                     ) {
                         items(
                             items = group?.members ?: emptyList(),
-                            key = { it.userId }  // ✅ FIX: Add key for proper recomposition
+                            key = { it.userId }
                         ) { member ->
                             Row(
                                 modifier = Modifier
@@ -572,19 +561,16 @@ fun GroupSettingsScreen(
                                         color = getGroupSettingsMemberColor(member.tags, member.role, member.isSystemAdmin, member.isSystemModerator),
                                         fontWeight = FontWeight.Bold
                                     )
-                                    // ✅ FIX: Combine both admins and adminIds fields
                                     val adminList = ((group?.admins ?: emptyList()) + (group?.adminIds ?: emptyList())).distinct()
                                     val memberIsAdmin = adminList.contains(member.userId) || member.isAdmin
-                                    
-                                    // ✅ Display admin status and tags
+
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         if (memberIsAdmin) {
-                                            Text("👑 Admin", color = accentColor, fontSize = 10.sp)
+                                            Text(" Admin", color = accentColor, fontSize = 10.sp)
                                         }
-                                        // ✅ Display member tags
                                         if (member.tags.isNotEmpty()) {
                                             member.tags.take(2).forEach { tag ->
                                                 Text(
@@ -612,7 +598,6 @@ fun GroupSettingsScreen(
                                             expanded = expandedMemberId == member.userId && member.userId != group?.creatorId,
                                             onDismissRequest = { expandedMemberId = null }
                                         ) {
-                                            // ✅ FIX: Combine both admins and adminIds fields for admin status
                                             val adminList = ((group?.admins ?: emptyList()) + (group?.adminIds ?: emptyList())).distinct()
                                             val memberIsAdmin = adminList.contains(member.userId) || member.isAdmin
                                             if (!memberIsAdmin) {
@@ -703,7 +688,7 @@ fun GroupSettingsScreen(
 
                 HorizontalDivider(color = Color.DarkGray)
                 Text("Actions", fontWeight = FontWeight.Bold, color = Color.Gray)
-                
+
                 Button(
                     onClick = { showLeaveConfirm = true },
                     modifier = Modifier.fillMaxWidth(),
@@ -714,7 +699,7 @@ fun GroupSettingsScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Leave Group", color = Color.Red)
                 }
-                
+
                 if (isAdmin) {
                     Button(
                         onClick = { showDeleteConfirm = true },
@@ -726,7 +711,7 @@ fun GroupSettingsScreen(
                         Text("Delete Group", color = Color.White)
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -739,9 +724,9 @@ fun GroupSettingsScreen(
             text = { Text("Are you sure you want to delete this group? This action cannot be undone.", color = Color.White) },
             confirmButton = {
                 Button(
-                    onClick = { 
+                    onClick = {
                         showDeleteConfirm = false
-                        deleteGroup() 
+                        deleteGroup()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) {
@@ -764,9 +749,9 @@ fun GroupSettingsScreen(
             text = { Text("Are you sure you want to leave this group?", color = Color.White) },
             confirmButton = {
                 Button(
-                    onClick = { 
+                    onClick = {
                         showLeaveConfirm = false
-                        leaveGroup() 
+                        leaveGroup()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) {
@@ -795,7 +780,7 @@ fun GroupSettingsScreen(
             ) {
                 Text("Add Friends to Group", color = accentColor, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
-                
+
                 if (loadingFriendsForGroup) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = accentColor)
@@ -835,9 +820,9 @@ fun GroupSettingsScreen(
                             }
                         }
                     }
-                    
+
                     Spacer(Modifier.height(16.dp))
-                    
+
                     Button(
                         onClick = { addSelectedFriends() },
                         modifier = Modifier.fillMaxWidth(),

@@ -43,10 +43,6 @@ import com.freetime.app.ui.theme.PrimaryMagenta
 import com.freetime.app.ui.utils.*
 import kotlinx.coroutines.launch
 
-/**
- * 2FA Setup During Registration Screen
- * Displays QR code, manual secret, and backup codes
- */
 @Composable
 fun TwoFactorSetupDuringRegistrationScreen(
     tempToken: String,
@@ -56,17 +52,17 @@ fun TwoFactorSetupDuringRegistrationScreen(
     val context = LocalContext.current
     val deviceSize = rememberDeviceSize(context)
     val scope = rememberCoroutineScope()
-    
-    var step by remember { mutableStateOf(1) } // 1: QR Code, 2: Verify, 3: Backup Codes
+
+    var step by remember { mutableStateOf(1) }
     var qrCodeUrl by remember { mutableStateOf<String?>(null) }
     var secret by remember { mutableStateOf<String?>(null) }
     var backupCodes by remember { mutableStateOf<List<String>>(emptyList()) }
     var totpCode by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(true) } // Start as loading
+    var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf("") }
     var hasFetchError by remember { mutableStateOf(false) }
 
-    // Step 1: Fetch QR Code
+    // 2fa setup with qr code
     LaunchedEffect(Unit) {
         scope.launch {
             fetchSetupAuthenticator(
@@ -97,7 +93,6 @@ fun TwoFactorSetupDuringRegistrationScreen(
                 )
             )
     ) {
-        // Show error screen if fetch failed
         if (hasFetchError) {
             ErrorRetryScreen(
                 errorMessage = errorMessage,
@@ -158,7 +153,6 @@ fun TwoFactorSetupDuringRegistrationScreen(
                     TwoFactorBackupCodesStep(
                         backupCodes = backupCodes,
                         onComplete = {
-                            // Clear temp token after successful 2FA setup
                             val prefs = SharedPreferencesHelper(context)
                             prefs.clearTempToken()
                             onSetupComplete()
@@ -179,8 +173,7 @@ fun TwoFactorQRCodeStep(
 ) {
     val context = LocalContext.current
     val deviceSize = rememberDeviceSize(context)
-    
-    // Calculate responsive values
+
     val contentPadding = responsivePaddingLarge(deviceSize)
     val spacing = responsiveSpacingMedium(deviceSize)
     val qrCodeSize = if (deviceSize == DeviceSize.PHONE) {
@@ -190,7 +183,7 @@ fun TwoFactorQRCodeStep(
     } else {
         minOf(450.dp, 450.dp)
     }
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -200,13 +193,13 @@ fun TwoFactorQRCodeStep(
         verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
         Spacer(modifier = Modifier.height(responsiveSpacingLarge(deviceSize)))
-        
+
         Text(
             "Scan QR Code",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
             color = PrimaryMagenta
         )
-        
+
         Text(
             "Open your authenticator app and scan this QR code",
             style = MaterialTheme.typography.bodyMedium,
@@ -230,13 +223,12 @@ fun TwoFactorQRCodeStep(
                 )
             }
         } else if (qrCodeUrl != null && qrCodeUrl.isNotEmpty()) {
-            // Decode and render QR code from base64 data URI
             val bitmap = remember(qrCodeUrl) {
                 decodeBase64ToQRBitmap(qrCodeUrl)
             }
-            
+
             val borderShape = RoundedCornerShape(15.dp)
-            
+
             Surface(
                 modifier = Modifier
                     .size(qrCodeSize)
@@ -261,7 +253,6 @@ fun TwoFactorQRCodeStep(
             }
         }
 
-        // Manual Entry Fallback
         if (secret != null) {
             Column(
                 modifier = Modifier
@@ -289,8 +280,7 @@ fun TwoFactorQRCodeStep(
                     textAlign = TextAlign.Center,
                     fontSize = responsiveBodySmallFont(deviceSize)
                 )
-                
-                // Copy button
+
                 Button(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -334,7 +324,7 @@ fun TwoFactorVerifySetupStep(
 ) {
     val context = LocalContext.current
     val deviceSize = rememberDeviceSize(context)
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -345,20 +335,20 @@ fun TwoFactorVerifySetupStep(
         verticalArrangement = Arrangement.spacedBy(responsiveSpacingLarge(deviceSize))
     ) {
         Spacer(modifier = Modifier.height(responsiveSpacingLarge(deviceSize)))
-        
+
         Icon(
             Icons.Filled.Lock,
             contentDescription = "Verify",
             tint = PrimaryMagenta,
             modifier = Modifier.size(responsiveIconLarge(deviceSize))
         )
-        
+
         Text(
             "Verify Your Code",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
             color = PrimaryMagenta
         )
-        
+
         Text(
             "Enter the 6-digit code from your authenticator app",
             style = MaterialTheme.typography.bodyMedium,
@@ -407,7 +397,7 @@ fun TwoFactorVerifySetupStep(
                 color = Color(0xFF7F1D1D)
             ) {
                 Text(
-                    "⚠️ $errorMessage",
+                    " $errorMessage",
                     modifier = Modifier.padding(responsivePaddingMedium(deviceSize)),
                     color = Color(0xFFFF5252),
                     style = MaterialTheme.typography.bodySmall,
@@ -448,7 +438,7 @@ fun TwoFactorBackupCodesStep(
     val context = LocalContext.current
     var codesCopied by remember { mutableStateOf(false) }
     val deviceSize = rememberDeviceSize(context)
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -458,14 +448,14 @@ fun TwoFactorBackupCodesStep(
         verticalArrangement = Arrangement.spacedBy(responsiveSpacingMedium(deviceSize))
     ) {
         Spacer(modifier = Modifier.height(responsiveSpacingLarge(deviceSize)))
-        
+
         Icon(
             Icons.Filled.Save,
             contentDescription = "Backup",
             tint = PrimaryMagenta,
             modifier = Modifier.size(responsiveIconLarge(deviceSize))
         )
-        
+
         Text(
             "Save Your Backup Codes",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
@@ -474,7 +464,7 @@ fun TwoFactorBackupCodesStep(
         )
 
         Text(
-            "⚠️ Store these codes in a safe place\nEach code can be used once if you lose your authenticator",
+            " Store these codes in a safe place\nEach code can be used once if you lose your authenticator",
             style = MaterialTheme.typography.bodySmall,
             color = Color(0xFFFFB74D),
             textAlign = TextAlign.Center,
@@ -538,7 +528,7 @@ fun TwoFactorBackupCodesStep(
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryMagenta),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(if (codesCopied) "✓ Codes Copied" else "Copy All Codes", fontWeight = FontWeight.Bold, fontSize = responsiveBodySmallFont(deviceSize))
+            Text(if (codesCopied) " Codes Copied" else "Copy All Codes", fontWeight = FontWeight.Bold, fontSize = responsiveBodySmallFont(deviceSize))
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -556,35 +546,30 @@ fun TwoFactorBackupCodesStep(
     }
 }
 
-// Helper Functions for 2FA API Calls
-
 suspend fun fetchSetupAuthenticator(
     tempToken: String,
     onSuccess: (SetupAuthenticatorResponse) -> Unit,
     onError: (String) -> Unit
 ) {
     try {
-        // Use BuildConfig to get the server URL (dynamically configured)
-        // This ensures global connectivity using HTTPS for example.com
         val baseUrl = com.freetime.app.BuildConfig.MAIN_SERVER_URL
         val setupUrl = "$baseUrl/api/setup-authenticator"
         val jsonBody = "{\"setupMode\":\"setup\"}"
-        
+
         android.util.Log.d("TwoFactorSetup", "Fetching authenticator setup from: $setupUrl")
-        
+
         val responseBody = RawSocketHttpClient.post(setupUrl, jsonBody, mapOf(
             "Authorization" to "Bearer $tempToken",
             "Content-Type" to "application/json"
         ))
-        
+
         android.util.Log.d("TwoFactorSetup", "Setup response received: $responseBody")
-        
-        // Parse the JSON response
+
         val gson = com.google.gson.Gson()
         val setupResponse = gson.fromJson(responseBody, SetupAuthenticatorResponse::class.java)
-        
+
         android.util.Log.d("TwoFactorSetup", "Parsed response - Success: ${setupResponse.success}, QR: ${setupResponse.qrCode?.take(50)}, Secret: ${setupResponse.secret}")
-        
+
         if (setupResponse.success) {
             onSuccess(setupResponse)
         } else {
@@ -606,27 +591,23 @@ suspend fun verifyAuthenticatorCode(
 ) {
     setLoading(true)
     try {
-        // Use BuildConfig to get the server URL (dynamically configured)
-        // This ensures global connectivity using HTTPS for example.com
         val baseUrl = com.freetime.app.BuildConfig.MAIN_SERVER_URL
         val verifyUrl = "$baseUrl/api/verify-authenticator"
         val jsonBody = "{\"totpCode\":\"$totpCode\",\"rememberMe\":false}"
-        
+
         android.util.Log.d("TwoFactorSetup", "Verifying TOTP code at: $verifyUrl")
-        
+
         val responseBody = RawSocketHttpClient.post(verifyUrl, jsonBody, mapOf(
             "Authorization" to "Bearer $tempToken",
             "Content-Type" to "application/json"
         ))
-        
+
         android.util.Log.d("TwoFactorSetup", "Verify response received")
-        
-        // Parse the JSON response
+
         val gson = com.google.gson.Gson()
         val verifyResponse = gson.fromJson(responseBody, VerifyAuthenticatorResponse::class.java)
-        
+
         if (verifyResponse.success && verifyResponse.token != null) {
-            // Save the actual JWT token
             val prefs = SharedPreferencesHelper(context)
             val user = verifyResponse.user
             if (user != null) {
@@ -649,7 +630,6 @@ suspend fun verifyAuthenticatorCode(
     }
 }
 
-// Error Screen with Retry Option
 @Composable
 fun ErrorRetryScreen(
     errorMessage: String,
@@ -701,28 +681,20 @@ fun ErrorRetryScreen(
     }
 }
 
-/**
- * Decodes a base64 encoded QR code image from data URI format
- * Handles data URIs like: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
- */
 fun decodeBase64ToQRBitmap(dataUri: String): Bitmap? {
     return try {
-        // Remove the data URI prefix if present
         val base64String = if (dataUri.contains(",")) {
             dataUri.substringAfter(",")
         } else {
             dataUri
         }
-        
-        // Decode base64 to byte array
+
         val decodedBytes = Base64.getDecoder().decode(base64String)
-        
-        // Decode byte array to Bitmap
+
         BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
     } catch (e: Exception) {
         android.util.Log.e("QRCodeDecoder", "Failed to decode QR code: ${e.message}")
         null
     }
 }
-
 

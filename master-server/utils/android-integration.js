@@ -1,8 +1,3 @@
-/**
- * Android Integration Configuration Utility
- * Handles certificate pinning, request signing, and Android-specific configuration
- */
-
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -17,21 +12,16 @@ class AndroidIntegration {
         };
 
         if (!this.config.hmacSecret) {
-            console.warn('⚠️ HMAC_SECRET not configured for Android request signing');
+            console.warn(' HMAC_SECRET not configured for Android request signing');
         }
     }
 
-    /**
-     * Middleware to validate Android requests (certificate pinning verification + HMAC signing)
-     */
     requestValidator() {
         return (req, res, next) => {
-            // Android client identification
             const userAgent = req.get('User-Agent') || '';
             const isAndroidClient = userAgent.includes('Android');
-            
+
             if (isAndroidClient) {
-                // Verify request signature
                 const signature = req.get('X-Signature');
                 const timestamp = req.get('X-Timestamp');
                 const nonce = req.get('X-Nonce');
@@ -44,11 +34,11 @@ class AndroidIntegration {
                     });
                 }
 
-                // Verify timestamp is recent (within 5 minutes)
                 const currentTime = Date.now();
                 const requestTime = parseInt(timestamp);
                 const timeDifference = Math.abs(currentTime - requestTime);
 
+                // allow 5 min of clock drift
                 if (timeDifference > 5 * 60 * 1000) {
                     return res.status(401).json({
                         success: false,
@@ -57,7 +47,6 @@ class AndroidIntegration {
                     });
                 }
 
-                // Verify HMAC signature
                 const bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
                 const messageToSign = `${bodyStr}:${timestamp}:${nonce}`;
                 const expectedSignature = crypto
@@ -73,7 +62,6 @@ class AndroidIntegration {
                     });
                 }
 
-                // Add Android context to request
                 req.android = {
                     isValid: true,
                     clientVersion: req.get('X-App-Version') || 'unknown',
@@ -87,10 +75,6 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Generate certificate pin hash from certificate
-     * Usage: For updating Android app's certificate pins
-     */
     generateCertificatePin(certificatePath) {
         try {
             const cert = fs.readFileSync(certificatePath, 'utf8');
@@ -99,7 +83,7 @@ class AndroidIntegration {
                 .createHash('sha256')
                 .update(publicKey)
                 .digest('base64');
-            
+
             return `sha256/${hash}`;
         } catch (error) {
             console.error('Error generating certificate pin:', error.message);
@@ -107,28 +91,21 @@ class AndroidIntegration {
         }
     }
 
-    /**
-     * Extract public key from certificate
-     */
     _extractPublicKey(certificate) {
-        // Remove PEM headers and whitespace
         const publicKeyPem = certificate
             .replace(/-----BEGIN[^-]*-----/g, '')
             .replace(/-----END[^-]*-----/g, '')
             .replace(/\s/g, '');
-        
+
         return Buffer.from(publicKeyPem, 'base64');
     }
 
-    /**
-     * Generate example Android request with signature
-     */
     generateAndroidRequest(body = {}, options = {}) {
         const timestamp = options.timestamp || Date.now();
         const nonce = options.nonce || crypto.randomUUID();
         const bodyStr = JSON.stringify(body);
         const messageToSign = `${bodyStr}:${timestamp}:${nonce}`;
-        
+
         const signature = crypto
             .createHmac('sha256', this.config.hmacSecret)
             .update(messageToSign)
@@ -148,9 +125,6 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Generate configuration JSON for Android app
-     */
     generateAndroidConfig(serverUrl = process.env.CORS_ORIGIN || 'https://localhost:3000') {
         return {
             server: {
@@ -186,43 +160,37 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Verify Android app configuration
-     */
     verifyAndroidSetup(config) {
         const issues = [];
 
         if (!config.server?.apiUrl) {
-            issues.push('❌ Missing apiUrl configuration');
+            issues.push(' Missing apiUrl configuration');
         }
 
         if (!config.security?.certificatePins || config.security.certificatePins.length === 0) {
-            issues.push('⚠️ No certificate pins configured');
+            issues.push(' No certificate pins configured');
         }
 
         if (!config.security?.requireHTTPS) {
-            issues.push('❌ HTTPS not required - SECURITY RISK');
+            issues.push(' HTTPS not required - SECURITY RISK');
         }
 
         if (!config.security?.validateSignature) {
-            issues.push('❌ Request signature validation disabled');
+            issues.push(' Request signature validation disabled');
         }
 
         if (config.server?.retryPolicy?.maxRetries === 0) {
-            issues.push('⚠️ Retry policy disabled - app may be unreliable');
+            issues.push(' Retry policy disabled - app may be unreliable');
         }
 
         return {
             isValid: issues.length === 0,
             issues,
-            warnings: issues.filter(i => i.startsWith('⚠️')),
-            errors: issues.filter(i => i.startsWith('❌'))
+            warnings: issues.filter(i => i.startsWith('')),
+            errors: issues.filter(i => i.startsWith(''))
         };
     }
 
-    /**
-     * Generate test requests for Android integration testing
-     */
     generateTestRequests(baseUrl = 'https://localhost:3000') {
         return {
             register: this.generateAndroidRequest({
@@ -257,21 +225,15 @@ class AndroidIntegration {
         };
     }
 
-    /**
-     * Log Android request for debugging
-     */
     logAndroidRequest(req, actionName = 'Android Request') {
-        console.log(`\n📱 ${actionName}`);
-        console.log(`  Device: ${req.android?.deviceId || 'unknown'}`);
-        console.log(`  App Version: ${req.android?.clientVersion || 'unknown'}`);
-        console.log(`  Timestamp: ${new Date(parseInt(req.android?.timestamp || Date.now())).toISOString()}`);
-        console.log(`  Nonce: ${req.android?.nonce || 'unknown'}`);
-        console.log(`  Signature: Valid ✅`);
+        console.log(`\n ${actionName}`);
+        console.log(` Device: ${req.android?.deviceId || 'unknown'}`);
+        console.log(` App Version: ${req.android?.clientVersion || 'unknown'}`);
+        console.log(` Timestamp: ${new Date(parseInt(req.android?.timestamp || Date.now())).toISOString()}`);
+        console.log(` Nonce: ${req.android?.nonce || 'unknown'}`);
+        console.log(` Signature: Valid `);
     }
 
-    /**
-     * Generate documentation for Android developers
-     */
     generateAndroidDocumentation() {
         return `
 # Android Integration Guide
@@ -279,13 +241,12 @@ class AndroidIntegration {
 ## Certificate Pinning
 
 Update \`network_security_config.xml\`:
-
 \`\`\`xml
 <network-security-config>
     <domain-config cleartextTraffic="false">
         <domain includeSubdomains="true">yourdomain.com</domain>
         <pin-set expiration="2027-02-04">
-            ${this.config.certPins.map(pin => `<pin digest="SHA-256">${pin.replace('sha256/', '')}</pin>`).join('\n            ')}
+            ${this.config.certPins.map(pin => `<pin digest="SHA-256">${pin.replace('sha256/', '')}</pin>`).join('\n ')}
         </pin-set>
     </domain-config>
 </network-security-config>
@@ -294,7 +255,6 @@ Update \`network_security_config.xml\`:
 ## Request Signing
 
 All requests must include:
-
 1. **X-Signature**: HMAC-SHA256(body:timestamp:nonce)
 2. **X-Timestamp**: Current time in milliseconds
 3. **X-Nonce**: Random UUID
@@ -302,15 +262,14 @@ All requests must include:
 5. **X-Device-Id**: Unique device identifier
 
 Example Kotlin implementation:
-
 \`\`\`kotlin
 fun signRequest(body: String): Map<String, String> {
     val timestamp = System.currentTimeMillis()
     val nonce = UUID.randomUUID().toString()
     val messageToSign = "$body:$timestamp:$nonce"
-    
+
     val signature = HmacUtils.hmacSha256Hex(HMAC_SECRET, messageToSign)
-    
+
     return mapOf(
         "X-Signature" to signature,
         "X-Timestamp" to timestamp.toString(),
@@ -324,7 +283,6 @@ fun signRequest(body: String): Map<String, String> {
 ## Retry Policy
 
 Implement exponential backoff:
-
 \`\`\`kotlin
 val retryPolicy = RetryPolicy(
     maxRetries = 3,
@@ -337,7 +295,6 @@ val retryPolicy = RetryPolicy(
 ## WebSocket Connection
 
 Connect to WSS endpoint:
-
 \`\`\`kotlin
 val wsUrl = "wss://yourdomain.com/ws"
 val webSocket = client.newWebSocket(
@@ -352,7 +309,6 @@ val webSocket = client.newWebSocket(
 ## Health Checks
 
 Implement periodic health checks:
-
 \`\`\`kotlin
 fun checkServerHealth() {
     api.getHealth().enqueue(object : Callback<HealthResponse> {
@@ -361,7 +317,7 @@ fun checkServerHealth() {
                 // Server is healthy
             }
         }
-        
+
         override fun onFailure(call: Call<HealthResponse>, t: Throwable) {
             // Handle connection error
         }
@@ -372,7 +328,6 @@ fun checkServerHealth() {
 ## Error Handling
 
 Handle specific error codes:
-
 | Code | Meaning | Action |
 |------|---------|--------|
 | MISSING_SIGNATURE_HEADERS | Missing required headers | Add signature headers |
@@ -391,7 +346,6 @@ Version: 1.0.0
 
 module.exports = AndroidIntegration;
 
-// Export for CLI usage
 if (require.main === module) {
     const integration = new AndroidIntegration();
     console.log('Android Integration Configuration');

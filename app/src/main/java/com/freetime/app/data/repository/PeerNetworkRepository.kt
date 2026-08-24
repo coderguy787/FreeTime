@@ -9,13 +9,6 @@ import com.freetime.app.data.network.PeerInfo
 import kotlinx.coroutines.CoroutineScope
 import org.json.JSONObject
 
-/**
- * Peer Network Repository
- * Manages peer-to-peer communication for:
- * - Peer discovery and registration
- * - Data synchronization between peers
- * - Distributed consensus coordination
- */
 class PeerNetworkRepository(
     private val authToken: String,
     private val userId: String,
@@ -27,21 +20,18 @@ class PeerNetworkRepository(
 
     private var peerManager: PeerNetworkManager? = null
 
-    // ============== PEER DISCOVERY ==============
     private val _peersDiscovered = MutableLiveData<List<PeerInfo>>()
     val peersDiscovered: LiveData<List<PeerInfo>> = _peersDiscovered
 
     private val _newPeerDiscovered = MutableLiveData<PeerInfo>()
     val newPeerDiscovered: LiveData<PeerInfo> = _newPeerDiscovered
 
-    // ============== PEER DATA SYNC ==============
     private val _peerDataReceived = MutableLiveData<PeerNetworkEvent>()
     val peerDataReceived: LiveData<PeerNetworkEvent> = _peerDataReceived
 
-    private val _syncCompleted = MutableLiveData<String>() // PeerId
+    private val _syncCompleted = MutableLiveData<String>()
     val syncCompleted: LiveData<String> = _syncCompleted
 
-    // ============== CONNECTION STATE ==============
     private val _connectionState = MutableLiveData<ConnectionState>()
     val connectionState: LiveData<ConnectionState> = _connectionState
 
@@ -52,13 +42,11 @@ class PeerNetworkRepository(
         DISCONNECTED, CONNECTING, CONNECTED, ERROR
     }
 
-    /**
-     * Connect to Peer Network and start discovering peers
-     */
     fun connect() {
         try {
             _connectionState.value = ConnectionState.CONNECTING
 
+            // exposes peer connection state to screens
             peerManager = PeerNetworkManager(
                 authToken = authToken,
                 userId = userId,
@@ -77,9 +65,6 @@ class PeerNetworkRepository(
         }
     }
 
-    /**
-     * Disconnect from Peer Network
-     */
     fun disconnect() {
         try {
             peerManager?.disconnect()
@@ -90,9 +75,6 @@ class PeerNetworkRepository(
         }
     }
 
-    /**
-     * Send data to peer network
-     */
     fun sendPeerData(messageType: String, data: JSONObject) {
         try {
             peerManager?.sendPeerData(messageType, data)
@@ -103,9 +85,6 @@ class PeerNetworkRepository(
         }
     }
 
-    /**
-     * Synchronize data with specific peer
-     */
     fun syncWithPeer(peerId: String, syncType: String) {
         try {
             peerManager?.syncWithPeer(peerId, syncType)
@@ -116,9 +95,6 @@ class PeerNetworkRepository(
         }
     }
 
-    /**
-     * Request updated peer list from network
-     */
     fun refreshPeerList() {
         try {
             peerManager?.requestPeerList()
@@ -129,42 +105,27 @@ class PeerNetworkRepository(
         }
     }
 
-    /**
-     * Get list of currently discovered peers
-     */
     fun getDiscoveredPeers(): List<PeerInfo> {
         return peerManager?.getDiscoveredPeers() ?: emptyList()
     }
 
-    /**
-     * Get specific peer information
-     */
     fun getPeerInfo(peerId: String): PeerInfo? {
         return peerManager?.getPeerInfo(peerId)
     }
 
-    /**
-     * Check if a peer is online
-     */
     fun isPeerOnline(peerId: String): Boolean {
         return peerManager?.getPeerInfo(peerId)?.isOnline() ?: false
     }
 
-    /**
-     * Check if peer data is in sync
-     */
     fun isPeerInSync(peerId: String, localVersion: Int, localDataHash: String): Boolean {
         val peerInfo = peerManager?.getPeerInfo(peerId) ?: return false
         return peerInfo.isInSync(localVersion, localDataHash)
     }
 
-    // ============== EVENT HANDLERS ==============
-
     private fun handlePeerDiscovered(peerInfo: PeerInfo) {
         Log.d(TAG, "Peer discovered: ${peerInfo.peerId}")
         _newPeerDiscovered.value = peerInfo
 
-        // Update peers list
         val currentPeers = getDiscoveredPeers()
         _peersDiscovered.value = currentPeers
     }
@@ -173,7 +134,6 @@ class PeerNetworkRepository(
         Log.d(TAG, "Peer data received: ${event.type} from ${event.senderId}")
         _peerDataReceived.value = event
 
-        // Handle specific event types
         when (event.type) {
             "peer.sync.data" -> {
                 _syncCompleted.value = event.senderId

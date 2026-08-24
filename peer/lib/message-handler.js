@@ -1,11 +1,6 @@
-/**
- * Message Handler
- * Routes and processes messages between peers
- * Handles message persistence, delivery guarantees, and encryption
- */
-
 const { v4: uuidv4 } = require('uuid');
 
+// message routing between users
 class MessageHandler {
     constructor(redis, io, logger) {
         this.redis = redis;
@@ -20,9 +15,6 @@ class MessageHandler {
         };
     }
 
-    /**
-     * Handle incoming message
-     */
     async handleMessage(fromUserId, fromDeviceId, toUserId, content, metadata = {}) {
         try {
             const message = {
@@ -37,16 +29,13 @@ class MessageHandler {
                 ...metadata
             };
 
-            // Store message in Redis for persistence
             await this.redis.lpush(
                 `messages:${toUserId}`,
                 JSON.stringify(message)
             );
 
-            // Set expiry (30 days)
             await this.redis.expire(`messages:${toUserId}`, 30 * 24 * 60 * 60);
 
-            // Route to recipient if online
             this.io.to(`user:${toUserId}`).emit('message:incoming', message);
 
             this.stats.sent++;
@@ -68,9 +57,6 @@ class MessageHandler {
         }
     }
 
-    /**
-     * Get message history for user
-     */
     async getMessageHistory(userId, fromUserId, limit = 50) {
         try {
             const messageIds = await this.redis.lrange(
@@ -97,9 +83,6 @@ class MessageHandler {
         }
     }
 
-    /**
-     * Mark message as read
-     */
     async markAsRead(userId, messageId) {
         try {
             const key = `message:${messageId}:read`;
@@ -113,9 +96,6 @@ class MessageHandler {
         }
     }
 
-    /**
-     * Get unread message count
-     */
     async getUnreadCount(userId) {
         try {
             const count = await this.redis.llen(`messages:${userId}`);
@@ -128,9 +108,6 @@ class MessageHandler {
         }
     }
 
-    /**
-     * Broadcast message to multiple users
-     */
     async broadcastMessage(fromUserId, toUserIds, content, metadata = {}) {
         const results = [];
 
@@ -152,9 +129,6 @@ class MessageHandler {
         return results;
     }
 
-    /**
-     * Delete message
-     */
     async deleteMessage(userId, messageId) {
         try {
             const messages = await this.redis.lrange(
@@ -180,9 +154,6 @@ class MessageHandler {
         }
     }
 
-    /**
-     * Get handler statistics
-     */
     getStats() {
         return { ...this.stats };
     }

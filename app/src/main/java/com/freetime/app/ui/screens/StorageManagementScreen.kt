@@ -25,9 +25,6 @@ import com.freetime.app.data.storage.StorageStatus
 import com.freetime.app.ui.components.CyberpunkTheme
 import com.freetime.app.ui.animations.*
 
-/**
- * Storage Management Screen - Monitor and manage encrypted storage
- */
 @Composable
 fun StorageManagementScreen(modifier: Modifier = Modifier) {
     var storageManager by remember { mutableStateOf<StorageManager?>(null) }
@@ -37,13 +34,10 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
     var breakdown by remember { mutableStateOf<String>("") }
     var recommendations by remember { mutableStateOf(listOf<String>()) }
     var showCleanupDialog by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
-        // In real app, initialize StorageManager from context
-        // storageManager = StorageManager(context)
-        // This is a simulation for UI layout
     }
-    
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -51,7 +45,6 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header
         item {
             FadeInAnimation(delayMillis = 0) {
                 Text(
@@ -62,8 +55,7 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
-        
-        // Storage Usage Gauge
+
         item {
             FadeInAnimation(delayMillis = 100) {
                 StorageGaugeCard(
@@ -73,8 +65,8 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
-        
-        // Quick Stats
+
+        // storage usage screen (placeholder numbers)
         item {
             FadeInAnimation(delayMillis = 200) {
                 Row(
@@ -103,15 +95,13 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
-        
-        // Storage Breakdown
+
         item {
             FadeInAnimation(delayMillis = 300) {
                 StorageBreakdownCard(breakdown = breakdown)
             }
         }
-        
-        // Cleanup Recommendations
+
         item {
             FadeInAnimation(delayMillis = 400) {
                 Text(
@@ -123,15 +113,14 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
-        
+
         items(recommendations) { recommendation ->
             CleanupRecommendationCard(
                 recommendation = recommendation,
                 onApply = { showCleanupDialog = true }
             )
         }
-        
-        // Action Buttons
+
         item {
             FadeInAnimation(delayMillis = 600) {
                 Column(
@@ -139,7 +128,6 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Auto Cleanup Button
                     Button(
                         onClick = { showCleanupDialog = true },
                         modifier = Modifier
@@ -168,10 +156,9 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                             Text("Run Cleanup", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
-                    
-                    // Archive Messages Button
+
                     Button(
-                        onClick = { /* Archive old messages */ },
+                        onClick = { },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp),
@@ -198,10 +185,9 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                             Text("Archive Old Messages", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
-                    
-                    // Compression Button
+
                     Button(
-                        onClick = { /* Compress media */ },
+                        onClick = { },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp),
@@ -231,16 +217,14 @@ fun StorageManagementScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
-        
-        // Info Section
+
         item {
             FadeInAnimation(delayMillis = 700) {
                 StorageInfoCard()
             }
         }
     }
-    
-    // Cleanup Confirmation Dialog
+
     if (showCleanupDialog) {
         AlertDialog(
             onDismissRequest = { showCleanupDialog = false },
@@ -301,7 +285,6 @@ fun StorageGaugeCard(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Status Indicator
             Row(
                 modifier = Modifier
                     .fillMaxWidth(),
@@ -314,7 +297,7 @@ fun StorageGaugeCard(
                     color = CyberpunkTheme.PrimaryPurple,
                     fontWeight = FontWeight.Bold
                 )
-                
+
                 Surface(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp)),
@@ -326,9 +309,9 @@ fun StorageGaugeCard(
                 ) {
                     Text(
                         when (status) {
-                            StorageStatus.HEALTHY -> "✓ HEALTHY"
-                            StorageStatus.WARNING -> "⚠ WARNING"
-                            StorageStatus.CRITICAL -> "✗ CRITICAL"
+                            StorageStatus.HEALTHY -> " HEALTHY"
+                            StorageStatus.WARNING -> " WARNING"
+                            StorageStatus.CRITICAL -> " CRITICAL"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = when (status) {
@@ -341,8 +324,7 @@ fun StorageGaugeCard(
                     )
                 }
             }
-            
-            // Progress Bar
+
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -359,7 +341,7 @@ fun StorageGaugeCard(
                         color = CyberpunkTheme.GhostGray.copy(alpha = 0.7f)
                     )
                 }
-                
+
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -449,7 +431,7 @@ fun StorageBreakdownCard(breakdown: String) {
                 color = CyberpunkTheme.PrimaryPurple,
                 fontWeight = FontWeight.Bold
             )
-            
+
             Text(
                 breakdown.ifEmpty {
                     """
@@ -506,7 +488,7 @@ fun CleanupRecommendationCard(
                         color = CyberpunkTheme.GhostGray
                     )
                 }
-                
+
                 Icon(
                     Icons.Filled.ChevronRight,
                     contentDescription = "Apply",
@@ -534,12 +516,12 @@ fun StorageInfoCard() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "📋 Storage Information",
+                " Storage Information",
                 style = MaterialTheme.typography.titleSmall,
                 color = CyberpunkTheme.PrimaryPurple,
                 fontWeight = FontWeight.Bold
             )
-            
+
             Text(
                 "Your messages and media are encrypted and stored securely on your device. " +
                 "As you send/receive messages and media, storage grows over time.\n\n" +
@@ -547,7 +529,7 @@ fun StorageInfoCard() {
                 "• Messages auto-archive after 90 days\n" +
                 "• Media can be re-downloaded if needed\n" +
                 "• Storage limit: 1 GB (configurable)\n\n" +
-                "💚 FreeTime respects your privacy - data stays on your device!",
+                " FreeTime respects your privacy - data stays on your device!",
                 style = MaterialTheme.typography.labelSmall,
                 color = CyberpunkTheme.GhostGray,
                 lineHeight = 18.sp
@@ -555,7 +537,4 @@ fun StorageInfoCard() {
         }
     }
 }
-
-
-
 

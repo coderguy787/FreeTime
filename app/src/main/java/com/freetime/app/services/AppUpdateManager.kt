@@ -19,6 +19,8 @@ import java.io.File
 object AppUpdateManager {
     private const val TAG = "FREETIME_UPDATE"
     private var downloadReceiverRegistered = false
+    private var currentReceiver: BroadcastReceiver? = null
+    private var currentContext: Context? = null
 
     suspend fun checkForUpdate(context: Context): VersionInfoResponse? {
         return withContext(Dispatchers.IO) {
@@ -42,6 +44,7 @@ object AppUpdateManager {
         return info.latestVersionCode > BuildConfig.VERSION_CODE
     }
 
+    // downloads the new apk via the system download manager
     fun downloadApk(context: Context, info: VersionInfoResponse, onComplete: (downloadId: Long) -> Unit): Long {
         if (info.downloadUrl.isNullOrBlank()) {
             android.util.Log.e(TAG, "Download URL is empty")
@@ -70,11 +73,13 @@ object AppUpdateManager {
                 downloadManager.enqueue(request)
             }
 
-            if (!downloadReceiverRegistered) {
-                val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-                context.registerReceiver(DownloadReceiver(onComplete), filter)
-                downloadReceiverRegistered = true
-            }
+            unregisterReceiver()
+            val receiver = DownloadReceiver(onComplete)
+            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+            context.registerReceiver(receiver, filter)
+            currentReceiver = receiver
+            currentContext = context
+            downloadReceiverRegistered = true
 
             android.util.Log.d(TAG, "Download started: id=$downloadId, url=${info.downloadUrl}")
             return downloadId
@@ -85,42 +90,67 @@ object AppUpdateManager {
         }
     }
 
+    private fun unregisterReceiver() {
+        if (downloadReceiverRegistered && currentReceiver != null) {
+            try {
+                currentContext?.unregisterReceiver(currentReceiver!!)
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Error unregistering receiver: ${e.message}")
+            }
+            currentReceiver = null
+            currentContext = null
+            downloadReceiverRegistered = false
+        }
+    }
+
     fun installApk(context: Context, downloadId: Long) {
+        var cursor: android.database.Cursor? = null
         try {
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val query = DownloadManager.Query().setFilterById(downloadId)
-            val cursor = downloadManager.query(query)
-            if (cursor.moveToFirst()) {
-                val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                val uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-                val status = cursor.getInt(statusIndex)
-                val localUri = cursor.getString(uriIndex)
-                cursor.close()
-
-                if (status == DownloadManager.STATUS_SUCCESSFUL && localUri != null) {
-                    val apkFile = Uri.parse(localUri)
-                    val fileProviderUri = FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        File(apkFile.path!!)
-                    )
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(fileProviderUri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(intent)
-                } else {
-                    android.util.Log.e(TAG, "Download not successful: status=$status")
-                    Toast.makeText(context, "Download failed. Try again.", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                cursor.close()
+            cursor = downloadManager.query(query)
+            if (cursor == null || !cursor.moveToFirst()) {
                 android.util.Log.e(TAG, "Download not found: id=$downloadId")
+                return
+            }
+
+            val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            val uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+            if (statusIndex == -1 || uriIndex == -1) {
+                android.util.Log.e(TAG, "Download cursor missing required columns")
+                return
+            }
+
+            val status = cursor.getInt(statusIndex)
+            val localUri = cursor.getString(uriIndex)
+
+            if (status == DownloadManager.STATUS_SUCCESSFUL && !localUri.isNullOrEmpty()) {
+                val apkUri = Uri.parse(localUri)
+                val path = apkUri.path
+                if (path.isNullOrEmpty()) {
+                    android.util.Log.e(TAG, "APK URI path is null")
+                    return
+                }
+                val fileProviderUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    File(path)
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileProviderUri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(intent)
+            } else {
+                android.util.Log.e(TAG, "Download not successful: status=$status")
+                Toast.makeText(context, "Download failed. Try again.", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Install error: ${e.message}")
             Toast.makeText(context, "Install error: ${e.message}", Toast.LENGTH_LONG).show()
+        } finally {
+            try { cursor?.close() } catch (_: Exception) {}
         }
     }
 

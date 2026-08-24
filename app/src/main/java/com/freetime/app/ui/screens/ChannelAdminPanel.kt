@@ -14,11 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freetime.app.ui.components.CyberpunkTheme
 
-/**
- * ⚠️ DEPRECATED: Channel feature is no longer active
- * This admin panel exists for legacy code compatibility only
- * Please use GroupSettingsScreen for group administration instead
- */
+// legacy stub, replaced by groups
 @Composable
 fun ChannelAdminPanelEnhanced(
     channelId: String = "CHANNEL_001",

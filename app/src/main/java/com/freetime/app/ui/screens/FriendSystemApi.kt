@@ -12,13 +12,7 @@ import com.freetime.app.data.local.SharedPreferencesHelper
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 
-/**
- * Friend System API Implementation
- */
-
-/**
- * Send friend request to a user
- */
+// friend api calls
 suspend fun sendFriendRequest(
     context: Context,
     recipientId: String
@@ -26,14 +20,14 @@ suspend fun sendFriendRequest(
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Sending friend request to $recipientId")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val request = SendFriendRequestRequest(recipientId = recipientId)
             val response = apiService.sendFriendRequest(request, "Bearer $token")
-            
+
             if (response.isSuccessful) {
                 Log.d("FriendSystem", "Friend request sent successfully")
                 Result.success(true)
@@ -52,20 +46,17 @@ suspend fun sendFriendRequest(
     }
 }
 
-/**
- * Get pending friend requests
- */
 suspend fun getPendingFriendRequests(context: Context): Result<List<FriendRequest>> = withContext(Dispatchers.IO) {
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Fetching pending friend requests")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val response = apiService.getPendingFriendRequests("Bearer $token")
-            
+
             if (response.isSuccessful) {
                 response.body()?.let { requests ->
                     Log.d("FriendSystem", "Found ${requests.size} pending requests")
@@ -86,9 +77,6 @@ suspend fun getPendingFriendRequests(context: Context): Result<List<FriendReques
     }
 }
 
-/**
- * Accept friend request
- */
 suspend fun acceptFriendRequest(
     context: Context,
     senderId: String
@@ -96,13 +84,13 @@ suspend fun acceptFriendRequest(
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Accepting friend request from: $senderId")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val response = apiService.acceptFriendRequest("Bearer $token", senderId)
-            
+
             if (response.isSuccessful) {
                 Log.d("FriendSystem", "Friend request accepted")
                 Result.success(true)
@@ -121,9 +109,6 @@ suspend fun acceptFriendRequest(
     }
 }
 
-/**
- * Reject friend request
- */
 suspend fun rejectFriendRequest(
     context: Context,
     senderId: String
@@ -131,13 +116,13 @@ suspend fun rejectFriendRequest(
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Rejecting friend request from: $senderId")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val response = apiService.rejectFriendRequest("Bearer $token", senderId)
-            
+
             if (response.isSuccessful) {
                 Log.d("FriendSystem", "Friend request rejected")
                 Result.success(true)
@@ -156,20 +141,17 @@ suspend fun rejectFriendRequest(
     }
 }
 
-/**
- * Get friends list
- */
 suspend fun getFriendsList(context: Context): Result<List<Friend>> = withContext(Dispatchers.IO) {
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Fetching friends list")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val response = apiService.getFriendsList("Bearer $token")
-            
+
             if (response.isSuccessful) {
                 response.body()?.let { friends ->
                     Log.d("FriendSystem", "Found ${friends.size} friends")
@@ -190,9 +172,6 @@ suspend fun getFriendsList(context: Context): Result<List<Friend>> = withContext
     }
 }
 
-/**
- * Remove friend
- */
 suspend fun removeFriend(
     context: Context,
     friendId: String
@@ -200,13 +179,13 @@ suspend fun removeFriend(
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Removing friend: $friendId")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val response = apiService.removeFriend("Bearer $token", friendId)
-            
+
             if (response.isSuccessful) {
                 Log.d("FriendSystem", "Friend removed")
                 Result.success(true)
@@ -225,9 +204,6 @@ suspend fun removeFriend(
     }
 }
 
-/**
- * Block user
- */
 suspend fun blockUser(
     context: Context,
     userId: String
@@ -235,13 +211,13 @@ suspend fun blockUser(
     try {
         val prefs = SharedPreferencesHelper(context)
         val token = prefs.getToken() ?: return@withContext Result.failure(Exception("No auth token"))
-        
+
         Log.d("FriendSystem", "Blocking user: $userId")
-        
+
         try {
             val apiService = ApiClient.getInstance()
             val response = apiService.blockUser("Bearer $token", userId)
-            
+
             if (response.isSuccessful) {
                 Log.d("FriendSystem", "User blocked")
                 Result.success(true)
@@ -259,5 +235,4 @@ suspend fun blockUser(
         Result.failure(e)
     }
 }
-
 

@@ -1,34 +1,31 @@
 #!/usr/bin/env node
-/**
- * MongoDB Connection Test
- * Run this on your Debian server to verify MongoDB is accessible
- */
 
 const mongoose = require('mongoose');
 require('dotenv').config({ path: './config/.env' });
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/freetime';
 
-console.log('🔍 Testing MongoDB Connection...');
-console.log(`📍 Connection String: ${MONGODB_URI}`);
+console.log(' Testing MongoDB Connection...');
+console.log(` Connection String: ${MONGODB_URI}`);
 console.log('');
 
+// quick mongodb connectivity test
 mongoose
   .connect(MONGODB_URI, {
     serverSelectionTimeoutMS: 5000,
     connectTimeoutMS: 10000,
   })
   .then(() => {
-    console.log('✅ MongoDB Connected Successfully!');
-    console.log(`📊 Database: ${mongoose.connection.name}`);
-    console.log(`🖥️  Host: ${mongoose.connection.host}`);
-    console.log(`🔌 Port: ${mongoose.connection.port}`);
+    console.log(' MongoDB Connected Successfully!');
+    console.log(` Database: ${mongoose.connection.name}`);
+    console.log(` Host: ${mongoose.connection.host}`);
+    console.log(` Port: ${mongoose.connection.port}`);
     console.log('');
-    console.log('✨ You can now start the master-server with: node api/master-server-api.js');
+    console.log(' You can now start the master-server with: node api/master-server-api.js');
     process.exit(0);
   })
   .catch((err) => {
-    console.error('❌ MongoDB Connection Failed!');
+    console.error(' MongoDB Connection Failed!');
     console.error(`Error: ${err.message}`);
     console.error('');
     console.error('Troubleshooting:');

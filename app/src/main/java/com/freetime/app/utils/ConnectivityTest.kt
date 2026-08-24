@@ -6,16 +6,7 @@ import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
 
-/**
- * Connectivity Test Utility
- * Tests connection to FreeTime Master Server
- * Useful for debugging connectivity issues
- */
 object ConnectivityTest {
-    
-    /**
-     * Test basic connection to master server
-     */
     suspend fun testServerConnection(): ConnectivityResult = withContext(Dispatchers.IO) {
         try {
             val response = ApiClient.getInstance().healthCheck()
@@ -71,6 +62,7 @@ object ConnectivityTest {
                 timestamp = System.currentTimeMillis()
             )
         } catch (e: IOException) {
+            // status 0 means no connection
             ConnectivityResult(
                 isConnected = false,
                 statusCode = 0,
@@ -88,16 +80,13 @@ object ConnectivityTest {
             )
         }
     }
-    
-    /**
-     * Comprehensive connectivity test
-     */
+
+    // basic connection test
     suspend fun runComprehensiveTest(): ComprehensiveTestResult = withContext(Dispatchers.IO) {
         val results = mutableListOf<ConnectivityResult>()
-        
-        // Test 1: Server connection
+
         results.add(testServerConnection())
-        
+
         return@withContext ComprehensiveTestResult(
             allPassed = results.all { it.isConnected },
             results = results,
@@ -105,24 +94,24 @@ object ConnectivityTest {
             summary = generateSummary(results)
         )
     }
-    
+
     private fun generateSummary(results: List<ConnectivityResult>): String {
         val passed = results.count { it.isConnected }
         val total = results.size
-        
+
         return buildString {
             appendLine("=== Connectivity Test Summary ===")
             appendLine("Passed: $passed/$total")
             appendLine()
-            
+
             results.forEach { result ->
-                val status = if (result.isConnected) "✅ PASS" else "❌ FAIL"
+                val status = if (result.isConnected) " PASS" else " FAIL"
                 appendLine("$status - ${result.message}")
                 if (result.details.isNotBlank()) {
-                    appendLine("   Details: ${result.details}")
+                    appendLine(" Details: ${result.details}")
                 }
             }
-            
+
             appendLine()
             appendLine("Server: ${ApiClient.getBaseUrl()}")
             appendLine("Timestamp: ${System.currentTimeMillis()}")
@@ -130,9 +119,6 @@ object ConnectivityTest {
     }
 }
 
-/**
- * Result of a single connectivity test
- */
 data class ConnectivityResult(
     val isConnected: Boolean,
     val statusCode: Int,
@@ -141,9 +127,6 @@ data class ConnectivityResult(
     val timestamp: Long
 )
 
-/**
- * Result of comprehensive connectivity test
- */
 data class ComprehensiveTestResult(
     val allPassed: Boolean,
     val results: List<ConnectivityResult>,

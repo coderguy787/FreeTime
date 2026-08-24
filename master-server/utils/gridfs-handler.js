@@ -1,8 +1,3 @@
-/**
- * FreeTime GridFS Handler
- * Handles file uploads/downloads for group pictures using MongoDB GridFS
- */
-
 const { GridFSBucket, ObjectId } = require('mongodb');
 
 class GridFSHandler {
@@ -12,9 +7,6 @@ class GridFSHandler {
     console.log('[OK] GridFS handler initialized');
   }
 
-  /**
-   * Upload file to GridFS
-   */
   async uploadFile(fileBuffer, filename, metadata = {}) {
     return new Promise((resolve, reject) => {
       try {
@@ -49,9 +41,6 @@ class GridFSHandler {
     });
   }
 
-  /**
-   * Download file from GridFS
-   */
   async downloadFile(fileId) {
     return new Promise((resolve, reject) => {
       try {
@@ -80,12 +69,10 @@ class GridFSHandler {
     });
   }
 
-  /**
-   * Delete file from GridFS
-   */
   async deleteFile(fileId) {
     try {
       const objectId = new ObjectId(fileId);
+      // delete also removes the chunks
       await this.bucket.delete(objectId);
       console.log(`[OK] File deleted from GridFS: ${fileId}`);
       return true;
@@ -95,14 +82,11 @@ class GridFSHandler {
     }
   }
 
-  /**
-   * Get file info from GridFS
-   */
   async getFileInfo(fileId) {
     try {
       const objectId = new ObjectId(fileId);
       const files = await this.db.collection('fs.files').findOne({ _id: objectId });
-      
+
       if (!files) {
         return null;
       }

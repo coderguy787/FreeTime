@@ -1,10 +1,3 @@
-/**
- * Performance Monitoring & Observability
- * 
- * Integrates with Prometheus for metrics collection
- * Exports metrics in Prometheus format
- */
-
 class PerformanceMonitor {
   constructor() {
     this.metrics = {
@@ -16,16 +9,12 @@ class PerformanceMonitor {
     };
 
     this.histogramBuckets = [10, 50, 100, 500, 1000, 2000, 5000, 10000];
-    this.retentionPeriod = 24 * 60 * 60 * 1000; // 24 hours
+    this.retentionPeriod = 24 * 60 * 60 * 1000;
   }
 
-  /**
-   * Track HTTP request metrics
-   */
   trackRequest(method, path, statusCode, duration, size) {
     const endpoint = `${method} ${path}`;
 
-    // Request count
     if (!this.metrics.requestCounts[endpoint]) {
       this.metrics.requestCounts[endpoint] = { total: 0, statusCodes: {} };
     }
@@ -33,7 +22,6 @@ class PerformanceMonitor {
     this.metrics.requestCounts[endpoint].statusCodes[statusCode] =
       (this.metrics.requestCounts[endpoint].statusCodes[statusCode] || 0) + 1;
 
-    // Duration histogram
     if (!this.metrics.requestDurations[endpoint]) {
       this.metrics.requestDurations[endpoint] = {
         samples: [],
@@ -45,12 +33,11 @@ class PerformanceMonitor {
       timestamp: Date.now(),
     });
 
-    // Cleanup old samples
+    // cap the sample history
     this.metrics.requestDurations[endpoint].samples = this.metrics.requestDurations[endpoint].samples.filter(
       (s) => s.timestamp > Date.now() - this.retentionPeriod,
     );
 
-    // Error tracking
     if (statusCode >= 400) {
       if (!this.metrics.errorCounts[endpoint]) {
         this.metrics.errorCounts[endpoint] = 0;
@@ -59,9 +46,6 @@ class PerformanceMonitor {
     }
   }
 
-  /**
-   * Calculate percentiles for response times
-   */
   calculatePercentiles(endpoint) {
     const samples = this.metrics.requestDurations[endpoint]?.samples || [];
     if (samples.length === 0) return null;
@@ -80,9 +64,6 @@ class PerformanceMonitor {
     };
   }
 
-  /**
-   * Get memory usage metrics
-   */
   captureMemoryMetrics() {
     const memUsage = process.memoryUsage();
     const snapshot = {
@@ -96,7 +77,6 @@ class PerformanceMonitor {
 
     this.metrics.memorySnapshots.push(snapshot);
 
-    // Keep last 24 hours of data
     this.metrics.memorySnapshots = this.metrics.memorySnapshots.filter(
       (s) => s.timestamp > Date.now() - this.retentionPeriod,
     );
@@ -104,9 +84,6 @@ class PerformanceMonitor {
     return snapshot;
   }
 
-  /**
-   * Track garbage collection events
-   */
   trackGCEvent(type, duration, freed) {
     this.metrics.gcStats.push({
       timestamp: Date.now(),
@@ -115,23 +92,17 @@ class PerformanceMonitor {
       freed,
     });
 
-    // Keep last 24 hours
     this.metrics.gcStats = this.metrics.gcStats.filter(
       (s) => s.timestamp > Date.now() - this.retentionPeriod,
     );
   }
 
-  /**
-   * Export metrics in Prometheus format
-   */
   exportMetrics() {
     let output = '';
 
-    // Help text
     output += '# HELP securechat_http_requests_total Total HTTP requests\n';
     output += '# TYPE securechat_http_requests_total counter\n';
 
-    // Request counts by endpoint and status
     for (const [endpoint, data] of Object.entries(this.metrics.requestCounts)) {
       const [method, path] = endpoint.split(' ');
       for (const [status, count] of Object.entries(data.statusCodes)) {
@@ -139,7 +110,6 @@ class PerformanceMonitor {
       }
     }
 
-    // Response duration histogram
     output += '\n# HELP securechat_http_request_duration_seconds HTTP request duration in seconds\n';
     output += '# TYPE securechat_http_request_duration_seconds histogram\n';
 
@@ -160,7 +130,6 @@ class PerformanceMonitor {
       }
     }
 
-    // Memory metrics
     output += '\n# HELP securechat_process_memory_bytes Memory usage in bytes\n';
     output += '# TYPE securechat_process_memory_bytes gauge\n';
 
@@ -172,7 +141,6 @@ class PerformanceMonitor {
       output += `securechat_process_memory_bytes{type="external"} ${latest.external}\n`;
     }
 
-    // Error rate
     output += '\n# HELP securechat_errors_total Total errors\n';
     output += '# TYPE securechat_errors_total counter\n';
 
@@ -181,7 +149,6 @@ class PerformanceMonitor {
       output += `securechat_errors_total{method="${method}",path="${path}"} ${count}\n`;
     }
 
-    // GC metrics
     output += '\n# HELP securechat_gc_events_total Garbage collection events\n';
     output += '# TYPE securechat_gc_events_total counter\n';
 
@@ -197,16 +164,10 @@ class PerformanceMonitor {
     return output;
   }
 
-  /**
-   * Count samples in a bucket
-   */
   countBucket(samples, threshold) {
     return samples.filter((s) => s.duration <= threshold).length;
   }
 
-  /**
-   * Get performance summary
-   */
   getSummary() {
     const summary = {};
 
@@ -222,9 +183,6 @@ class PerformanceMonitor {
     return summary;
   }
 
-  /**
-   * Reset metrics
-   */
   reset() {
     this.metrics = {
       requestCounts: {},
@@ -236,7 +194,6 @@ class PerformanceMonitor {
   }
 }
 
-// Express middleware for performance monitoring
 function performanceMonitoringMiddleware(monitor) {
   return (req, res, next) => {
     const startTime = Date.now();
@@ -253,7 +210,6 @@ function performanceMonitoringMiddleware(monitor) {
   };
 }
 
-// Export
 module.exports = {
   PerformanceMonitor,
   performanceMonitoringMiddleware,

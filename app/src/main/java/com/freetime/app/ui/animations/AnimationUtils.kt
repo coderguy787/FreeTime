@@ -14,21 +14,19 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.freetime.app.ui.components.CyberpunkTheme
 
-/**
- * Fade-in animation for list items with stagger effect
- */
 @Composable
 fun FadeInAnimation(
     modifier: Modifier = Modifier,
     delayMillis: Int = 0,
     content: @Composable () -> Unit
 ) {
+    // trigger the enter animation on the first frame
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(
@@ -51,9 +49,6 @@ fun FadeInAnimation(
     }
 }
 
-/**
- * Slide-in from bottom animation
- */
 @Composable
 fun SlideInFromBottom(
     modifier: Modifier = Modifier,
@@ -61,11 +56,11 @@ fun SlideInFromBottom(
     content: @Composable () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInVertically(
@@ -87,9 +82,6 @@ fun SlideInFromBottom(
     }
 }
 
-/**
- * Pulse animation for continuous heartbeat effect
- */
 @Composable
 fun PulseAnimation(
     modifier: Modifier = Modifier,
@@ -105,7 +97,7 @@ fun PulseAnimation(
         ),
         label = "pulse_scale"
     )
-    
+
     Box(
         modifier = modifier.graphicsLayer(
             scaleX = scale,
@@ -116,9 +108,6 @@ fun PulseAnimation(
     }
 }
 
-/**
- * Shimmer loading animation (modern skeleton loader)
- */
 @Composable
 fun ShimmerLoading(
     modifier: Modifier = Modifier,
@@ -131,9 +120,10 @@ fun ShimmerLoading(
         CyberpunkTheme.DarkGray.copy(alpha = 0.2f),
         CyberpunkTheme.DarkGray.copy(alpha = 0.6f),
     )
-    
+
     val transition = rememberInfiniteTransition(label = "shimmer")
     val shimmerPosition by transition.animateFloat(
+        // shine sweep effect
         initialValue = -width.toFloat(),
         targetValue = width.toFloat() * 2,
         animationSpec = infiniteRepeatable(
@@ -142,7 +132,7 @@ fun ShimmerLoading(
         ),
         label = "shimmer_position"
     )
-    
+
     Box(
         modifier = modifier
             .width(width.dp)
@@ -158,9 +148,6 @@ fun ShimmerLoading(
     )
 }
 
-/**
- * Floating up animation (for messages, notifications)
- */
 @Composable
 fun FloatingUpAnimation(
     modifier: Modifier = Modifier,
@@ -169,11 +156,11 @@ fun FloatingUpAnimation(
     content: @Composable () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInVertically(
@@ -196,9 +183,6 @@ fun FloatingUpAnimation(
     }
 }
 
-/**
- * Bounce animation for interactive elements
- */
 @Composable
 fun BounceAnimation(
     modifier: Modifier = Modifier,
@@ -214,15 +198,12 @@ fun BounceAnimation(
         ),
         label = "bounce_y"
     )
-    
+
     Box(modifier = modifier.graphicsLayer(translationY = offsetY)) {
         content()
     }
 }
 
-/**
- * Mascot wave animation (friendly greeting)
- */
 @Composable
 fun WaveAnimation(
     modifier: Modifier = Modifier,
@@ -238,7 +219,7 @@ fun WaveAnimation(
         ),
         label = "wave_rotation"
     )
-    
+
     Box(
         modifier = modifier.graphicsLayer(
             rotationZ = rotation,
@@ -249,9 +230,6 @@ fun WaveAnimation(
     }
 }
 
-/**
- * Glow effect animation (for active states)
- */
 @Composable
 fun GlowAnimation(
     modifier: Modifier = Modifier,
@@ -268,9 +246,8 @@ fun GlowAnimation(
         ),
         label = "glow_alpha"
     )
-    
+
     Box(modifier = modifier) {
-        // Glow background
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -279,14 +256,10 @@ fun GlowAnimation(
                     shape = RoundedCornerShape(12.dp)
                 )
         )
-        // Content
         content()
     }
 }
 
-/**
- * Tab transition animation with fade and scale - ENHANCED SMOOTH VERSION
- */
 @Composable
 fun TabTransitionAnimation(
     selectedTab: String,
@@ -314,9 +287,6 @@ fun TabTransitionAnimation(
     }
 }
 
-/**
- * Staggered list animation
- */
 @Composable
 fun <T> StaggeredListAnimation(
     items: List<T>,
@@ -324,7 +294,7 @@ fun <T> StaggeredListAnimation(
     itemContent: @Composable (item: T, index: Int) -> Unit
 ) {
     Column(modifier = modifier) {
-        items.forEachIndexed { index, item ->
+            items.forEachIndexed { index, item ->
             FadeInAnimation(
                 delayMillis = index * 80,
                 modifier = Modifier.fillMaxWidth()
@@ -335,9 +305,6 @@ fun <T> StaggeredListAnimation(
     }
 }
 
-/**
- * Smooth color transition animation
- */
 @Composable
 fun animateColorBetween(
     targetColor: Color,
@@ -350,9 +317,6 @@ fun animateColorBetween(
     )
 }
 
-/**
- * Smooth size animation for expanding/collapsing
- */
 @Composable
 fun ExpandableAnimation(
     modifier: Modifier = Modifier,
@@ -373,9 +337,6 @@ fun ExpandableAnimation(
     }
 }
 
-/**
- * Soft slide in from left animation
- */
 @Composable
 fun SoftSlideInFromLeft(
     modifier: Modifier = Modifier,
@@ -383,11 +344,11 @@ fun SoftSlideInFromLeft(
     content: @Composable () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInHorizontally(
@@ -409,9 +370,6 @@ fun SoftSlideInFromLeft(
     }
 }
 
-/**
- * Soft slide in from right animation
- */
 @Composable
 fun SoftSlideInFromRight(
     modifier: Modifier = Modifier,
@@ -419,11 +377,11 @@ fun SoftSlideInFromRight(
     content: @Composable () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInHorizontally(
@@ -445,9 +403,6 @@ fun SoftSlideInFromRight(
     }
 }
 
-/**
- * Soft fade transition animation
- */
 @Composable
 fun SoftFadeTransition(
     modifier: Modifier = Modifier,
@@ -456,11 +411,11 @@ fun SoftFadeTransition(
     content: @Composable () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(
@@ -476,9 +431,6 @@ fun SoftFadeTransition(
     }
 }
 
-/**
- * Smooth scale animation for card press effects
- */
 @Composable
 fun SmoothScaleAnimation(
     isPressed: Boolean,
@@ -493,15 +445,12 @@ fun SmoothScaleAnimation(
         ),
         label = "smooth_scale"
     )
-    
+
     Box(modifier = modifier.graphicsLayer(scaleX = scale, scaleY = scale)) {
         content()
     }
 }
 
-/**
- * Smooth elevation animation for cards
- */
 @Composable
 fun SmoothElevationAnimation(
     isHovered: Boolean,
@@ -518,9 +467,6 @@ fun SmoothElevationAnimation(
     )
 }
 
-/**
- * Staggered fade in animation for lists
- */
 @Composable
 fun StaggeredFadeInAnimation(
     modifier: Modifier = Modifier,
@@ -528,11 +474,11 @@ fun StaggeredFadeInAnimation(
     content: @Composable () -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(Unit) {
         isVisible = true
     }
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(
@@ -547,9 +493,6 @@ fun StaggeredFadeInAnimation(
     }
 }
 
-/**
- * Smooth rotation animation
- */
 @Composable
 fun SmoothRotationAnimation(
     targetRotation: Float,
@@ -564,15 +507,12 @@ fun SmoothRotationAnimation(
         ),
         label = "smooth_rotation"
     )
-    
+
     Box(modifier = modifier.graphicsLayer(rotationZ = rotation)) {
         content()
     }
 }
 
-/**
- * Breath animation - soft continuous expansion and contraction
- */
 @Composable
 fun BreathAnimation(
     modifier: Modifier = Modifier,
@@ -591,7 +531,7 @@ fun BreathAnimation(
         ),
         label = "breath_scale"
     )
-    
+
     Box(
         modifier = modifier.graphicsLayer(
             scaleX = scale,
