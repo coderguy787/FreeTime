@@ -1,0 +1,34 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id.startsWith("org.jetbrains.kotlin")) {
+                useVersion("1.9.22")
+            }
+        }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        flatDir {
+            dirs 'app/libs'
+        }
+
+        google()
+        mavenCentral()
+
+        maven { url = uri("https://repo1.maven.org/maven2") }
+        maven { url = uri("https://jitpack.io") }
+
+        maven { url = uri("https://maven.pkg.jetbrains.space/public/p/ktor/eap") }
+    }
+}
+
+rootProject.name = "SecureChatApp"
+include ':app'

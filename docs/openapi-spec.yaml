@@ -1,0 +1,493 @@
+openapi: 3.0.0
+info:
+  title: SecureChat API
+  description: Secure peer-to-peer messaging application with end-to-end encryption
+  version: 1.0.0
+  contact:
+    name: SecureChat Support
+    email: support@securechat.app
+  license:
+    name: Proprietary
+    url: https://securechat.app/license
+
+servers:
+  - url: https://api.securechat.app/v1
+    description: Production server
+  - url: https://staging-api.securechat.app/v1
+    description: Staging server
+  - url: http://localhost:3000/v1
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Users
+    description: User profile management
+  - name: Messages
+    description: Messaging and encryption
+  - name: Groups
+    description: Group chat management
+  - name: Security
+    description: Security and 2FA endpoints
+  - name: System
+    description: System health and monitoring
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - username
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  example: SecurePass123!
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 32
+                  example: john_doe
+      responses:
+        201:
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        400:
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        409:
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-rate-limit: 3/hour
+
+  /auth/login:
+    post:
+      summary: Login user
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: SecurePass123!
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        401:
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-rate-limit: 5/15minutes
+
+  /auth/logout:
+    post:
+      summary: Logout user
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /users/{userId}:
+    get:
+      summary: Get user profile
+      tags:
+        - Users
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        404:
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update user profile
+      tags:
+        - Users
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                avatar:
+                  type: string
+                  format: uri
+                bio:
+                  type: string
+      responses:
+        200:
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+
+  /messages:
+    get:
+      summary: Get messages
+      tags:
+        - Messages
+      parameters:
+        - name: conversationId
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Messages retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  total:
+                    type: integer
+
+    post:
+      summary: Send message
+      tags:
+        - Messages
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - recipientId
+                - content
+              properties:
+                recipientId:
+                  type: string
+                content:
+                  type: string
+                  description: Encrypted message content
+                encryptionMetadata:
+                  type: object
+      responses:
+        201:
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+  /security/2fa/setup:
+    post:
+      summary: Setup two-factor authentication
+      tags:
+        - Security
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                method:
+                  type: string
+                  enum: [totp, sms]
+      responses:
+        200:
+          description: 2FA setup initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                  qrCode:
+                    type: string
+                    format: uri
+
+  /security/2fa/verify:
+    post:
+      summary: Verify 2FA code
+      tags:
+        - Security
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+      responses:
+        200:
+          description: 2FA verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  backupCodes:
+                    type: array
+                    items:
+                      type: string
+
+  /health:
+    get:
+      summary: System health check
+      tags:
+        - System
+      responses:
+        200:
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+      x-timeout: 5s
+
+  /health/live:
+    get:
+      summary: Kubernetes liveness probe
+      tags:
+        - System
+      responses:
+        200:
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+      x-timeout: 5s
+
+  /health/ready:
+    get:
+      summary: Kubernetes readiness probe
+      tags:
+        - System
+      responses:
+        200:
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  readiness:
+                    type: object
+      x-timeout: 5s
+
+components:
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT authentication token
+        user:
+          $ref: '#/components/schemas/UserProfile'
+        expiresIn:
+          type: integer
+          description: Token expiration time in seconds
+
+    UserProfile:
+      type: object
+      properties:
+        userId:
+          type: string
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        avatar:
+          type: string
+          format: uri
+        bio:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastSeen:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      properties:
+        messageId:
+          type: string
+        senderId:
+          type: string
+        recipientId:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [sent, delivered, read]
+        encryptionMetadata:
+          type: object
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        statusCode:
+          type: integer
+        details:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        uptime:
+          type: integer
+          description: Uptime in seconds
+        database:
+          type: object
+          properties:
+            status:
+              type: string
+            latency:
+              type: integer
+              description: Database latency in ms
+        cache:
+          type: object
+          properties:
+            status:
+              type: string
+        timestamp:
+          type: string
+          format: date-time
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+
+security:
+  - bearerAuth: []

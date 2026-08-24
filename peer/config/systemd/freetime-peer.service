@@ -1,0 +1,50 @@
+[Unit]
+Description=FreeTime Peer Server - Distributed Messaging & Calling
+Documentation=file:///home/freetime/peer/README.md
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=freetime
+Group=freetime
+WorkingDirectory=/home/freetime/peer
+
+; Start command
+ExecStart=/usr/bin/node /home/freetime/peer/peer-server.js
+
+; Restart policy
+Restart=on-failure
+RestartSec=5
+
+; Resource limits (adjust for 80k connections)
+LimitNOFILE=131072
+LimitNPROC=65535
+
+; Environment
+Environment="NODE_ENV=production"
+Environment="NODE_OPTIONS=--max-old-space-size=8192"
+
+; Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=freetime-peer
+
+; Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+; Security hardening
+PrivateTmp=yes
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/home/freetime/peer/logs /home/freetime/peer/tmp
+
+; Dependencies
+After=redis-server.service
+Requires=redis-server.service
+
+[Install]
+WantedBy=multi-user.target

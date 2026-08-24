@@ -1,0 +1,114 @@
+package com.freetime.app.data.repository
+
+import com.freetime.app.data.local.database.FreeTimeDatabase
+import com.freetime.app.data.local.database.FriendRequestEntity
+import com.freetime.app.data.local.database.FriendEntity
+import com.freetime.app.data.local.SharedPreferencesHelper
+import com.freetime.app.data.network.ApiClient
+import com.freetime.app.data.network.SendFriendRequestRequest
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import java.util.UUID
+
+// friend list itself comes from the api, room only caches the request flow
+class FriendRepository(
+    private val database: FreeTimeDatabase,
+    private val prefs: SharedPreferencesHelper
+) {
+    private val friendRequestDao = database.friendRequestDao()
+    private val friendDao = database.friendDao()
+    private val apiService = ApiClient.getInstance()
+
+    suspend fun getFriends() = emptyList<Any>()
+
+    suspend fun areFriends(userId: String, targetUserId: String): Boolean {
+        return try {
+            val friendship = friendDao.getFriendship(userId, targetUserId)
+            friendship != null && !friendship.isBlocked
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun sendFriendRequest(targetUserId: String): String {
+        return try {
+            val token = prefs.getAccessToken() ?: throw Exception("User not authenticated")
+            val request = SendFriendRequestRequest(targetUserId)
+            val response = apiService.sendFriendRequest(request, "Bearer $token")
+            if (response.isSuccessful) {
+                targetUserId
+            } else {
+                throw Exception("Failed to send friend request")
+            }
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    suspend fun acceptFriendRequest(senderId: String) {
+        try {
+            val token = prefs.getAccessToken() ?: throw Exception("User not authenticated")
+            val response = apiService.acceptFriendRequest("Bearer $token", senderId)
+            if (!response.isSuccessful) {
+                throw Exception("Failed to accept friend request")
+            }
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    suspend fun rejectFriendRequest(senderId: String) {
+        try {
+            val token = prefs.getAccessToken() ?: throw Exception("User not authenticated")
+            val response = apiService.rejectFriendRequest("Bearer $token", senderId)
+            if (!response.isSuccessful) {
+                throw Exception("Failed to reject friend request")
+            }
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    fun getPendingFriendRequests(): Flow<List<com.freetime.app.data.network.FriendRequest>> = flow {
+        try {
+            val token = prefs.getAccessToken() ?: throw Exception("User not authenticated")
+            val response = apiService.getPendingFriendRequests("Bearer $token")
+            if (response.isSuccessful && response.body() != null) {
+                emit(response.body() ?: return@flow)
+            } else {
+                emit(emptyList())
+            }
+        } catch (e: Exception) {
+            emit(emptyList())
+        }
+    }
+
+    suspend fun endFriendship(friendId: String) {
+        try {
+            val token = prefs.getAccessToken() ?: throw Exception("User not authenticated")
+            val response = apiService.removeFriend("Bearer $token", friendId)
+            if (!response.isSuccessful) {
+                throw Exception("Failed to remove friend")
+            }
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    suspend fun blockUser(targetUserId: String) {
+        try {
+            val token = prefs.getAccessToken() ?: throw Exception("User not authenticated")
+            val response = apiService.blockUser("Bearer $token", targetUserId)
+            if (!response.isSuccessful) {
+                throw Exception("Failed to block user")
+            }
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    suspend fun unblockFriend(targetUserId: String) {
+        blockUser(targetUserId)
+    }
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="primary">#FFFF00FF</color>
+    <color name="primary_variant">#FFE91E63</color>
+    <color name="secondary">#FF000000</color>
+    <color name="secondary_variant">#FF303030</color>
+    <color name="background">#FF000000</color>
+    <color name="surface">#FF1A1A1A</color>
+    <color name="error">#FFFF00FF</color>
+    <color name="notification_color">#FFFF00FF</color>
+    <color name="ic_launcher_bg">#FFFF00FF</color>
+</resources>

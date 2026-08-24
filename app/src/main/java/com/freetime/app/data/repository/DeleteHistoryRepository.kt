@@ -1,0 +1,5 @@
+package com.freetime.app.data.repository
+// stub, server handles history deletion for now
+class DeleteHistoryRepository {
+    suspend fun deleteHistory(recipientId: String) = Unit
+}

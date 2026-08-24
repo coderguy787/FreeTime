@@ -1,0 +1,115 @@
+@file:Suppress("UNUSED_PARAMETER", "NO_CAST_NEEDED")
+
+package com.freetime.app.data.repository
+
+import com.freetime.app.data.models.Channel
+import com.freetime.app.data.models.ChannelMember
+import com.freetime.app.data.network.ApiClient
+import com.freetime.app.data.network.CreateChannelRequestDto
+import com.freetime.app.data.local.SharedPreferencesHelper
+import android.content.Context
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+
+// channels are server-backed, params kept for older call sites
+class ChannelRepository(private val context: Context? = null) {
+    private val apiService = ApiClient.getInstance()
+
+    suspend fun getChannels() = emptyList<Any>()
+
+    suspend fun getChannel(channelId: String): Channel? {
+        return try {
+            val prefs = context?.let { SharedPreferencesHelper(it) }
+            val token = prefs?.getToken()
+            if (token.isNullOrEmpty()) return null
+
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun getChannelsFlow(): Flow<List<Any>> = flow {
+        try {
+            val prefs = context?.let { SharedPreferencesHelper(it) }
+            val token = prefs?.getToken()
+            if (token.isNullOrEmpty()) {
+                emit(emptyList())
+                return@flow
+            }
+
+            val response = apiService.searchChannels("", "Bearer $token")
+            if (response.isSuccessful && response.body() != null) {
+                emit((response.body() ?: emptyList()).map { it as Any })
+            } else {
+                emit(emptyList())
+            }
+        } catch (e: Exception) {
+            emit(emptyList())
+        }
+    }
+
+    suspend fun createChannel(channelName: String, description: String? = null): String {
+        return try {
+            val prefs = context?.let { SharedPreferencesHelper(it) }
+            val token = prefs?.getToken() ?: throw Exception("User not authenticated")
+
+            val request = CreateChannelRequestDto(
+                channelName = channelName,
+                channelDescription = description
+            )
+
+            val response = apiService.createChannel(request, "Bearer $token")
+            if (response.isSuccessful && response.body() != null) {
+                response.body()?.channelId ?: throw Exception("Channel response body is null")
+            } else {
+                throw Exception("Failed to create channel")
+            }
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    suspend fun subscribeToChannel(channelId: String): Boolean {
+        return try {
+            val prefs = context?.let { SharedPreferencesHelper(it) }
+            val token = prefs?.getToken() ?: throw Exception("User not authenticated")
+
+            val request = com.freetime.app.data.network.SubscribeChannelRequestDto()
+            val response = apiService.subscribeToChannel(channelId, request, "Bearer $token")
+            response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun unsubscribeFromChannel(channelId: String): Boolean {
+        return try {
+            val prefs = context?.let { SharedPreferencesHelper(it) }
+            val token = prefs?.getToken() ?: throw Exception("User not authenticated")
+
+            val request = com.freetime.app.data.network.UnsubscribeChannelRequestDto()
+            val response = apiService.unsubscribeFromChannel(channelId, request, "Bearer $token")
+            response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun getChannelMembers(channelId: String): List<ChannelMember> = emptyList()
+
+    suspend fun promoteMember(channelId: String, userId: String) {
+    }
+
+    suspend fun demoteMember(channelId: String, userId: String) {
+    }
+
+    suspend fun muteMember(channelId: String, userId: String) {
+    }
+
+    suspend fun removeMember(channelId: String, userId: String) {
+    }
+
+    suspend fun updateChannelPrivacy(channelId: String, isPrivate: Boolean) {
+    }
+}

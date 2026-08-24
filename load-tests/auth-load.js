@@ -1,0 +1,197 @@
+import http from 'k6/http';
+import { check, sleep, group } from 'k6';
+import { Rate, Trend, Counter, Gauge } from 'k6/metrics';
+
+export const errorRate = new Rate('errors');
+export const successRate = new Rate('success');
+export const loginTime = new Trend('login_duration');
+export const loginFailures = new Counter('login_failures');
+export const registrationTime = new Trend('registration_duration');
+export const registrationFailures = new Counter('registration_failures');
+
+export const options = {
+  stages: [
+    { duration: '30s', target: 50 },
+    { duration: '1m', target: 100 },
+    { duration: '30s', target: 200 },
+    { duration: '2m', target: 200 },
+    { duration: '30s', target: 0 },
+  ],
+  thresholds: {
+    'http_req_duration': ['p(95)<2000', 'p(99)<3000'],
+    'errors': ['rate<0.1'],
+    'success': ['rate>0.9'],
+  },
+};
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
+const API_VERSION = '/v1';
+let registrationCounter = 0;
+
+function generateUniqueEmail() {
+  const timestamp = Date.now();
+  const vuId = __VU;
+  registrationCounter++;
+  return `user_${vuId}_${registrationCounter}_${timestamp}@loadtest.local`;
+}
+
+function generatePassword() {
+  return `TestPass123!${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function testRegistration() {
+  return group('Registration', () => {
+    const email = generateUniqueEmail();
+    const password = generatePassword();
+    const username = `user_${__VU}_${registrationCounter}`;
+
+    const payload = JSON.stringify({
+      email,
+      password,
+      username,
+    });
+
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'K6LoadTest/1.0',
+      },
+    };
+
+    const response = http.post(
+      `${BASE_URL}${API_VERSION}/auth/register`,
+      payload,
+      params,
+    );
+
+    const success = check(response, {
+      'registration status is 201': (r) => r.status === 201,
+      'registration response has token': (r) => r.json('token') !== null,
+      'registration response has user': (r) => r.json('user') !== null,
+    });
+
+    registrationTime.add(response.timings.duration);
+    if (!success) {
+      registrationFailures.add(1);
+      errorRate.add(1);
+    } else {
+      successRate.add(1);
+    }
+
+    return response.json('token');
+  });
+}
+
+function testLogin(email, password) {
+  return group('Login', () => {
+    const payload = JSON.stringify({
+      email,
+      password,
+    });
+
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'K6LoadTest/1.0',
+      },
+    };
+
+    const response = http.post(
+      `${BASE_URL}${API_VERSION}/auth/login`,
+      payload,
+      params,
+    );
+
+    const success = check(response, {
+      'login status is 200': (r) => r.status === 200,
+      'login response has token': (r) => r.json('token') !== null,
+      'login response has user': (r) => r.json('user') !== null,
+    });
+
+    loginTime.add(response.timings.duration);
+    if (!success) {
+      loginFailures.add(1);
+      errorRate.add(1);
+    } else {
+      successRate.add(1);
+    }
+
+    return response.json('token');
+  });
+}
+
+function testRateLimiting() {
+  return group('Rate Limiting', () => {
+    const payload = JSON.stringify({
+      email: 'attacker@loadtest.local',
+      password: 'wrongpassword',
+    });
+
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: '5s',
+    };
+
+    for (let i = 0; i < 10; i++) {
+      const response = http.post(
+        `${BASE_URL}${API_VERSION}/auth/login`,
+        payload,
+        params,
+      );
+
+      if (i >= 5) {
+        check(response, {
+          'rate limiting kicks in': (r) => r.status === 429 || r.status === 401,
+        });
+      }
+    }
+  });
+}
+
+function testHealthChecks() {
+  return group('Health Checks', () => {
+    const endpoints = [
+      '/health',
+      '/health/live',
+      '/health/ready',
+    ];
+
+    for (const endpoint of endpoints) {
+      const response = http.get(`${BASE_URL}${endpoint}`);
+
+      check(response, {
+        [`${endpoint} status is 200`]: (r) => r.status === 200,
+        [`${endpoint} response is JSON`]: (r) => r.headers['content-type'].includes('application/json'),
+      });
+    }
+  });
+}
+
+export default function () {
+  if (Math.random() < 0.1) {
+    testHealthChecks();
+    sleep(1);
+    return;
+  }
+
+  if (Math.random() < 0.2) {
+    testRateLimiting();
+    sleep(2);
+    return;
+  }
+
+  const token = testRegistration();
+  sleep(1);
+
+  if (token) {
+    testLogin(generateUniqueEmail(), generatePassword());
+  }
+
+  sleep(1);
+}
+
+export function teardown() {
+  console.log('Load test completed');
+}

@@ -1,0 +1,31 @@
+[Unit]
+Description=FreeTime Master-Server REST API
+After=network.target mongodb.service
+Wants=mongodb.service
+
+[Service]
+Type=simple
+User=freetime
+Group=freetime
+
+WorkingDirectory=/home/freetime/master-server
+
+ExecStart=/usr/bin/node api/master-server-api.js
+
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=600s
+StartLimitBurst=5
+
+LimitNOFILE=65536
+LimitNPROC=65536
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=master-server-api
+
+Environment="NODE_ENV=production"
+EnvironmentFile=/home/freetime/master-server/config/.env
+
+[Install]
+WantedBy=multi-user.target
