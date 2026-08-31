@@ -33,7 +33,7 @@ jobs:
       run: npm outdated --json > outdated.json || true
 
     - name: Upload outdated report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: outdated-packages
         path: ./master-server/outdated.json
@@ -156,7 +156,7 @@ jobs:
         license-checker --markdown > LICENSE_REPORT.md
 
     - name: Upload license report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: license-report
         path: ./master-server/LICENSE_REPORT.md
