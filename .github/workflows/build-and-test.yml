@@ -80,7 +80,7 @@ jobs:
 
     - name: Upload test coverage
       if: always()
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v7
       with:
         directory: ./master-server/coverage
         fail_ci_if_error: false
